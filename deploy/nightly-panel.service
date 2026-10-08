@@ -1,0 +1,24 @@
+# systemd user unit for the nightly panel (production build on :3010).
+# Not installed. To use it:
+#   cd ~/stack/nightly && npm run build
+#   cp deploy/nightly-panel.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now nightly-panel
+#   loginctl enable-linger $USER    # keep it running without a login session
+[Unit]
+Description=nightly panel (Next.js on :3010)
+After=network.target
+
+[Service]
+Type=simple
+# Your clone of the repository, and `command -v npm` for ExecStart.
+WorkingDirectory=%h/stack/nightly
+Environment=NODE_ENV=production
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+# Optional: NIGHTLY_DB=... in this file (the login is set in the panel)
+EnvironmentFile=-%h/stack/nightly/.env
+ExecStart=/usr/local/bin/npm run start
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

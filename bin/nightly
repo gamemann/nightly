@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# CLI over the nightly to-do database. Works from any cwd and under cron's bare
+# PATH: it resolves its own directory and calls node by absolute path.
+set -euo pipefail
+src=${BASH_SOURCE[0]}
+while [ -L "$src" ]; do
+    dir=$(cd -P "$(dirname "$src")" && pwd)
+    src=$(readlink "$src")
+    [[ $src != /* ]] && src=$dir/$src
+done
+here=$(cd -P "$(dirname "$src")" && pwd)
+node=${NIGHTLY_NODE:-}
+if [ -z "$node" ]; then
+    for c in /usr/local/bin/node /usr/bin/node "$(command -v node 2>/dev/null || true)"; do
+        [ -n "$c" ] && [ -x "$c" ] && { node=$c; break; }
+    done
+fi
+[ -n "$node" ] || { echo "nightly: node not found" >&2; exit 127; }
+exec "$node" --no-warnings "$here/nightly.mjs" "$@"

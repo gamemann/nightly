@@ -1,0 +1,179 @@
+#!/usr/bin/env python3
+"""docs-claims -- which website-learn pages the nightly run re-verifies next.
+
+The weekly chk-docs pass documents what CHANGED. It never re-reads a sentence that was
+true when written and stopped being true later, and that is how
+"No game has been delivered as a pack yet. The games ship inside the build." stayed on
+the public hosting page for weeks after every game had become a signed pack. This
+script feeds chk-docs-claims, which re-checks pages against the code a few at a time
+so the whole tree is covered on a rotation, and a page whose sources moved goes first.
+
+  docs-claims next [N]        the N pages due (default 8), most overdue first
+  docs-claims mark PAGE...    record PAGE(s) as verified now (path under src/content/docs/en/)
+  docs-claims flags [PAGE...] status-claim phrases worth a second look (all en pages if none)
+  docs-claims status          coverage: verified, never verified, sources moved since
+
+Priority: a page whose `source:` repositories have commits newer than its last
+verification, then a page never verified, then the oldest verification. The state is
+data/docs-verified.tsv (gitignored with the rest of data/).
+"""
+import os
+import re
+import subprocess
+import sys
+import time
+
+LEARN = os.path.expanduser("~/stack/website-learn")
+DOCS = os.path.join(LEARN, "src/content/docs/en")
+STATE = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "data", "docs-verified.tsv")
+
+# Sentences of these shapes go stale on their own: they describe the state of the world,
+# not the design. Every one of them has to be re-proved against the code.
+FLAGS = re.compile(
+    r"\b(not yet|yet\b|no longer|planned|coming soon|for now|currently|at the moment|today|"
+    r"until\b|does not exist|doesn't exist|is missing|nothing (?:yet|has)|no \w+ has been|"
+    r"has never|only (?:one|two|three|four|five|six|seven|eight|nine|ten)\b|"
+    r"(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|[a-z]+ty(?:-[a-z]+)?) "
+    r"(?:addons|games|servers|checks|settings|commands|weapons|maps|languages|collectors)\b|"
+    r"ships? inside|inside the build|built in(?:to)?\b|not deployed|unmerged|undeployed|"
+    r"experimental|draft|todo)\b",
+    re.I,
+)
+
+
+def pages():
+    out = []
+    for root, _, files in os.walk(DOCS):
+        for f in files:
+            if f.endswith((".md", ".mdx")):
+                out.append(os.path.relpath(os.path.join(root, f), DOCS))
+    return sorted(out)
+
+
+def load():
+    st = {}
+    if os.path.exists(STATE):
+        for line in open(STATE):
+            parts = line.rstrip("\n").split("\t")
+            if len(parts) == 2 and parts[1].isdigit():
+                st[parts[0]] = int(parts[1])
+    return st
+
+
+def save(st):
+    os.makedirs(os.path.dirname(STATE), exist_ok=True)
+    tmp = STATE + ".tmp"
+    with open(tmp, "w") as fh:
+        for k in sorted(st):
+            fh.write(f"{k}\t{st[k]}\n")
+    os.replace(tmp, STATE)
+
+
+def sources(page):
+    """The `source:` entries of a page's frontmatter, resolved against website-learn."""
+    text = open(os.path.join(DOCS, page), encoding="utf-8").read()
+    m = re.match(r"---\n(.*?)\n---", text, re.S)
+    if not m:
+        return []
+    out, inside = [], False
+    for line in m.group(1).splitlines():
+        if re.match(r"^source:\s*$", line):
+            inside = True
+            continue
+        if inside:
+            item = re.match(r"^\s+-\s+\"?([^\"]+)\"?\s*$", line)
+            if item:
+                out.append(os.path.normpath(os.path.join(LEARN, item.group(1))))
+            elif not line.startswith(" "):
+                inside = False
+    return out
+
+
+_repo_cache = {}
+
+
+def repo_time(path):
+    """Last commit time of the git repository holding PATH -- the whole repository,
+    because a README listed as a source rarely changes in the commit that makes it wrong."""
+    d = path if os.path.isdir(path) else os.path.dirname(path)
+    while d and not os.path.isdir(d):
+        d = os.path.dirname(d)
+    if not d:
+        return 0
+    try:
+        top = subprocess.run(["git", "-C", d, "rev-parse", "--show-toplevel"],
+                             capture_output=True, text=True, timeout=10).stdout.strip()
+    except Exception:
+        return 0
+    if not top:
+        return 0
+    if top not in _repo_cache:
+        r = subprocess.run(["git", "-C", top, "log", "-1", "--format=%ct"],
+                           capture_output=True, text=True, timeout=10).stdout.strip()
+        _repo_cache[top] = int(r) if r.isdigit() else 0
+    return _repo_cache[top]
+
+
+def due():
+    st = load()
+    rows = []
+    for p in pages():
+        last = st.get(p, 0)
+        moved = max((repo_time(s) for s in sources(p)), default=0)
+        stale_src = last and moved > last
+        # 0 = sources moved since verified, 1 = never verified, 2 = verified and quiet
+        rank = 0 if stale_src else (1 if not last else 2)
+        rows.append((rank, last, p, moved))
+    rows.sort()
+    return rows
+
+
+def flags(targets):
+    for p in targets or pages():
+        text = open(os.path.join(DOCS, p), encoding="utf-8").read()
+        body = text.split("\n---", 2)[-1] if text.startswith("---") else text
+        offset = text.count("\n", 0, len(text) - len(body))
+        fence = False
+        for i, line in enumerate(body.splitlines(), offset + 1):
+            if line.lstrip().startswith("```"):
+                fence = not fence
+                continue
+            if not fence and FLAGS.search(line):
+                print(f"en/{p}:{i}: {line.strip()[:160]}")
+
+
+def main(argv):
+    cmd = argv[1] if len(argv) > 1 else "next"
+    if cmd == "next":
+        n = int(argv[2]) if len(argv) > 2 else 8
+        why = {0: "sources moved since verified", 1: "never verified", 2: "oldest verification"}
+        for rank, last, p, moved in due()[:n]:
+            when = time.strftime("%Y-%m-%d", time.localtime(last)) if last else "never"
+            print(f"en/{p}\t{why[rank]}\tlast={when}")
+    elif cmd == "mark":
+        st = load()
+        now = int(time.time())
+        known = set(pages())
+        for raw in argv[2:]:
+            p = raw.split("src/content/docs/en/")[-1]
+            p = p[3:] if p.startswith("en/") else p
+            if p not in known:
+                sys.exit(f"docs-claims: no such page: {raw}")
+            st[p] = now
+        save(st)
+        print(f"marked {len(argv) - 2}")
+    elif cmd == "flags":
+        flags([a.split("src/content/docs/en/")[-1].removeprefix("en/") for a in argv[2:]])
+    elif cmd == "status":
+        rows = due()
+        counts = {0: 0, 1: 0, 2: 0}
+        for r in rows:
+            counts[r[0]] += 1
+        print(f"{len(rows)} pages: {counts[2]} verified and quiet, {counts[0]} sources moved since, {counts[1]} never verified")
+    else:
+        print(__doc__)
+        sys.exit(2)
+
+
+if __name__ == "__main__":
+    main(sys.argv)

@@ -1,0 +1,166 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+/// kind: task | issue | check | study
+/// status: queue | in_progress | review | blocked | done | wontfix
+/// addedBy: christian | nightly | session
+model Item {
+  id          Int       @id @default(autoincrement())
+  key         String    @unique
+  title       String
+  body        String    @default("")
+  kind        String    @default("task")
+  status      String    @default("queue")
+  priority    Int       @default(0)
+  repos       String    @default("")
+  doneWhen    String?
+  addedBy     String    @default("christian")
+  cadence     String?
+  lastRunAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  completedAt DateTime?
+  notes       Note[]
+
+  @@index([status, priority])
+}
+
+model Note {
+  id        Int      @id @default(autoincrement())
+  itemId    Int
+  item      Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  runId     Int?
+  run       Run?     @relation(fields: [runId], references: [id], onDelete: SetNull)
+  author    String   @default("christian")
+  body      String
+  createdAt DateTime @default(now())
+
+  @@index([itemId])
+  @@index([runId])
+}
+
+/// status: running | ok | failed | skipped
+/// trigger: cron | manual | import
+/// report is what the agent wrote (`nightly run finish --report-file`); log is the runner's
+/// own output (guard lines, claude's final message), streamed in by `nightly exec`.
+model Run {
+  id         Int       @id @default(autoincrement())
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  status     String    @default("running")
+  summary    String    @default("")
+  report     String    @default("")
+  log        String    @default("")
+  turns      Int?
+  minutes    Float?
+  costUsd    Float?
+  trigger    String    @default("cron")
+  pid        Int?
+  scheduleId Int?
+  schedule   Schedule? @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+  notes      Note[]
+
+  @@index([scheduleId])
+}
+
+/// When and how the runner starts. `nightly tick` (crontab, every minute) fires each enabled
+/// schedule whose cron expression matches the minute. prompt is a file under prompt/;
+/// instructions are appended to it for this schedule only.
+model Schedule {
+  id           Int       @id @default(autoincrement())
+  name         String
+  cron         String
+  enabled      Boolean   @default(true)
+  prompt       String    @default("nightly.md")
+  instructions String    @default("")
+  maxTurns     Int       @default(400)
+  allowOverlap Boolean   @default(false)
+  lastFiredAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  runs         Run[]
+}
+
+/// A Claude session (nightly run or live session) on the agent board.
+/// kind: nightly | session
+/// Live while endedAt is null and lastSeenAt is recent; every `nightly agent` call refreshes it.
+model Agent {
+  id         Int       @id @default(autoincrement())
+  name       String
+  kind       String    @default("session")
+  task       String    @default("")
+  repos      String    @default("")
+  runId      Int?
+  lastReadId Int       @default(0)
+  startedAt  DateTime  @default(now())
+  lastSeenAt DateTime  @default(now())
+  endedAt    DateTime?
+  claims     Claim[]
+  messages   Message[]
+
+  @@index([name, endedAt])
+}
+
+/// A path an agent is working in, relative to the workspace (`website-city`, `game-dev/godot/dot-map`).
+/// Two claims overlap when one path is the other or contains it; `*` overlaps everything.
+model Claim {
+  id         Int       @id @default(autoincrement())
+  agentId    Int
+  agent      Agent     @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  scope      String
+  note       String    @default("")
+  createdAt  DateTime  @default(now())
+  releasedAt DateTime?
+
+  @@index([releasedAt])
+}
+
+/// to: an agent name, or null for everyone. agentId is null for Christian (the panel) and the system.
+model Message {
+  id        Int      @id @default(autoincrement())
+  agentId   Int?
+  agent     Agent?   @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  author    String
+  to        String?
+  body      String
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+model Setting {
+  key   String @id
+  value String
+}
+
+/// The agent's prompts and the runner script. They live here, not in the repository, because
+/// they are specific to one workspace. name is how they are referred to (`nightly.md`,
+/// `run.sh`; Schedule.prompt names one). kind: prompt | script
+model Prompt {
+  id        Int             @id @default(autoincrement())
+  name      String          @unique
+  kind      String          @default("prompt")
+  body      String          @default("")
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+  versions  PromptVersion[]
+}
+
+/// Every saved body of a prompt, newest = current. author: christian | nightly | session | import
+model PromptVersion {
+  id        Int      @id @default(autoincrement())
+  promptId  Int
+  prompt    Prompt   @relation(fields: [promptId], references: [id], onDelete: Cascade)
+  body      String
+  author    String   @default("christian")
+  note      String   @default("")
+  createdAt DateTime @default(now())
+
+  @@index([promptId])
+}

@@ -1,0 +1,50 @@
+@import 'tailwindcss';
+@plugin '@tailwindcss/typography';
+
+@theme {
+    --color-bg: #0a0b0e;
+    --color-panel: #111217;
+    --color-panel-2: #171920;
+    --color-hover: #1c1f27;
+    --color-line: #22252e;
+    --color-line-strong: #2e323d;
+    --color-fg: #e4e5e9;
+    --color-dim: #a3a7b1;
+    --color-muted: #6c717c;
+    --color-accent: #8b8cf8;
+    --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Inter, Roboto, sans-serif;
+    --font-mono: ui-monospace, 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+}
+
+:root { color-scheme: dark; }
+html, body { background: var(--color-bg); color: var(--color-fg); }
+body { font-size: 13px; -webkit-font-smoothing: antialiased; }
+::selection { background: color-mix(in oklab, var(--color-accent) 40%, transparent); }
+* { scrollbar-width: thin; scrollbar-color: var(--color-line-strong) transparent; }
+/* What you type is what is stored. A ligature font (JetBrains Mono is in the mono stack, Inter in the sans one) draws
+   -> and => as one arrow glyph, which in an editable box makes the caret jump over two characters and Backspace look
+   like it ate the wrong one. Off for every editable control; rendered Markdown keeps them. */
+input, textarea { font-variant-ligatures: none; font-feature-settings: 'liga' 0, 'calt' 0; }
+textarea, pre { tab-size: 4; }
+@utility md-editor { @apply resize-y whitespace-pre-wrap; }
+
+@utility input {
+        @apply rounded-md border border-line bg-panel-2 px-2.5 py-1.5 text-[13px] text-fg outline-none placeholder:text-muted
+            transition focus:border-accent/60 focus:ring-2 focus:ring-accent/15;
+    }
+@utility select { @apply input cursor-pointer py-1 pr-6; }
+@utility btn {
+        @apply inline-flex items-center gap-1.5 rounded-md border border-line bg-panel-2 px-2.5 py-1 text-[12px] text-dim
+            transition hover:border-line-strong hover:bg-hover hover:text-fg disabled:opacity-40;
+    }
+@utility btn-primary {
+        @apply inline-flex items-center justify-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-[#0b0b1a]
+            transition hover:brightness-110 disabled:opacity-40;
+    }
+@utility icon-btn { @apply grid size-6 place-items-center rounded text-muted transition hover:bg-hover hover:text-fg; }
+@utility label { @apply text-[11px] font-medium uppercase tracking-wide text-muted; }
+@utility md { @apply prose prose-invert prose-sm max-w-none prose-headings:font-semibold prose-a:text-accent prose-code:rounded
+        prose-code:bg-panel-2 prose-code:px-1 prose-code:py-0.5 prose-code:font-normal prose-code:before:content-none
+        prose-code:after:content-none prose-pre:border prose-pre:border-line prose-pre:bg-panel prose-table:text-[12px]
+        prose-th:border prose-th:border-line prose-th:px-2 prose-td:border prose-td:border-line prose-td:px-2; }
+

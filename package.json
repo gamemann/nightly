@@ -1,0 +1,50 @@
+{
+  "name": "nightly",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "nightly": "bin/nightly"
+  },
+  "scripts": {
+    "dev": "next dev --turbopack -H 0.0.0.0 -p 3010",
+    "build": "next build",
+    "start": "next start -H 0.0.0.0 -p 3010",
+    "typecheck": "tsc --noEmit",
+    "postinstall": "prisma generate",
+    "db:push": "prisma db push",
+    "db:import": "node --no-warnings scripts/import-markdown.ts",
+    "db:studio": "prisma studio"
+  },
+  "dependencies": {
+    "@prisma/adapter-better-sqlite3": "^7.4.1",
+    "@prisma/client": "^7.4.1",
+    "@tanstack/react-query": "^5.69.0",
+    "@trpc/client": "^11.0.0",
+    "@trpc/react-query": "^11.0.0",
+    "@trpc/server": "^11.0.0",
+    "next": "^16.3.7",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "superjson": "^2.2.1",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.11",
+    "@tailwindcss/typography": "^0.5.16",
+    "@types/node": "^20.19.30",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "dotenv": "^16.4.7",
+    "prisma": "^7.4.1",
+    "tailwindcss": "^4.1.11",
+    "typescript": "^5.9.3"
+  },
+  "allowScripts": {
+    "better-sqlite3@12.11.1": true,
+    "prisma@7.10.0": true,
+    "@prisma/engines@7.10.0": true
+  }
+}

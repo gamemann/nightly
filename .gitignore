@@ -1,0 +1,10 @@
+node_modules/
+.next/
+data/
+generated/
+*.tsbuildinfo
+next-env.d.ts
+.env
+
+# Private, local-only repository of its own (screenshots, legacy files); not published.
+/archive/
