@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# heavy -- run a memory-hungry command in this VM's queue.
+#
+#   heavy [--lane build|check] [--] <command...>
+#   heavy --status
+#
+# Why: parallel agents each "checked nothing heavy was running" and then all started a
+# `next build` / smoke run / Godot suite at once. The guest filled its RAM, the host ran out
+# and killed the whole VM (x-tmc-dev01, 2026-10-16). A check-then-start rule is a race;
+# this is a lock. The Bash hook (heavy-gate.py) refuses those commands unless they go
+# through here. See ~/stack/nightly/scripts/heavy/README.md.
+#
+# Lanes: `build` (next build, smoke, verify, Playwright, Godot suites/imports, cargo and
+# docker builds) has HEAVY_SLOTS_BUILD slots, default 1; `check` (tsc, npm run check/lint,
+# godot --check-only) has HEAVY_SLOTS_CHECK, default 2. Before starting, it also waits until
+# MemAvailable >= HEAVY_MIN_AVAIL_GB. Per-VM values live in /etc/heavy.conf.
+#
+# The lock is held by this wrapper only (the command gets the fd closed), so a command that
+# leaves a daemon behind cannot wedge the queue. A nested `heavy` (a script that calls it
+# again) runs straight through instead of deadlocking on its own slot.
+set -u
+
+[ -r /etc/heavy.conf ] && . /etc/heavy.conf
+SLOTS_build=${HEAVY_SLOTS_BUILD:-1}
+SLOTS_check=${HEAVY_SLOTS_CHECK:-2}
+MIN_AVAIL_GB=${HEAVY_MIN_AVAIL_GB:-4}
+DIR=${HEAVY_DIR:-/var/tmp/heavy}
+
+lane=build
+while [ $# -gt 0 ]; do
+  case $1 in
+    --lane) lane=${2:-}; shift 2 ;;
+    --lane=*) lane=${1#*=}; shift ;;
+    --status)
+      mkdir -p "$DIR"
+      for f in "$DIR"/*.lock; do
+        [ -e "$f" ] || continue
+        if ! flock -n "$f" true 2>/dev/null; then
+          echo "busy  $(basename "$f" .lock): $(cat "${f%.lock}.who" 2>/dev/null)"
+        fi
+      done
+      echo "MemAvailable: $(awk '/MemAvailable/ {printf "%.1f GB", $2/1048576}' /proc/meminfo) (start needs >= ${MIN_AVAIL_GB} GB)"
+      exit 0 ;;
+    -h|--help) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --) shift; break ;;
+    *) break ;;
+  esac
+done
+[ $# -gt 0 ] || { echo "heavy: no command given (heavy [--lane build|check] -- <command>)" >&2; exit 64; }
+
+case $lane in
+  build) slots=$SLOTS_build ;;
+  check) slots=$SLOTS_check ;;
+  *) echo "heavy: unknown lane '$lane' (build or check)" >&2; exit 64 ;;
+esac
+
+if [ -n "${HEAVY_HELD:-}" ]; then
+  exec "$@"
+fi
+
+mkdir -p "$DIR" 2>/dev/null; chmod 1777 "$DIR" 2>/dev/null
+start=$(date +%s); last_note=0; fd=; slot=
+while :; do
+  for i in $(seq 1 "$slots"); do
+    exec {fd}>>"$DIR/$lane.$i.lock" || exit 70
+    if flock -n "$fd"; then slot=$i; break 2; fi
+    exec {fd}>&-
+  done
+  now=$(date +%s)
+  if [ $((now - last_note)) -ge 60 ]; then
+    echo "heavy: waiting for a $lane slot ($((now - start))s). Held by:" >&2
+    for i in $(seq 1 "$slots"); do echo "  $(cat "$DIR/$lane.$i.who" 2>/dev/null)" >&2; done
+    last_note=$now
+  fi
+  sleep 3
+done
+printf '%s pid %s since %s: %s\n' "$(whoami)@$(hostname -s)" "$$" "$(date +%H:%M:%S)" "$*" | cut -c1-300 > "$DIR/$lane.$slot.who"
+
+last_note=0
+while :; do
+  avail_kb=$(awk '/MemAvailable/ {print $2}' /proc/meminfo)
+  [ "$avail_kb" -ge $((MIN_AVAIL_GB * 1048576)) ] && break
+  now=$(date +%s)
+  if [ $((now - last_note)) -ge 60 ]; then
+    echo "heavy: holding $lane/$slot, waiting for ${MIN_AVAIL_GB} GB free (have $((avail_kb / 1048576)) GB)" >&2
+    last_note=$now
+  fi
+  sleep 5
+done
+
+waited=$(( $(date +%s) - start ))
+[ "$waited" -ge 3 ] && echo "heavy: $lane/$slot acquired after ${waited}s" >&2
+HEAVY_HELD=$lane "$@" {fd}>&-
+rc=$?
+: > "$DIR/$lane.$slot.who"
+exit $rc
