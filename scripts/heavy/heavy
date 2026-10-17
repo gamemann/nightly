@@ -10,20 +10,36 @@
 # this is a lock. The Bash hook (heavy-gate.py) refuses those commands unless they go
 # through here. See ~/stack/nightly/scripts/heavy/README.md.
 #
+# Each job runs in its own systemd scope capped at HEAVY_JOB_MAX_GB (default 12) with no
+# swap, so a runaway is killed instead of thrashing the VM.
+#
 # Lanes: `build` (next build, smoke, verify, Playwright, Godot suites/imports, cargo and
 # docker builds) has HEAVY_SLOTS_BUILD slots, default 1; `check` (tsc, npm run check/lint,
 # godot --check-only) has HEAVY_SLOTS_CHECK, default 2. Before starting, it also waits until
 # MemAvailable >= HEAVY_MIN_AVAIL_GB. Per-VM values live in /etc/heavy.conf.
+#
+# Edit this file by writing a copy and `mv`-ing it over: bash reads a script as it runs, and
+# /usr/local/bin/heavy is a symlink to it, so an in-place edit breaks every queued job.
 #
 # The lock is held by this wrapper only (the command gets the fd closed), so a command that
 # leaves a daemon behind cannot wedge the queue. A nested `heavy` (a script that calls it
 # again) runs straight through instead of deadlocking on its own slot.
 set -u
 
+# /etc/heavy.conf holds this VM's defaults; a HEAVY_* already in the environment wins, so
+# a one-off `HEAVY_JOB_MAX_GB=20 heavy -- …` is not silently reset by the file.
+_heavy_env=
+for _v in ${!HEAVY_@}; do _heavy_env+="$_v=${!_v@Q}"$'\n'; done
 [ -r /etc/heavy.conf ] && . /etc/heavy.conf
+[ -n "$_heavy_env" ] && eval "$_heavy_env"
 SLOTS_build=${HEAVY_SLOTS_BUILD:-1}
 SLOTS_check=${HEAVY_SLOTS_CHECK:-2}
 MIN_AVAIL_GB=${HEAVY_MIN_AVAIL_GB:-4}
+# Per-job ceiling (GB) and the swap it may use: past it the job is killed, not the VM
+# thrashed. The user slice's MemoryHigh only throttles, so a 17 GB dev server under it
+# swapped dev01 for 15 minutes (2026-10-16) instead of dying.
+JOB_MAX_GB=${HEAVY_JOB_MAX_GB:-12}
+JOB_SWAP_GB=${HEAVY_JOB_SWAP_GB:-0}
 DIR=${HEAVY_DIR:-/var/tmp/heavy}
 
 lane=build
@@ -90,7 +106,18 @@ done
 
 waited=$(( $(date +%s) - start ))
 [ "$waited" -ge 3 ] && echo "heavy: $lane/$slot acquired after ${waited}s" >&2
-HEAVY_HELD=$lane "$@" {fd}>&-
+# Its own cgroup when the user manager is reachable (the nightly runner and SSH sessions
+# may have no user bus): MemoryMax kills the job, MemorySwapMax keeps it out of swap.
+export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
+scope=()
+if [ "$JOB_MAX_GB" != 0 ] && [ -S "$XDG_RUNTIME_DIR/bus" ] && command -v systemd-run >/dev/null; then
+  scope=(systemd-run --user --scope --quiet --collect
+         -p MemoryMax="${JOB_MAX_GB}G" -p MemorySwapMax="${JOB_SWAP_GB}G" --)
+fi
+HEAVY_HELD=$lane "${scope[@]}" "$@" {fd}>&-
 rc=$?
+if [ "$rc" = 137 ] && [ ${#scope[@]} -gt 0 ]; then
+  echo "heavy: killed (SIGKILL). Most likely it hit the ${JOB_MAX_GB} GB job ceiling (HEAVY_JOB_MAX_GB)." >&2
+fi
 : > "$DIR/$lane.$slot.who"
 exit $rc
