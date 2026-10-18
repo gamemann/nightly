@@ -8,7 +8,8 @@
 # `next build` / smoke run / Godot suite at once. The guest filled its RAM, the host ran out
 # and killed the whole VM (x-tmc-dev01, 2026-10-16). A check-then-start rule is a race;
 # this is a lock. The Bash hook (heavy-gate.py) refuses those commands unless they go
-# through here. See ~/stack/nightly/scripts/heavy/README.md.
+# through here. Smoke-class runs additionally wait for an empty agent board (heavy-smoke.py).
+# See ~/stack/nightly/scripts/heavy/README.md.
 #
 # Each job runs in its own systemd scope capped at HEAVY_JOB_MAX_GB (default 12) with no
 # swap, so a runaway is killed instead of thrashing the VM.
@@ -69,6 +70,13 @@ case $lane in
   check) slots=$SLOTS_check ;;
   *) echo "heavy: unknown lane '$lane' (build or check)" >&2; exit 64 ;;
 esac
+
+# Smoke-class commands (smoke, verify, Playwright) run only when no other agent is live on the
+# board: see heavy-smoke.py. Checked before the nested-heavy shortcut, and not when nested (HEAVY_HELD): the outer call already passed. HEAVY_SMOKE=final|force and HEAVY_AGENT are read there.
+_hs=$(dirname "$(readlink -f "$0")")/heavy-smoke.py
+if [ -z "${HEAVY_HELD:-}" ] && [ -r "$_hs" ] && python3 "$_hs" is-smoke "$@"; then
+  python3 "$_hs" check || exit $?
+fi
 
 if [ -n "${HEAVY_HELD:-}" ]; then
   exec "$@"

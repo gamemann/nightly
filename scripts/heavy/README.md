@@ -28,3 +28,11 @@ spare; nothing in the guests can enforce it.
 
 sysstat samples every minute on both VMs (`sar -r -f /var/log/sysstat/saDD`), so the next
 incident leaves a memory trace.
+
+## Smoke runs wait for an empty board
+
+`heavy` serialises the website smoke suite (`npm run test:smoke`, `npm run verify`, `playwright test`) but cannot make it rarer: with several agents each running it "as part of their own work", the runs went back to back and dev01 sat pegged for hours. Telling agents not to failed repeatedly, so it is enforced. A smoke-class command is refused while any other agent is live on the nightly board (not ended, seen within 60 minutes). The refusal names the active agents and tells the caller to verify with targeted tests in `heavy --lane check`, report "smoke not run (board busy)", and leave the one final pass to the orchestrator.
+
+The rule lives in `heavy-smoke.py` and is enforced twice: by `heavy-gate.py` (also for commands already prefixed with `heavy`) and by `heavy` itself, so a script that skips the hook is still caught. It reads the board straight from `data/nightly.db` read-only, because the node CLI took minutes on a loaded VM. If the board cannot be read it fails open with a warning.
+
+Overrides, as environment variables on the command: `HEAVY_SMOKE=final heavy -- npm run test:smoke` is the orchestrator's last pass and proceeds only when no other agent is live; `HEAVY_SMOKE=force` proceeds regardless and is for the user. `HEAVY_AGENT=<board name>` says which live agent is the caller; without it the caller is assumed to be one of the live agents, so two or more live agents block. Rerun `install.sh --remote x-tmc-dev02` after a change (dev02 has no nightly database, so there the gate fails open).

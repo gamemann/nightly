@@ -7,7 +7,7 @@ here=$(cd "$(dirname "$0")" && pwd)
 if [ "${1:-}" = "--remote" ]; then
   host=$2; key=${3:-$HOME/.ssh/dev02}
   ssh -i "$key" "$host" 'rm -rf ~/.cache/heavy-install && mkdir -p ~/.cache/heavy-install'
-  scp -q -i "$key" "$here"/heavy "$here"/heavy-gate.py "$here"/install.sh "$host":.cache/heavy-install/
+  scp -q -i "$key" "$here"/heavy "$here"/heavy-gate.py "$here"/heavy-smoke.py "$here"/install.sh "$host":.cache/heavy-install/
   exec ssh -i "$key" "$host" 'bash ~/.cache/heavy-install/install.sh'
 fi
 
@@ -27,7 +27,9 @@ if [ -d "$HOME/stack/nightly/scripts/heavy" ] && [ "$here" = "$HOME/stack/nightl
   mkdir -p ~/.claude/hooks && ln -sfn "$here/heavy-gate.py" ~/.claude/hooks/heavy-gate.py
 else
   sudo install -m 755 "$here/heavy" /usr/local/bin/heavy
+  sudo install -m 755 "$here/heavy-smoke.py" /usr/local/bin/heavy-smoke.py
   mkdir -p ~/.claude/hooks && install -m 755 "$here/heavy-gate.py" ~/.claude/hooks/heavy-gate.py
+  install -m 755 "$here/heavy-smoke.py" ~/.claude/hooks/heavy-smoke.py
 fi
 printf 'HEAVY_SLOTS_BUILD=1\nHEAVY_SLOTS_CHECK=2\nHEAVY_MIN_AVAIL_GB=%s\nHEAVY_JOB_MAX_GB=%s\n' "$avail" "$job" | sudo tee /etc/heavy.conf >/dev/null
 

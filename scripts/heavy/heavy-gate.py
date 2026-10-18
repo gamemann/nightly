@@ -11,8 +11,20 @@ prefixes (env assignments, sudo, timeout N, nice, time, ssh host, bash -c, do/th
 so `grep "next build"` or a commit message naming one never trips it. A command that starts
 with `heavy` passes whole, so `heavy -- bash -c 'for ...; do godot ...; done'` is fine.
 HEAVY_GATE=off in the environment turns the gate off for a session.
+
+Smoke-class commands (test:smoke, verify, playwright test) are held to a second rule, even when
+they are prefixed with `heavy`: they are refused while any other agent is live on the nightly
+board (heavy-smoke.py has the rule, the overrides HEAVY_SMOKE=final|force, and why).
 """
-import json, os, re, sys
+import importlib.util, json, os, re, sys
+
+def _smoke_module():
+    # Next to this file; resolve the symlink so the repo copy is found where installed by link.
+    here = os.path.dirname(os.path.realpath(__file__))
+    spec = importlib.util.spec_from_file_location("heavy_smoke", os.path.join(here, "heavy-smoke.py"))
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
 
 BUILD = [
     r"next\s+build\b",
@@ -65,6 +77,32 @@ def lane_of(cmd):
             return "build"
     return None
 
+HEAVY_PREFIX = re.compile(r"heavy(\s+--lane[=\s]\s*\w+)?(\s+--)?\s+")
+
+def smoke_refusal(command):
+    """The board message when a smoke-class segment may not run now, else None. Fails open."""
+    try:
+        hs = _smoke_module()
+        smoke = False
+        for seg in re.split(r"&&|\|\||;|\||\n", command):
+            cmd = strip(seg)
+            m = HEAVY_PREFIX.match(cmd)
+            # Under `heavy`, the rest is its argv and may be a `bash -c` body: search it.
+            smoke = smoke or (hs.is_smoke(cmd[m.end():], anchored=False) if m else hs.is_smoke(cmd))
+        if not smoke:
+            return None
+        # The mode may be set in the command itself (`HEAVY_SMOKE=final heavy -- ...`).
+        mm = re.search(r"\bHEAVY_SMOKE=(\w+)", command)
+        am = re.search(r"\bHEAVY_AGENT=([\w.-]+)", command)
+        ok, msg = hs.decide(mm.group(1) if mm else os.environ.get("HEAVY_SMOKE", ""),
+                            am.group(1) if am else os.environ.get("HEAVY_AGENT", ""))
+        if ok and msg:  # a warning, such as the board being unreadable
+            sys.stderr.write(msg + "\n")
+        return None if ok else msg
+    except Exception as e:  # noqa: BLE001 - a broken gate must not block work
+        sys.stderr.write("heavy-gate: smoke check failed open (%s)\n" % e)
+        return None
+
 def main():
     if os.environ.get("HEAVY_GATE", "").lower() in ("off", "0", "false"):
         return 0
@@ -72,6 +110,10 @@ def main():
     if data.get("tool_name") != "Bash":
         return 0
     command = (data.get("tool_input") or {}).get("command") or ""
+    refusal = smoke_refusal(command)
+    if refusal:
+        sys.stderr.write(refusal)
+        return 2
     if re.match(r"heavy(\s|$)", strip(command)):
         return 0
     hits = []
