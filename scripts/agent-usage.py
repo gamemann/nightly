@@ -20,14 +20,39 @@ counts it. The thresholds are where a week has been worth a look, not hard limit
   - opus sub-agents spawned as builder/scout/researcher, or as an untyped general-purpose
     agent (which inherits the session's model: 111 of those were 70% of a week's tokens on
     dev02 up to 2026-10-14, when the typed agents and the hook that refuses them went in);
-  - opus top-level sessions over OPUS_MAIN_SHARE of top-level tokens.
+  - (reported, not flagged) the opus share of interactive top-level sessions: Christian keeps
+    Opus as his sessions' default on purpose (2026-10-18), so it is a number to watch.
+
+Nightly runs are counted apart (type "nightly", sub-agents "nightly:<type>"): from
+NIGHTLY_SONNET_SINCE the runner coordinates on Sonnet and its builders run on Opus on
+purpose (nightly.md, "Sub-agents"), so an opus nightly builder is the rule there, and a
+nightly coordinator on opus is the thing to flag. A run is told apart by the scope note
+run.sh appends to its prompt.
 """
 import argparse, glob, json, os, subprocess, sys, time
 from collections import defaultdict
 
 SPECIALIST_SHARE = 0.20
-OPUS_MAIN_SHARE = 0.50
 CHEAP_TYPES = {"builder", "scout", "researcher", "Explore", "general-purpose"}
+NIGHTLY_OPUS_OK = {"builder", "specialist"}
+NIGHTLY_SONNET_SINCE = time.mktime(time.strptime("2026-10-18T17:47", "%Y-%m-%dT%H:%M"))
+NIGHTLY_MARKS = ("## Tonight's scope note", "## Scope note for this run")
+_nightly = {}
+
+
+def is_nightly(session_path):
+    """Whether a top-level transcript is a nightly run: its first user message has the scope note."""
+    if session_path not in _nightly:
+        _nightly[session_path] = False
+        try:
+            with open(session_path, errors="replace") as f:
+                for line in f:
+                    if '"user"' in line:
+                        _nightly[session_path] = any(m in line for m in NIGHTLY_MARKS)
+                        break
+        except OSError:
+            pass
+    return _nightly[session_path]
 
 
 def family(model):
@@ -54,7 +79,8 @@ def scan(days):
                 kind = json.load(open(path[:-6] + ".meta.json")).get("agentType") or "?"
             except (OSError, ValueError):
                 kind = "?"
-        seen, models, tok, out = set(), defaultdict(int), 0, 0
+        night = is_nightly(path.split("/subagents/")[0] + ".jsonl" if sub else path)
+        seen, models, tok, out, first = set(), defaultdict(int), 0, 0, None
         try:
             f = open(path, errors="replace")
         except OSError:
@@ -72,8 +98,10 @@ def scan(days):
                 ts = d.get("timestamp")
                 if ts:
                     try:
-                        if time.mktime(time.strptime(ts[:19], "%Y-%m-%dT%H:%M:%S")) < since:
+                        at = time.mktime(time.strptime(ts[:19], "%Y-%m-%dT%H:%M:%S"))
+                        if at < since:
                             continue
+                        first = at if first is None else min(first, at)
                     except ValueError:
                         pass
                 m = d.get("message") or {}
@@ -88,6 +116,10 @@ def scan(days):
                 tok += t
         if not models:
             continue
+        if night:
+            # Runs from before the coordinator moved to Sonnet are listed, never flagged.
+            tag = "nightly" if (first or 0) >= NIGHTLY_SONNET_SINCE else "nightly-pre"
+            kind = tag + ":" + kind if sub else tag
         model = max(models, key=models.get)
         r = rows[(kind, model)]
         r["runs"] += 1
@@ -126,12 +158,21 @@ def main():
     all_rows = [dict(r, host=h) for h, rs in hosts.items() for r in rs]
     total = sum(r["tokens"] for r in all_rows) or 1
     print(f"Claude tokens, last {a.days:g} days, on {', '.join(hosts)} ({total / 1e6:.0f}M in all)\n")
-    print(f"{'host':14} {'type':12} {'model':7} {'runs':>5} {'Mtok':>7} {'share':>6} {'out k':>7}")
+    print(f"{'host':14} {'type':28} {'model':7} {'runs':>5} {'Mtok':>7} {'share':>6} {'out k':>7}")
     for r in sorted(all_rows, key=lambda r: -r["tokens"]):
-        print(f"{r['host']:14} {r['type']:12} {r['model']:7} {r['runs']:5} {r['tokens'] / 1e6:7.1f} "
+        print(f"{r['host']:14} {r['type']:28} {r['model']:7} {r['runs']:5} {r['tokens'] / 1e6:7.1f} "
               f"{r['tokens'] / total:6.1%} {r['output'] / 1e3:7.0f}")
 
     flags = []
+    for r in all_rows:
+        t = r["type"]
+        if t == "nightly" and r["model"] == "opus":
+            flags.append(f"{r['runs']} nightly run(s) coordinated on opus on {r['host']} ({r['tokens'] / 1e6:.1f}M): "
+                         "run.sh passes --model $NIGHTLY_MODEL (default sonnet); check it is still there")
+        elif t.startswith("nightly:") and r["model"] == "opus" and t[8:] not in NIGHTLY_OPUS_OK:
+            flags.append(f"{r['runs']} nightly {t[8:]} run(s) on opus on {r['host']} ({r['tokens'] / 1e6:.1f}M): "
+                         "only builders and specialists do nightly work on opus")
+    all_rows = [r for r in all_rows if not r["type"].startswith("nightly")]
     sub = [r for r in all_rows if r["type"] != "main"]
     sub_tok = sum(r["tokens"] for r in sub) or 1
     spec = sum(r["tokens"] for r in sub if r["type"] == "specialist")
@@ -145,10 +186,8 @@ def main():
     main_rows = [r for r in all_rows if r["type"] == "main"]
     main_tok = sum(r["tokens"] for r in main_rows) or 1
     opus_main = sum(r["tokens"] for r in main_rows if r["model"] == "opus")
-    if opus_main / main_tok > OPUS_MAIN_SHARE:
-        flags.append(f"opus top-level sessions are {opus_main / main_tok:.0%} of top-level tokens (over "
-                     f"{OPUS_MAIN_SHARE:.0%}): routine batches should run on sonnet")
     print()
+    print(f"Interactive top-level sessions: {opus_main / main_tok:.0%} of their tokens on opus (the default by choice).")
     print("\n".join("FLAG " + f for f in flags) if flags else "No flags: model use matches the rules.")
     return 1 if (a.check and flags) else 0
 
