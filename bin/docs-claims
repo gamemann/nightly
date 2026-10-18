@@ -83,7 +83,9 @@ def sources(page):
         if inside:
             item = re.match(r"^\s+-\s+\"?([^\"]+)\"?\s*$", line)
             if item:
-                out.append(os.path.normpath(os.path.join(LEARN, item.group(1))))
+                ref = item.group(1)
+                # `dev02:godot/dot-map/README.md` -- game development lives on x-tmc-dev02.
+                out.append(ref if ref.startswith("dev02:") else os.path.normpath(os.path.join(LEARN, ref)))
             elif not line.startswith(" "):
                 inside = False
     return out
@@ -92,9 +94,29 @@ def sources(page):
 _repo_cache = {}
 
 
+def repo_time_dev02(ref):
+    """Last commit time of the repository on x-tmc-dev02 holding REF (`dev02:godot/<repo>/...`);
+    ~/CLAUDE.md and ~/docs are not repositories there, so those use the file or directory mtime."""
+    rel = ref[len("dev02:"):]
+    parts = rel.split("/")
+    key = "/".join(parts[:2]) if parts[0] == "godot" and len(parts) > 1 else rel
+    if key not in _repo_cache:
+        cmd = (f"cd ~/{key} 2>/dev/null && (git log -1 --format=%ct 2>/dev/null || true) || true; "
+               f"stat -c %Y ~/{rel} 2>/dev/null || true")
+        try:
+            out = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "dev02", cmd],
+                                 capture_output=True, text=True, timeout=30).stdout.split()
+        except Exception:
+            out = []
+        _repo_cache[key] = int(out[0]) if out and out[0].isdigit() else 0
+    return _repo_cache[key]
+
+
 def repo_time(path):
     """Last commit time of the git repository holding PATH -- the whole repository,
     because a README listed as a source rarely changes in the commit that makes it wrong."""
+    if path.startswith("dev02:"):
+        return repo_time_dev02(path)
     d = path if os.path.isdir(path) else os.path.dirname(path)
     while d and not os.path.isdir(d):
         d = os.path.dirname(d)
