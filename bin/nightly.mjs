@@ -236,17 +236,7 @@ function cmdRun() {
         const status = String(opt.status ?? 'failed')
         if (!S.RUN_STATUSES.includes(status) || status === 'running') die(`bad status ${status}`)
         const report = opt.reportFile ? readReport(String(opt.reportFile)) : null
-        // Read inside the write transaction, so a run started meanwhile is either closed or left alone, never half.
-        const stale = S.tx(db, () => {
-            const live = new Set(R.liveRuns(db).map((r) => r.id))
-            const stale = db.prepare("SELECT * FROM Run WHERE status = 'running'").all().filter((r) => !live.has(r.id))
-            for (const r of stale) {
-                db.prepare('UPDATE Run SET finishedAt = ?, status = ?, report = ?, minutes = COALESCE(minutes, ?) WHERE id = ?').run(
-                    S.now(), status, r.report ? r.report : report ?? '',
-                    Math.round((Date.now() - Date.parse(r.startedAt)) / 60000), r.id)
-            }
-            return stale
-        })
+        const stale = R.closeStale(db, status, report)
         return out({ closed: stale.length, ids: stale.map((r) => r.id) }, () => `closed ${stale.length}`)
     }
     if (sub === 'list') {
