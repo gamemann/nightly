@@ -9,13 +9,13 @@ This directory replaces it with three things that do not depend on an agent reme
 
 | Piece | What it does |
 | --- | --- |
-| `heavy` → `/usr/local/bin/heavy` | Per-VM queue. `build` lane: 1 slot (next build, smoke, verify, Playwright, Godot suites and imports, cargo/docker builds). `check` lane: 2 slots (tsc, `npm run check`/lint, `npm test`, `godot --check-only`). It also waits for `HEAVY_MIN_AVAIL_GB` free before starting. `heavy --status` shows who holds the slots. |
+| `heavy` → `/usr/local/bin/heavy` | Per-VM queue. `build` lane: 1 slot on dev01, 2 on dev02 (next build, smoke, verify, Playwright, Godot suites and imports, cargo/docker builds). `check` lane: 2 slots (tsc, `npm run check`/lint, `npm test`, `godot --check-only`). It also waits for `HEAVY_MIN_AVAIL_GB` free before starting. `heavy --status` shows who holds the slots. |
 | per-job scope | `heavy` runs each job in its own `systemd-run --user --scope` with `MemoryMax=HEAVY_JOB_MAX_GB` and no swap. The slice's `MemoryHigh` only *throttles*: a 17.7 GB smoke-run dev server stayed under it and swapped dev01 for 15 minutes (2026-10-16). A job over its ceiling is killed and `heavy` says so (exit 137). Skipped when the user bus is unreachable. |
 | `heavy-gate.py` → `~/.claude/hooks/` | PreToolUse hook on Bash that refuses those commands unless they are prefixed with `heavy`, and prints the exact rewrite. It covers every session and sub-agent on the VM, nightly included. `HEAVY_GATE=off` turns it off for one session. |
 | `user-1000.slice` `MemoryHigh`/`MemoryMax` | A hard ceiling on everything the `christian` user runs. A job that overshoots is OOM-killed inside the guest, and the VM survives. Postgres, ClickHouse, Redis and Docker are outside the ceiling. ClickHouse is capped separately, because its default is 90% of RAM. |
 
 The budgets (in `install.sh`): dev01 (31 GB) High 20G / Max 22G, 18 GB per job (a cold `next build` peaks at 15.7 GB), ClickHouse 5 GB,
-5 GB free to start a job; dev02 (12 GB) High 8G / Max 9G, 7 GB per job, 3 GB free to start a job.
+5 GB free to start a job; dev02 (12 GB) High 8G / Max 9G, 7 GB per job, 3 GB free to start a job, and a second build slot that is taken only while 5 GB is free (`HEAVY_EXTRA_AVAIL_GB`). Why 5: dev02 Godot suites peak at 0.5 GB median, 2 GB p99, 3.5 GB worst over 1010 jobs, and 4 to 7 GB was free through 2026-10-18 with one slot. The check is at acquisition and the slot is let go when it fails, so a waiting job takes slot 1 the moment it frees. If a pair still overshoots, the user slice kills one job (exit 137), not the VM.
 One job needing more sets `HEAVY_JOB_MAX_GB=<n> heavy -- …` for that run: a `HEAVY_*` in the
 environment wins over `/etc/heavy.conf`, which only holds the VM's defaults.
 

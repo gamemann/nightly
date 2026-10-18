@@ -15,8 +15,8 @@ fi
 # nightly panel and its agents, dev servers, builds); system services stay outside it. A job
 # that overshoots is OOM-killed inside the guest instead of the host killing the whole VM.
 case $(hostname -s) in
-  x-tmc-dev01) high=20G max=22G avail=5 job=18 ch=5000000000 ;;   # 31 GB guest; ClickHouse, Postgres, Redis outside
-  x-tmc-dev02) high=8G  max=9G  avail=3 job=7  ch= ;;             # 12 GB guest
+  x-tmc-dev01) high=20G max=22G avail=5 job=18 ch=5000000000 builds=1 extra=5 ;;   # 31 GB guest; ClickHouse, Postgres, Redis outside
+  x-tmc-dev02) high=8G  max=9G  avail=3 job=7  ch= builds=2 extra=5 ;;  # 12 GB guest; build slot 2 only with 5 GB free
   *) echo "install.sh: no budget for $(hostname -s); add one" >&2; exit 1 ;;
 esac
 
@@ -31,7 +31,7 @@ else
   mkdir -p ~/.claude/hooks && install -m 755 "$here/heavy-gate.py" ~/.claude/hooks/heavy-gate.py
   install -m 755 "$here/heavy-smoke.py" ~/.claude/hooks/heavy-smoke.py
 fi
-printf 'HEAVY_SLOTS_BUILD=1\nHEAVY_SLOTS_CHECK=2\nHEAVY_MIN_AVAIL_GB=%s\nHEAVY_JOB_MAX_GB=%s\n' "$avail" "$job" | sudo tee /etc/heavy.conf >/dev/null
+printf 'HEAVY_SLOTS_BUILD=%s\nHEAVY_SLOTS_CHECK=2\nHEAVY_MIN_AVAIL_GB=%s\nHEAVY_EXTRA_AVAIL_GB=%s\nHEAVY_JOB_MAX_GB=%s\n' "$builds" "$avail" "$extra" "$job" | sudo tee /etc/heavy.conf >/dev/null
 
 python3 - <<'PY'
 import json, os
