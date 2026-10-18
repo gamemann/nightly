@@ -15,7 +15,7 @@ fi
 # nightly panel and its agents, dev servers, builds); system services stay outside it. A job
 # that overshoots is OOM-killed inside the guest instead of the host killing the whole VM.
 case $(hostname -s) in
-  x-tmc-dev01) high=20G max=22G avail=5 job=12 ch=5000000000 ;;   # 31 GB guest; ClickHouse, Postgres, Redis outside
+  x-tmc-dev01) high=20G max=22G avail=5 job=18 ch=5000000000 ;;   # 31 GB guest; ClickHouse, Postgres, Redis outside
   x-tmc-dev02) high=8G  max=9G  avail=3 job=7  ch= ;;             # 12 GB guest
   *) echo "install.sh: no budget for $(hostname -s); add one" >&2; exit 1 ;;
 esac
