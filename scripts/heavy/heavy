@@ -50,6 +50,9 @@ EXTRA_AVAIL_GB=${HEAVY_EXTRA_AVAIL_GB:-$MIN_AVAIL_GB}
 JOB_MAX_GB=${HEAVY_JOB_MAX_GB:-12}
 JOB_SWAP_GB=${HEAVY_JOB_SWAP_GB:-0}
 DIR=${HEAVY_DIR:-/var/tmp/heavy}
+# Optional offload hook (see the wait loop); unset on dev01.
+OFFLOAD=${HEAVY_OFFLOAD:-}
+OFFLOAD_EVERY=${HEAVY_OFFLOAD_EVERY:-15}
 
 lane=build
 while [ $# -gt 0 ]; do
@@ -91,7 +94,7 @@ if [ -n "${HEAVY_HELD:-}" ]; then
 fi
 
 mkdir -p "$DIR" 2>/dev/null; chmod 1777 "$DIR" 2>/dev/null
-start=$(date +%s); last_note=0; fd=; slot=
+start=$(date +%s); last_note=0; last_offer=0; fd=; slot=
 while :; do
   for i in $(seq 1 "$slots"); do
     exec {fd}>>"$DIR/$lane.$i.lock" || exit 70
@@ -104,6 +107,17 @@ while :; do
     exec {fd}>&-
   done
   now=$(date +%s)
+  # Offload: a VM may name a script that runs a waiting build-lane job on another machine
+  # (dev02: ~/godot/gpu.sh, the laptop "staging"). Offered only while waiting, never instead
+  # of a free slot here, because the other machine may be slower per job. Exit 75 means
+  # "not taken": keep waiting and offer again in HEAVY_OFFLOAD_EVERY seconds.
+  if [ "$lane" = build ] && [ -n "$OFFLOAD" ] && [ -x "$OFFLOAD" ] && [ $((now - last_offer)) -ge "$OFFLOAD_EVERY" ]; then
+    last_offer=$now
+    HEAVY_HELD=offload "$OFFLOAD" offer "$@"
+    rc=$?
+    [ "$rc" != 75 ] && exit "$rc"
+    now=$(date +%s)
+  fi
   if [ $((now - last_note)) -ge 60 ]; then
     echo "heavy: waiting for a $lane slot ($((now - start))s). Held by:" >&2
     for i in $(seq 1 "$slots"); do echo "  $(cat "$DIR/$lane.$i.who" 2>/dev/null)" >&2; done

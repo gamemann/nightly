@@ -29,6 +29,12 @@ spare; nothing in the guests can enforce it.
 sysstat samples every minute on both VMs (`sar -r -f /var/log/sysstat/saDD`), so the next
 incident leaves a memory trace.
 
+## Offload: dev02's waiting suites go to the laptop
+
+dev02 has 6 vCPUs and two build slots, so Godot suites queue there while Christian's always-on laptop "staging" (Ryzen 7 4800H, 16 threads, ~9 GB free, the GTX 1660 Ti box) sits idle. `HEAVY_OFFLOAD` in `/etc/heavy.conf` (set by `install.sh` on dev02 only) names a script that `heavy` calls from its wait loop, every `HEAVY_OFFLOAD_EVERY` seconds (15), as `<script> offer <command…>`. Exit 75 means "not taken" and the job keeps waiting; any other code is the job's own. It is offered only while waiting, never instead of a free slot, because each laptop core is slower than dev02's 13700K cores: the laptop adds throughput, not speed.
+
+dev02's script is `~/godot/gpu.sh offer`. It takes only `./game.sh [--no-parse] [--timeout N] test [suites]` run from a project directory (anything else may need dev02's tunnels or dot-server-deploy), copies the project there with its addon links resolved, runs the suite under a 6 GB scope, streams the output and copies `.godot/test-logs/` back, so the caller cannot tell where it ran except for one "the laptop (staging) took this suite" line on stderr. A lost connection mid-run is a 75, so the job runs again here rather than reporting a result nobody saw. Suites and GPU jobs (bakes, frame timings) never share the laptop; `gpu.sh` explains the locks. `GPU_OFFLOAD=0` keeps one command local; `./gpu.sh status` shows the laptop's suite slots.
+
 ## Smoke runs wait for an empty board
 
 `heavy` serialises the website smoke suite (`npm run test:smoke`, `npm run verify`, `playwright test`) but cannot make it rarer: with several agents each running it "as part of their own work", the runs went back to back and dev01 sat pegged for hours. Telling agents not to failed repeatedly, so it is enforced. A smoke-class command is refused while any other agent is live on the nightly board (not ended, seen within 60 minutes). The refusal names the active agents and tells the caller to verify with targeted tests in `heavy --lane check`, report "smoke not run (board busy)", and leave the one final pass to the orchestrator.
