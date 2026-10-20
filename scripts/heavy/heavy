@@ -93,6 +93,16 @@ if [ -n "${HEAVY_HELD:-}" ]; then
   exec "$@"
 fi
 
+# Route hook, before any slot: the offload script (dev02: gpu.sh) may take the job at once.
+# Screenshot tools (tools/screenshot*.sh) always go to a real GPU on a box first, and a game
+# suite goes to the boxes first when HEAVY_PREFER_OFFLOAD=1 (the nightly runner). Exit 75
+# means "not taken": queue it here as before. GPU_OFFLOAD=0 skips the hook.
+if [ -n "$OFFLOAD" ] && [ -x "$OFFLOAD" ] && [ "${GPU_OFFLOAD:-1}" != 0 ]; then
+  HEAVY_HELD=offload "$OFFLOAD" route "$@"
+  rc=$?
+  [ "$rc" != 75 ] && exit "$rc"
+fi
+
 mkdir -p "$DIR" 2>/dev/null; chmod 1777 "$DIR" 2>/dev/null
 start=$(date +%s); last_note=0; last_offer=0; fd=; slot=
 while :; do
