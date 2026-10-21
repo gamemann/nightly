@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+# Pick which Claude account a session or nightly run uses. With one account (the default,
+# and today's state) every command here is a no-op: nothing is exported and `claude` runs
+# exactly as it would without this script.
+#
+#   claude-acct status            accounts, and each one's 5-hour / 7-day usage (probes; cached 10 min)
+#   claude-acct pick              print the name of the account a new session should use
+#   claude-acct env               print `export` lines for that account (empty with one account)
+#   claude-acct add NAME          create ~/.claude-NAME sharing agents/hooks/skills/settings/projects
+#   claude-acct run [claude args] exec claude as the picked account   (also: the name `claude-auto`)
+#
+# Accounts live in ~/.config/claude-accounts/accounts, one `name  config-dir` per line; no file
+# means the single account "default" in ~/.claude. CLAUDE_ACCOUNT=name forces one.
+#
+# Why a pick only at launch: the prompt cache belongs to the account, so switching in the
+# middle of a session re-reads the whole context at full price. Sessions here are one batch
+# each, so launch is the natural place to choose.
+#
+# Why the extra dirs symlink projects/: scripts/agent-usage.py and --resume read
+# ~/.claude/projects, and per-account copies would split the accounting.
+set -uo pipefail
+
+conf="$HOME/.config/claude-accounts/accounts"
+cache="$HOME/.cache/claude-accounts"
+usage="${CLAUDE_USAGE_SCRIPT:-$(dirname "$(readlink -f "$0")")/claude-usage.sh}"
+five_max="${CLAUDE_ACCT_FIVE_MAX:-90}"      # skip an account whose 5-hour window is this full
+ttl="${CLAUDE_ACCT_TTL:-600}"
+mkdir -p "$cache"
+
+accounts() {   # "name dir" lines
+    if [ -f "$conf" ]; then grep -Ev '^\s*(#|$)' "$conf"; else echo "default $HOME/.claude"; fi
+}
+dir_of() { accounts | awk -v n="$1" '$1==n {print $2; exit}' | sed "s|^~|$HOME|"; }
+
+usage_of() {   # name -> "five seven" percent, or "? ?"
+    local name="$1" dir f="$cache/$1.json"
+    dir="$(dir_of "$name")"
+    if [ ! -f "$f" ] || [ $(( $(date +%s) - $(stat -c %Y "$f") )) -gt "$ttl" ]; then
+        CLAUDE_CONFIG_DIR="$dir" CLAUDE_USAGE_DEBUG_FILE="$cache/$name.debug" "$usage" --json >"$f.new" 2>/dev/null \
+            && mv "$f.new" "$f" || rm -f "$f.new"
+    fi
+    [ -f "$f" ] && python3 -c '
+import json, sys
+d = json.load(open(sys.argv[1]))
+g = lambda k: (d.get(k) or {}).get("percent", "?")
+print(g("five_hour"), g("seven_day"))' "$f" || echo "? ?"
+}
+
+pick() {
+    if [ -n "${CLAUDE_ACCOUNT:-}" ]; then echo "$CLAUDE_ACCOUNT"; return; fi
+    local names; mapfile -t names < <(accounts | awk '{print $1}')
+    if [ "${#names[@]}" -le 1 ]; then echo "${names[0]:-default}"; return; fi
+    local best="" best_week=999 n five week
+    for n in "${names[@]}"; do
+        read -r five week < <(usage_of "$n")
+        [ "$five" = "?" ] && continue                          # unknown: only if nothing else answers
+        python3 -c "import sys; sys.exit(0 if float('$five') < $five_max else 1)" || continue
+        if python3 -c "import sys; sys.exit(0 if float('$week') < $best_week else 1)"; then best="$n"; best_week="$week"; fi
+    done
+    echo "${best:-${names[0]}}"                                # nothing usable: the first, as today
+}
+
+emit_env() {
+    local name dir; name="$(pick)"
+    [ "$(accounts | wc -l)" -le 1 ] && [ -z "${CLAUDE_ACCOUNT:-}" ] && return 0
+    dir="$(dir_of "$name")"
+    [ -n "$dir" ] || { echo "claude-acct: no account named $name" >&2; return 1; }
+    echo "export CLAUDE_ACCOUNT='$name'"
+    [ "$dir" = "$HOME/.claude" ] && echo "unset CLAUDE_CONFIG_DIR" || echo "export CLAUDE_CONFIG_DIR='$dir'"
+}
+
+real_claude() {
+    local self c; self="$(readlink -f "$0")"
+    for c in "$HOME/.local/bin/claude" "$(command -v claude)"; do
+        [ -x "$c" ] && [ "$(readlink -f "$c")" != "$self" ] && { echo "$c"; return; }
+    done
+    echo "claude-acct: cannot find claude" >&2; return 1
+}
+
+cmd="${1:-}"; [ "$(basename "$0")" = "claude-auto" ] && cmd="run" || shift || true
+case "$cmd" in
+    status)
+        while read -r n d; do
+            read -r five week < <(usage_of "$n")
+            printf '%-12s %-28s 5h %s%%  7d %s%%\n' "$n" "$d" "$five" "$week"
+        done < <(accounts)
+        echo "next session: $(pick)" ;;
+    pick) pick ;;
+    env) emit_env ;;
+    add)
+        name="${1:?usage: claude-acct add NAME}"; dir="$HOME/.claude-$name"
+        mkdir -p "$dir"
+        for item in agents hooks skills plugins projects settings.json CLAUDE.md; do
+            [ -e "$HOME/.claude/$item" ] && [ ! -e "$dir/$item" ] && ln -s "$HOME/.claude/$item" "$dir/$item"
+        done
+        [ -f "$conf" ] || { mkdir -p "$(dirname "$conf")"; echo "default $HOME/.claude" >"$conf"; }
+        grep -q "^$name " "$conf" || echo "$name $dir" >>"$conf"
+        echo "Created $dir. Sign it in once:  CLAUDE_CONFIG_DIR=$dir claude   (then /login)" ;;
+    run)
+        eval "$(emit_env)" || exit 1
+        exec "$(real_claude)" "$@" ;;
+    *) sed -n '2,/^set -uo/p' "$0" | sed '$d'; exit 2 ;;
+esac

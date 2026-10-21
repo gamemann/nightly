@@ -39,6 +39,9 @@ IDLE_MINUTES="${NIGHTLY_IDLE_MINUTES:-90}"
 REPO_DEPTH="${NIGHTLY_REPO_DEPTH:-3}"
 USAGE_SCRIPT="${NIGHTLY_USAGE_SCRIPT:-$ROOT/scripts/claude-usage.sh}"
 CLAUDE_BIN="${NIGHTLY_CLAUDE_BIN:-claude}"
+# Which account this run uses, fixed for the whole run (the prompt cache is per account). With one
+# account claude-acct prints nothing and this changes nothing.
+if command -v claude-acct >/dev/null 2>&1; then eval "$(claude-acct env 2>/dev/null)" || true; fi
 read -r -a REQUIRED_TOOLS <<< "${NIGHTLY_REQUIRED_TOOLS:-git node npm}"
 read -r -a EXTRA_ARGS <<< "${NIGHTLY_CLAUDE_ARGS:-}"
 [ "${NIGHTLY_SKIP_PERMISSIONS:-1}" = "0" ] || EXTRA_ARGS+=(--dangerously-skip-permissions)
