@@ -1,6 +1,8 @@
 // nightly -- CLI over the nightly to-do database. See README.md for the reference.
 import '../lib/env.mjs'   // first: the other modules read process.env when they load
+import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import * as A from '../lib/agents.mjs'
 import { cronError, nextFires } from '../lib/cron.mjs'
 import * as P from '../lib/prompts.mjs'
@@ -87,6 +89,8 @@ const HELP = `nightly -- the nightly run's to-do database (${S.DB_PATH})
   agent inbox <name> [--peek]                   messages for you since you last looked
   agent board                                   who is live, what they hold, recent messages
   agent leave <name> [--note N]                 releases everything
+
+  account status | pick | env | add <name>      which Claude account a run or session uses (scripts/claude-acct); set up in .env
   get <setting>            (get doRun prints exactly true/false)
   set-setting <key> <value>
   brief                                         compact digest for the nightly prompt
@@ -383,6 +387,17 @@ function cmdAgent() {
     die('agent join | claim | release | say | inbox | board | leave')
 }
 
+// Several Claude accounts, chosen per run at launch. Configuration is CLAUDE_ACCOUNTS (and the
+// CLAUDE_ACCT_* knobs) in .env; with one account every subcommand is a no-op, see scripts/claude-acct.
+function cmdAccount() {
+    const sub = pos.shift() ?? die('account status | pick | env | add <name>')
+    if (!['status', 'pick', 'env', 'add'].includes(sub)) die('account status | pick | env | add <name>')
+    const r = spawnSync(path.join(S.ROOT, 'scripts', 'claude-acct'), [sub, ...pos], {
+        stdio: 'inherit', env: { ...process.env, CLAUDE_ACCT_ENV: process.env.CLAUDE_ACCT_ENV || path.join(S.ROOT, '.env') },
+    })
+    process.exit(r.status ?? 1)
+}
+
 function cmdGet() {
     const key = pos[0] ?? die('get <key>')
     let v = S.getSetting(db, key)
@@ -437,7 +452,7 @@ try {
     db = S.open()
     const table = { list: cmdList, ls: cmdList, show: cmdShow, add: cmdAdd, set: cmdSet, note: cmdNote, checks: cmdChecks,
         checked: cmdChecked, run: cmdRun, get: cmdGet, 'set-setting': cmdSetSetting, brief: cmdBrief,
-        prompt: cmdPrompt, prompts: cmdPrompt, schedule: cmdSchedule, schedules: cmdSchedule, tick: cmdTick, start: cmdStart, exec: cmdExec, agent: cmdAgent }
+        prompt: cmdPrompt, prompts: cmdPrompt, schedule: cmdSchedule, schedules: cmdSchedule, tick: cmdTick, start: cmdStart, exec: cmdExec, agent: cmdAgent, account: cmdAccount, accounts: cmdAccount }
     const fn = table[cmd] ?? die(`unknown command "${cmd}" (try: nightly help)`)
     await fn()
 } catch (e) {

@@ -9,8 +9,13 @@
 #   claude-acct add NAME          create ~/.claude-NAME sharing agents/hooks/skills/settings/projects
 #   claude-acct run [claude args] exec claude as the picked account   (also: the name `claude-auto`)
 #
-# Accounts live in ~/.config/claude-accounts/accounts, one `name  config-dir` per line; no file
-# means the single account "default" in ~/.claude. CLAUDE_ACCOUNT=name forces one.
+# Configuration is environment variables, read from the process or, for the ones below, from an
+# env file (first found: $CLAUDE_ACCT_ENV, ~/.config/claude-accounts/env, ~/stack/nightly/.env):
+#   CLAUDE_ACCOUNTS         name=config-dir,name=config-dir   (unset or one entry: today's single account)
+#   CLAUDE_ACCOUNT          force one account by name
+#   CLAUDE_ACCT_FIVE_MAX    skip an account whose 5-hour window is at least this full (default 90)
+#   CLAUDE_ACCT_TTL         seconds a usage probe is reused (default 600)
+# `add` writes CLAUDE_ACCOUNTS into that env file. Only these keys are read from it, never sourced.
 #
 # Why a pick only at launch: the prompt cache belongs to the account, so switching in the
 # middle of a session re-reads the whole context at full price. Sessions here are one batch
@@ -20,15 +25,25 @@
 # ~/.claude/projects, and per-account copies would split the accounting.
 set -uo pipefail
 
-conf="$HOME/.config/claude-accounts/accounts"
 cache="$HOME/.cache/claude-accounts"
 usage="${CLAUDE_USAGE_SCRIPT:-$(dirname "$(readlink -f "$0")")/claude-usage.sh}"
-five_max="${CLAUDE_ACCT_FIVE_MAX:-90}"      # skip an account whose 5-hour window is this full
-ttl="${CLAUDE_ACCT_TTL:-600}"
 mkdir -p "$cache"
 
+envfile=""
+for f in "${CLAUDE_ACCT_ENV:-}" "$HOME/.config/claude-accounts/env" "$HOME/stack/nightly/.env"; do
+    [ -n "$f" ] && [ -f "$f" ] && { envfile="$f"; break; }
+done
+if [ -n "$envfile" ]; then   # the process environment wins over the file
+    while IFS='=' read -r k v; do
+        [ -n "$v" ] && [ -z "${!k:-}" ] && export "$k=$v"
+    done < <(grep -E '^(CLAUDE_ACCOUNTS|CLAUDE_ACCOUNT|CLAUDE_ACCT_[A-Z_]+)=' "$envfile")
+fi
+five_max="${CLAUDE_ACCT_FIVE_MAX:-90}"
+ttl="${CLAUDE_ACCT_TTL:-600}"
+
 accounts() {   # "name dir" lines
-    if [ -f "$conf" ]; then grep -Ev '^\s*(#|$)' "$conf"; else echo "default $HOME/.claude"; fi
+    if [ -n "${CLAUDE_ACCOUNTS:-}" ]; then tr ',' '\n' <<<"$CLAUDE_ACCOUNTS" | sed 's/=/ /'
+    else echo "default $HOME/.claude"; fi
 }
 dir_of() { accounts | awk -v n="$1" '$1==n {print $2; exit}' | sed "s|^~|$HOME|"; }
 
@@ -93,8 +108,16 @@ case "$cmd" in
         for item in agents hooks skills plugins projects settings.json CLAUDE.md; do
             [ -e "$HOME/.claude/$item" ] && [ ! -e "$dir/$item" ] && ln -s "$HOME/.claude/$item" "$dir/$item"
         done
-        [ -f "$conf" ] || { mkdir -p "$(dirname "$conf")"; echo "default $HOME/.claude" >"$conf"; }
-        grep -q "^$name " "$conf" || echo "$name $dir" >>"$conf"
+        target="${envfile:-$HOME/.config/claude-accounts/env}"; mkdir -p "$(dirname "$target")"; touch "$target"
+        list="${CLAUDE_ACCOUNTS:-default=$HOME/.claude}"
+        case ",$list," in *",$name="*) ;; *) list="$list,$name=$dir" ;; esac
+        if grep -q '^CLAUDE_ACCOUNTS=' "$target"; then
+            python3 -c '
+import sys; p, v = sys.argv[1:]
+L = [("CLAUDE_ACCOUNTS=" + v) if l.startswith("CLAUDE_ACCOUNTS=") else l for l in open(p).read().split("\n")]
+open(p, "w").write("\n".join(L))' "$target" "$list"
+        else echo "CLAUDE_ACCOUNTS=$list" >>"$target"; fi
+        echo "CLAUDE_ACCOUNTS=$list  (in $target)"
         echo "Created $dir. Sign it in once:  CLAUDE_CONFIG_DIR=$dir claude   (then /login)" ;;
     run)
         eval "$(emit_env)" || exit 1
