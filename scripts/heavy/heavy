@@ -11,8 +11,9 @@
 # through here. Smoke-class runs additionally wait for an empty agent board (heavy-smoke.py).
 # See ~/stack/nightly/scripts/heavy/README.md.
 #
-# Each job runs in its own systemd scope capped at HEAVY_JOB_MAX_GB (default 12) with no
-# swap, so a runaway is killed instead of thrashing the VM.
+# Each job runs in its own systemd scope capped at HEAVY_JOB_MAX_GB (default 12), or at the
+# memory free when it starts less HEAVY_JOB_HEADROOM_GB if that is lower, with no swap, so a
+# runaway is killed instead of thrashing the VM. It gets HEAVY_JOB_CPUS CPUs at low priority.
 #
 # Lanes: `build` (next build, smoke, verify, Playwright, Godot suites/imports, cargo and
 # docker builds) has HEAVY_SLOTS_BUILD slots, default 1; `check` (tsc, npm run check/lint,
@@ -49,6 +50,13 @@ EXTRA_AVAIL_GB=${HEAVY_EXTRA_AVAIL_GB:-$MIN_AVAIL_GB}
 # swapped dev01 for 15 minutes (2026-10-16) instead of dying.
 JOB_MAX_GB=${HEAVY_JOB_MAX_GB:-12}
 JOB_SWAP_GB=${HEAVY_JOB_SWAP_GB:-0}
+# The ceiling is also held under what is free when the job starts, less this headroom: an
+# 18 GB ceiling on dev01 with 14 GB already in use (ClickHouse, editors, sessions) let a
+# `next build` take the VM to 100% commit and a load of 31 without ever reaching it (2026-10-20).
+JOB_HEADROOM_GB=${HEAVY_JOB_HEADROOM_GB:-3}
+# CPUs a job may use (CPUQuota), default all but two, and it runs at low CPU/IO priority, so
+# the VM still answers while a build has every core busy.
+JOB_CPUS=${HEAVY_JOB_CPUS:-$(( $(nproc) > 3 ? $(nproc) - 2 : 1 ))}
 DIR=${HEAVY_DIR:-/var/tmp/heavy}
 # Optional offload hook (see the wait loop); unset on dev01.
 OFFLOAD=${HEAVY_OFFLOAD:-}
@@ -154,15 +162,32 @@ waited=$(( $(date +%s) - start ))
 # Its own cgroup when the user manager is reachable (the nightly runner and SSH sessions
 # may have no user bus): MemoryMax kills the job, MemorySwapMax keeps it out of swap.
 export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
-scope=()
+scope=(); job_mb=0; unit=
 if [ "$JOB_MAX_GB" != 0 ] && [ -S "$XDG_RUNTIME_DIR/bus" ] && command -v systemd-run >/dev/null; then
-  scope=(systemd-run --user --scope --quiet --collect
-         -p MemoryMax="${JOB_MAX_GB}G" -p MemorySwapMax="${JOB_SWAP_GB}G" --)
+  avail_mb=$(( $(awk '/MemAvailable/ {print $2}' /proc/meminfo) / 1024 ))
+  job_mb=$(( JOB_MAX_GB * 1024 ))
+  fit_mb=$(( avail_mb - JOB_HEADROOM_GB * 1024 ))
+  [ "$fit_mb" -lt "$job_mb" ] && job_mb=$fit_mb
+  [ "$job_mb" -lt 1024 ] && job_mb=1024
+  unit=heavy-$lane-$slot-$$
+  scope=(systemd-run --user --scope --quiet --collect --unit="$unit"
+         -p MemoryMax="${job_mb}M" -p MemorySwapMax="${JOB_SWAP_GB}G"
+         -p CPUQuota="$(( JOB_CPUS * 100 ))%" -p CPUWeight=20 -p IOWeight=20
+         -- nice -n 10 ionice -c2 -n7)
+  echo "heavy: $lane/$slot: ${job_mb} MB, ${JOB_CPUS} CPUs ($((avail_mb / 1024)) GB free at start)" >&2
 fi
+# The scope's OOM kills are counted in the user journal; read them to tell its ceiling
+# from a kill by somebody else.
+oom_before=$(journalctl --user -q -o cat -u "$unit.scope" 2>/dev/null | grep -c 'oom' || true)
 HEAVY_HELD=$lane "${scope[@]}" "$@" {fd}>&-
 rc=$?
 if [ "$rc" = 137 ] && [ ${#scope[@]} -gt 0 ]; then
-  echo "heavy: killed (SIGKILL). Most likely it hit the ${JOB_MAX_GB} GB job ceiling (HEAVY_JOB_MAX_GB)." >&2
+  oom_after=$(journalctl --user -q -o cat -u "$unit.scope" 2>/dev/null | grep -c 'oom' || true)
+  if [ "${oom_after:-0}" -gt "${oom_before:-0}" ]; then
+    echo "heavy: killed: it hit its ${job_mb} MB ceiling (HEAVY_JOB_MAX_GB, or less free memory at start)." >&2
+  else
+    echo "heavy: killed (SIGKILL), not by its ${job_mb} MB ceiling as far as the journal shows: somebody else killed it." >&2
+  fi
 fi
 : > "$DIR/$lane.$slot.who"
 exit $rc
