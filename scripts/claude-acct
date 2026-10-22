@@ -14,6 +14,12 @@
 #   CLAUDE_ACCOUNTS         name=config-dir,name=config-dir   (unset or one entry: today's single account)
 #   CLAUDE_ACCOUNT          force one account by name
 #   CLAUDE_ACCT_FIVE_MAX    skip an account whose 5-hour window is at least this full (default 90)
+#   CLAUDE_ACCT_WEEK_MAX    skip an account whose 7-day window is at least this full (default 98)
+#   CLAUDE_ACCT_EXCLUDE     account names not to pick (a run that just hit its limit on one)
+#   CLAUDE_ACCT_STRICT      1: when no account is under the limits print nothing and exit 1, instead
+#                           of falling back to the first one (how a run asks "is there somewhere to spill to?")
+# Under `nightly account` the first two come from nightly's settings (accountMaxFiveHour,
+# accountMaxWeekly), which win over the env file.
 #   CLAUDE_ACCT_TTL         seconds a usage probe is reused (default 600)
 # `add` writes CLAUDE_ACCOUNTS into that env file. Only these keys are read from it, never sourced.
 #
@@ -39,6 +45,7 @@ if [ -n "$envfile" ]; then   # the process environment wins over the file
     done < <(grep -E '^(CLAUDE_ACCOUNTS|CLAUDE_ACCOUNT|CLAUDE_ACCT_[A-Z_]+)=' "$envfile")
 fi
 five_max="${CLAUDE_ACCT_FIVE_MAX:-90}"
+week_max="${CLAUDE_ACCT_WEEK_MAX:-98}"
 ttl="${CLAUDE_ACCT_TTL:-600}"
 
 accounts() {   # "name dir" lines
@@ -62,21 +69,23 @@ print(g("five_hour"), g("seven_day"))' "$f" || echo "? ?"
 }
 
 pick() {
-    if [ -n "${CLAUDE_ACCOUNT:-}" ]; then echo "$CLAUDE_ACCOUNT"; return; fi
-    local names; mapfile -t names < <(accounts | awk '{print $1}')
-    if [ "${#names[@]}" -le 1 ]; then echo "${names[0]:-default}"; return; fi
-    local best="" best_week=999 n five week
+    local strict="${CLAUDE_ACCT_STRICT:-0}"
+    if [ -n "${CLAUDE_ACCOUNT:-}" ] && [ "$strict" != 1 ]; then echo "$CLAUDE_ACCOUNT"; return; fi
+    local names n all; mapfile -t all < <(accounts | awk '{print $1}')
+    names=(); for n in "${all[@]}"; do case ",${CLAUDE_ACCT_EXCLUDE:-}," in *",$n,"*) ;; *) names+=("$n") ;; esac; done
+    if [ "${#all[@]}" -le 1 ] && [ "$strict" != 1 ]; then echo "${all[0]:-default}"; return; fi
+    local best="" best_week=999 five week
     for n in "${names[@]}"; do
         read -r five week < <(usage_of "$n")
         [ "$five" = "?" ] && continue                          # unknown: only if nothing else answers
-        python3 -c "import sys; sys.exit(0 if float('$five') < $five_max else 1)" || continue
+        python3 -c "import sys; sys.exit(0 if float('$five') < $five_max and float('$week') < $week_max else 1)" || continue
         if python3 -c "import sys; sys.exit(0 if float('$week') < $best_week else 1)"; then best="$n"; best_week="$week"; fi
     done
-    echo "${best:-${names[0]}}"                                # nothing usable: the first, as today
+    if [ -n "$best" ]; then echo "$best"; elif [ "$strict" = 1 ]; then return 1; else echo "${names[0]:-${all[0]}}"; fi
 }
 
 emit_env() {
-    local name dir; name="$(pick)"
+    local name dir; name="$(pick)" || return 1
     [ "$(accounts | wc -l)" -le 1 ] && [ -z "${CLAUDE_ACCOUNT:-}" ] && return 0
     dir="$(dir_of "$name")"
     [ -n "$dir" ] || { echo "claude-acct: no account named $name" >&2; return 1; }

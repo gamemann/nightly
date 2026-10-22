@@ -8,7 +8,14 @@ const USAGE_LIMITS = [
     { key: 'usageMaxFiveHour', label: '5-hour window', fallback: '80' },
     { key: 'usageMaxWeekly', label: 'Weekly window', fallback: '90' },
 ]
-const HIDDEN = new Set(['doRun', 'runner', 'lastTickAt', 'lastTickBy', 'authEnabled', 'authUser', ...USAGE_LIMITS.map((u) => u.key)])
+// With several Claude accounts (`nightly account`), a run starts on the one with the lowest weekly use
+// that is under both of these, and moves to another when the 5-hour limit stops it (up to the restart cap).
+const ACCOUNT_LIMITS = [
+    { key: 'accountMaxFiveHour', label: 'Skip account at 5-hour', fallback: '90', unit: '%', max: 100 },
+    { key: 'accountMaxWeekly', label: 'Skip account at weekly', fallback: '98', unit: '%', max: 100 },
+    { key: 'spillMaxRestarts', label: 'Restarts after a limit', fallback: '3', unit: 'times', max: 10 },
+]
+const HIDDEN = new Set(['doRun', 'runner', 'lastTickAt', 'lastTickBy', 'authEnabled', 'authUser', ...USAGE_LIMITS.map((u) => u.key), ...ACCOUNT_LIMITS.map((u) => u.key)])
 
 export function Settings() {
     const utils = api.useUtils()
@@ -49,6 +56,27 @@ export function Settings() {
                             onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
                             className="w-20 rounded border border-line bg-transparent px-2 py-1 font-mono" />
                         <span className="text-muted">%</span>
+                    </label>
+                ))}
+            </div>
+            <div className="mt-4 rounded-lg border border-line bg-panel/60 p-4">
+                <div className="font-medium">Claude accounts</div>
+                <p className="mt-0.5 mb-3 text-[12px] text-muted">
+                    Only matters once a second account is added (<code className="font-mono">nightly account add</code>); with one, nothing here changes anything. A run starts on the account with the lowest weekly use that is under both limits below. If a run is stopped by the plan&apos;s 5-hour limit, it resumes the same session on another account that is under them, up to the restart cap, and otherwise ends as before.
+                </p>
+                {ACCOUNT_LIMITS.map(({ key, label, fallback, unit, max }) => (
+                    <label key={key} className="flex items-center gap-3 py-1 text-[12px]">
+                        <span className="w-40 text-dim">{label}</span>
+                        <input type="number" min={unit === '%' ? 1 : 0} max={max} step={1} disabled={!s.data || set.isPending}
+                            key={s.data?.[key] ?? fallback}
+                            defaultValue={s.data?.[key] ?? fallback}
+                            onBlur={(e) => {
+                                const n = Math.round(Number(e.target.value))
+                                if (n >= (unit === '%' ? 1 : 0) && n <= max && String(n) !== (s.data?.[key] ?? fallback)) set.mutate({ key, value: String(n) })
+                            }}
+                            onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
+                            className="w-20 rounded border border-line bg-transparent px-2 py-1 font-mono" />
+                        <span className="text-muted">{unit}</span>
                     </label>
                 ))}
             </div>

@@ -10,7 +10,7 @@ import * as R from '../lib/runner.mjs'
 import * as S from '../lib/store.mjs'
 
 const argv = process.argv.slice(2)
-const BOOL = new Set(['json', 'all', 'top', 'due', 'help', 'h', 'dryRun', 'force', 'peek'])
+const BOOL = new Set(['json', 'all', 'top', 'due', 'help', 'h', 'dryRun', 'force', 'peek', 'strict'])
 
 function parse(args) {
     const pos = []
@@ -91,6 +91,7 @@ const HELP = `nightly -- the nightly run's to-do database (${S.DB_PATH})
   agent leave <name> [--note N]                 releases everything
 
   account status | pick | env | add <name>      which Claude account a run or session uses (scripts/claude-acct); set up in .env
+      [--strict] [--exclude a,b]                pick/env only: exit 1 if no account is under its limits / leave these out
   get <setting>            (get doRun prints exactly true/false)
   set-setting <key> <value>
   brief                                         compact digest for the nightly prompt
@@ -392,8 +393,16 @@ function cmdAgent() {
 function cmdAccount() {
     const sub = pos.shift() ?? die('account status | pick | env | add <name>')
     if (!['status', 'pick', 'env', 'add'].includes(sub)) die('account status | pick | env | add <name>')
+    // The thresholds are settings (Settings in the panel) and win over the .env file; unset, claude-acct's defaults apply.
+    const fromSettings = {}
+    for (const [setting, name] of [['accountMaxFiveHour', 'CLAUDE_ACCT_FIVE_MAX'], ['accountMaxWeekly', 'CLAUDE_ACCT_WEEK_MAX']]) {
+        const v = S.getSetting(db, setting)
+        if (v) fromSettings[name] = v
+    }
+    if (opt.strict) fromSettings.CLAUDE_ACCT_STRICT = '1'
+    if (opt.exclude) fromSettings.CLAUDE_ACCT_EXCLUDE = String(opt.exclude)
     const r = spawnSync(path.join(S.ROOT, 'scripts', 'claude-acct'), [sub, ...pos], {
-        stdio: 'inherit', env: { ...process.env, CLAUDE_ACCT_ENV: process.env.CLAUDE_ACCT_ENV || path.join(S.ROOT, '.env') },
+        stdio: 'inherit', env: { ...process.env, CLAUDE_ACCT_ENV: process.env.CLAUDE_ACCT_ENV || path.join(S.ROOT, '.env'), ...fromSettings },
     })
     process.exit(r.status ?? 1)
 }
