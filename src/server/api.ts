@@ -343,6 +343,28 @@ const promptRouter = router({
 
 const liveSince = () => new Date(Date.now() - LIVE_MINUTES * 60_000)
 
+const attachmentRouter = router({
+    /** Every item attachment, newest first, filtered by item and by item/note text, paged. */
+    list: procedure
+        .input(z.object({ item: z.string().optional(), q: z.string().optional(), limit: z.number().int().min(1).max(200).default(48), offset: z.number().int().min(0).default(0) }))
+        .query(async ({ input }) => {
+            type Row = { item: string; file: string; note: string; by: string; at: string; bytes: number }
+            const all: Row[] = []
+            for (const d of await readdir(ATTACH_DIR).catch(() => [] as string[])) {
+                try {
+                    const idx = JSON.parse(await readFile(path.join(ATTACH_DIR, d, 'index.json'), 'utf8')) as Omit<Row, 'item'>[]
+                    for (const a of idx) all.push({ ...a, item: d })
+                } catch { /* not an attachment dir */ }
+            }
+            const items = [...new Set(all.map((a) => a.item))].sort()
+            const q = input.q?.trim().toLowerCase()
+            const rows = all
+                .filter((a) => (!input.item || a.item === input.item) && (!q || `${a.item} ${a.note}`.toLowerCase().includes(q)))
+                .sort((a, b) => b.at.localeCompare(a.at))
+            return { total: rows.length, items, rows: rows.slice(input.offset, input.offset + input.limit) }
+        }),
+})
+
 const agentRouter = router({
     board: procedure.query(async ({ ctx }) => {
         const [agents, recent, claims, messages] = await Promise.all([
@@ -416,5 +438,5 @@ const authRouter = router({
         })),
 })
 
-export const appRouter = router({ item: itemRouter, note: noteRouter, run: runRouter, schedule: scheduleRouter, prompt: promptRouter, agent: agentRouter, setting: settingRouter, auth: authRouter })
+export const appRouter = router({ item: itemRouter, note: noteRouter, run: runRouter, schedule: scheduleRouter, prompt: promptRouter, attachment: attachmentRouter, agent: agentRouter, setting: settingRouter, auth: authRouter })
 export type AppRouter = typeof appRouter

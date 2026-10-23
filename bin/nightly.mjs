@@ -70,6 +70,7 @@ const HELP = `nightly -- the nightly run's to-do database (${S.DB_PATH})
   set <key> [--status S] [--priority N | --top | --after KEY] [--title ..] [--body B | --body-file F]
       [--repos ..] [--done-when ..] [--kind ..] [--cadence ..]
   attach <key> <file.png|jpg> [--note ..] [--by ..]   store a screenshot on the item (max 1280 px wide, 2 MB, last 20 kept)
+  attachments [--item KEY] [--json]            every screenshot on every item, newest first
   note <key> [--run ID] [--by nightly] <text | --file F | stdin>
   checks [--due]                                recurring checks (and which are due)
   checked <key> [--note ..] [--run ID]          stamp a check's lastRunAt
@@ -201,6 +202,11 @@ function cmdAttach() {
     S.mustItem(db, key)
     const a = Att.attach(key, file, { note: opt.note ? String(opt.note) : '', by: opt.by ?? 'session' })
     out(a, () => `attached to ${key}: ${a.url}  (${Math.round(a.bytes / 1024)} KB)`)
+}
+
+function cmdAttachments() {
+    const rows = Att.listAll(opt.item ? String(opt.item) : "")
+    out(rows, () => rows.map((a) => `${S.local(a.at)}  ${a.item}  by ${a.by}${a.note ? ` -- ${a.note}` : ""}\n    ${a.url}`).join("\n") || "(no attachments)")
 }
 
 function cmdChecks() {
@@ -475,7 +481,7 @@ if (!cmd || opt.help || cmd === 'help') {
 let db
 try {
     db = S.open()
-    const table = { list: cmdList, ls: cmdList, show: cmdShow, add: cmdAdd, set: cmdSet, note: cmdNote, attach: cmdAttach, checks: cmdChecks,
+    const table = { list: cmdList, ls: cmdList, show: cmdShow, add: cmdAdd, set: cmdSet, note: cmdNote, attach: cmdAttach, attachments: cmdAttachments, checks: cmdChecks,
         checked: cmdChecked, run: cmdRun, get: cmdGet, 'set-setting': cmdSetSetting, brief: cmdBrief,
         prompt: cmdPrompt, prompts: cmdPrompt, schedule: cmdSchedule, schedules: cmdSchedule, tick: cmdTick, start: cmdStart, exec: cmdExec, agent: cmdAgent, account: cmdAccount, accounts: cmdAccount }
     const fn = table[cmd] ?? die(`unknown command "${cmd}" (try: nightly help)`)
