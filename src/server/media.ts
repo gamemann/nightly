@@ -8,3 +8,6 @@ export const MEDIA_EXT: Record<string, string> = {
     '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif',
     '.svg': 'image/svg+xml', '.mp4': 'video/mp4', '.webm': 'video/webm',
 }
+
+/** Item attachments (`nightly attach`): <dir>/<key>/<file> plus index.json; keep in step with lib/attach.mjs. */
+export const ATTACH_DIR = path.resolve(/*turbopackIgnore: true*/ process.env.NIGHTLY_ATTACH || path.join(process.cwd(), 'data', 'attachments'))

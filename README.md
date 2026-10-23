@@ -135,6 +135,8 @@ Sidebar: Queue · In progress · Review · Blocked · Issues · Checks · Done �
 
 **Login:** off by default. Settings → Login turns it on: a password (stored as a scrypt hash), optionally a username. Every page, the API and `/media` then need a sign-in (an HMAC-signed cookie, 90 days; changing the username or password signs every browser out; Sign out in Settings). Locked out: `bin/nightly set-setting authEnabled false` on the machine. Behind anything but your own network, put the panel behind HTTPS too.
 
+**Item attachments.** `nightly attach <item> <file.png|jpg> [--note ..]` downscales to 1280 px wide, keeps it under 2 MB (JPEG fallback), stores it in `NIGHTLY_ATTACH` (default `data/attachments/<item>/`, with an `index.json`) and keeps the last 20 per item. The item page shows thumbnails (click to enlarge) with notes, `nightly show` lists the URLs (`NIGHTLY_PUBLIC_URL`, default `http://<hostname>:3010`), served at `/attachments/<item>/<file>`. From another machine: copy the image to a temp path and run `ssh <host> nightly attach ...`, which is what a wrapper script does.
+
 **Screenshots** are read from `NIGHTLY_MEDIA` (default `archive/screenshots`, laid out `<YYYY-MM-DD>/…`) and served at `/media/…`; a report's `![](screenshots/<date>/x.png)` renders inline.
 
 **Opening the dev panel from another machine:** set `NIGHTLY_DEV_ORIGINS` to the hostname(s) you use (see `.env.example`), or `npm run dev` serves the page and never hydrates.

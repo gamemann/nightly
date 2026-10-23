@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { readdir, stat } from 'node:fs/promises'
+import { readFile, readdir, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { TRPCError } from '@trpc/server'
@@ -8,7 +8,7 @@ import type { Prisma, PrismaClient } from '../../generated/prisma/client'
 import { cronError, nextFires } from '../../lib/cron.mjs'
 import { CADENCES, KINDS, LIVE_MINUTES, OPEN_STATUSES, STATUSES, isDue, slugify } from '~/lib/constants'
 import { AUTH_KEYS, PRIVATE_SETTINGS, forgetAuth, hashPassword, newSecret } from './auth'
-import { MEDIA_DIR, MEDIA_EXT } from './media'
+import { ATTACH_DIR, MEDIA_DIR, MEDIA_EXT } from './media'
 import { procedure, router } from './trpc'
 
 const run = promisify(execFile)
@@ -110,7 +110,9 @@ const itemRouter = router({
             include: { notes: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], include: { run: { select: { id: true, startedAt: true } } } } },
         })
         if (!it) throw new TRPCError({ code: 'NOT_FOUND', message: `no item ${input.key}` })
-        return { ...it, due: isDue(it) }
+        let attachments: { file: string; note: string; by: string; at: string; bytes: number }[] = []
+        try { attachments = JSON.parse(await readFile(path.join(ATTACH_DIR, it.key.replace(/[^\w.-]/g, '_'), 'index.json'), 'utf8')) } catch { /* none */ }
+        return { ...it, due: isDue(it), attachments }
     }),
 
     create: procedure

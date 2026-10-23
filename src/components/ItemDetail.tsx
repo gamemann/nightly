@@ -111,6 +111,7 @@ export function ItemDetail({ itemKey }: { itemKey: string }) {
                         <button onClick={startEdit} className="w-full rounded-md border border-dashed border-line p-6 text-muted hover:border-line-strong">Add a description…</button>
                     )}
                 </section>
+                <Attachments itemKey={it.key} items={it.attachments} />
                 <Notes itemKey={it.key} notes={it.notes} onAdded={invalidate} />
             </div>
 
@@ -180,6 +181,35 @@ function TextField(p: { label: string; value: string; onSave: (v: string) => voi
                     onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()} />
             )}
         </Field>
+    )
+}
+
+type AttachT = { file: string; note: string; by: string; at: string }
+
+function Attachments({ itemKey, items }: { itemKey: string; items: AttachT[] }) {
+    const [open, setOpen] = useState<AttachT | null>(null)
+    if (!items.length) return null
+    const url = (a: AttachT) => `/attachments/${encodeURIComponent(itemKey)}/${encodeURIComponent(a.file)}`
+    return (
+        <section className="space-y-2">
+            <span className="label">Screenshots · {items.length}</span>
+            <div className="flex flex-wrap gap-3">
+                {[...items].reverse().map((a) => (
+                    <figure key={a.file} className="w-40">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={url(a)} alt={a.note || a.file} loading="lazy" onClick={() => setOpen(a)} className="h-28 w-40 cursor-zoom-in rounded-md border border-line object-cover" />
+                        <figcaption className="mt-1 text-xs text-muted">{a.note || a.file}<br />{ago(new Date(a.at))} · {a.by}</figcaption>
+                    </figure>
+                ))}
+            </div>
+            {open && (
+                <div onClick={() => setOpen(null)} className="fixed inset-0 z-50 flex cursor-zoom-out flex-col items-center justify-center gap-2 bg-black/80 p-6">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={url(open)} alt={open.note || open.file} className="max-h-[85vh] max-w-full rounded-md" />
+                    {open.note && <p className="text-sm text-white">{open.note}</p>}
+                </div>
+            )}
+        </section>
     )
 }
 

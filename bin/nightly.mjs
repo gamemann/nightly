@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import * as A from '../lib/agents.mjs'
+import * as Att from '../lib/attach.mjs'
 import { cronError, nextFires } from '../lib/cron.mjs'
 import * as P from '../lib/prompts.mjs'
 import * as R from '../lib/runner.mjs'
@@ -68,6 +69,7 @@ const HELP = `nightly -- the nightly run's to-do database (${S.DB_PATH})
       [--priority N | --top | --after KEY] [--by christian|nightly|session]
   set <key> [--status S] [--priority N | --top | --after KEY] [--title ..] [--body B | --body-file F]
       [--repos ..] [--done-when ..] [--kind ..] [--cadence ..]
+  attach <key> <file.png|jpg> [--note ..] [--by ..]   store a screenshot on the item (max 1280 px wide, 2 MB, last 20 kept)
   note <key> [--run ID] [--by nightly] <text | --file F | stdin>
   checks [--due]                                recurring checks (and which are due)
   checked <key> [--note ..] [--run ID]          stamp a check's lastRunAt
@@ -122,6 +124,11 @@ function showItem(it, notes) {
     if (it.doneWhen) h.push(`done when: ${it.doneWhen}`)
     if (it.cadence) h.push(`cadence: ${it.cadence}   last run: ${it.lastRunAt ?? 'never'}${S.isDue(it) ? '   (DUE)' : ''}`)
     h.push('', it.body || '(no body)')
+    const shots = Att.list(it.key)
+    if (shots.length) {
+        h.push('', `--- attachments (${shots.length})`)
+        for (const a of shots) h.push(`${Att.urlFor(it.key, a.file)}  ${S.local(a.at)} by ${a.by}${a.note ? ` -- ${a.note}` : ''}`)
+    }
     for (const n of notes) h.push('', `--- note ${S.local(n.createdAt)} by ${n.author}${n.runId ? ` (run ${n.runId})` : ''}`, n.body)
     return h.join('\n')
 }
@@ -130,7 +137,8 @@ function cmdShow() {
     const key = pos[0] ?? die('show <key>')
     const it = S.mustItem(db, key)
     const notes = S.notesFor(db, it.id)
-    out({ ...it, notes }, () => showItem(it, notes))
+    const attachments = Att.list(it.key).map((a) => ({ ...a, url: Att.urlFor(it.key, a.file) }))
+    out({ ...it, notes, attachments }, () => showItem(it, notes))
 }
 
 function where() {
@@ -185,6 +193,14 @@ function cmdNote() {
     if (!body.trim()) die('empty note')
     const n = S.addNote(db, key, body.trim(), { author: opt.by ?? 'nightly', runId: opt.run ? int(opt.run, '--run') : null })
     out(n, () => `noted on ${key} (#${n.id})`)
+}
+
+function cmdAttach() {
+    const key = pos.shift() ?? die('attach <key> <file.png|jpg> [--note ..]')
+    const file = pos.shift() ?? die('attach <key> <file.png|jpg> [--note ..]')
+    S.mustItem(db, key)
+    const a = Att.attach(key, file, { note: opt.note ? String(opt.note) : '', by: opt.by ?? 'session' })
+    out(a, () => `attached to ${key}: ${a.url}  (${Math.round(a.bytes / 1024)} KB)`)
 }
 
 function cmdChecks() {
@@ -459,7 +475,7 @@ if (!cmd || opt.help || cmd === 'help') {
 let db
 try {
     db = S.open()
-    const table = { list: cmdList, ls: cmdList, show: cmdShow, add: cmdAdd, set: cmdSet, note: cmdNote, checks: cmdChecks,
+    const table = { list: cmdList, ls: cmdList, show: cmdShow, add: cmdAdd, set: cmdSet, note: cmdNote, attach: cmdAttach, checks: cmdChecks,
         checked: cmdChecked, run: cmdRun, get: cmdGet, 'set-setting': cmdSetSetting, brief: cmdBrief,
         prompt: cmdPrompt, prompts: cmdPrompt, schedule: cmdSchedule, schedules: cmdSchedule, tick: cmdTick, start: cmdStart, exec: cmdExec, agent: cmdAgent, account: cmdAccount, accounts: cmdAccount }
     const fn = table[cmd] ?? die(`unknown command "${cmd}" (try: nightly help)`)
