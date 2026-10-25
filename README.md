@@ -139,6 +139,8 @@ Sidebar: Queue · In progress · Review · Blocked · Issues · Checks · Done �
 
 **QA** (`/qa`): game machines push fuzz / visual / suite results with `scripts/qa-post.sh <kind> <game> <file>` (POST `/api/qa`, schema on the page; table `QaRun`, images under `NIGHTLY_ATTACH/qa-<id>/`). Same optional password as the panel; the poster logs in with `QA_USER`/`QA_PASSWORD`. Panel-only table, the CLI does not read it.
 
+**Perf budget** (`/qa`, kind `perf`): the `Perf budget` schedule (03:30) has the prompt `perf-budget.md`, whose first line is a shebang. `run.sh` runs a prompt like that as a job, not a Claude run (no plan-usage gate, no agent): it ssh-es to the game machine, runs game-arena `tools/perf_budget.sh --post` (frame-time percentiles, worst stall, load time, peak RSS and pack size per map on the GPU box, against a committed baseline) and the run is ok or failed by the exit code. The script posts through `scripts/qa-post.sh perf`; the page draws a trend chart per metric and map (last 30 runs, baseline and budget dashed, over-budget runs red). Any other job is a new prompt with a shebang plus a schedule.
+
 **Screenshots** are read from `NIGHTLY_MEDIA` (default `archive/screenshots`, laid out `<YYYY-MM-DD>/…`) and served at `/media/…`; a report's `![](screenshots/<date>/x.png)` renders inline.
 
 **Opening the dev panel from another machine:** set `NIGHTLY_DEV_ORIGINS` to the hostname(s) you use (see `.env.example`), or `npm run dev` serves the page and never hydrates.

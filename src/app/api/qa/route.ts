@@ -8,7 +8,7 @@ import { ATTACH_DIR } from "~/server/media"
 //   { kind: "fuzz"|"visual"|"suite", game, commit?, timestamp?, ok?,
 //     summary: { total, failed, ...anything }, failures: [{ name, repro?, reasons?: string[] }],
 //     attachments?: [{ name: "x.png", data: <base64>, note? }] }
-const KINDS = new Set(["fuzz", "visual", "suite"])
+const KINDS = new Set(["fuzz", "visual", "suite", "perf"])
 const KEEP = 200
 const MAX_IMAGE = 6_000_000
 const MAX_IMAGES = 40
@@ -20,7 +20,7 @@ export async function POST(req: Request) {
     try { b = await req.json() } catch { return Response.json({ error: "body is not JSON" }, { status: 400 }) }
     const kind = text(b.kind, 20)
     const game = text(b.game, 80).replace(/[^\w.-]/g, "_")
-    if (!KINDS.has(kind) || !game) return Response.json({ error: "kind (fuzz|visual|suite) and game are required" }, { status: 400 })
+    if (!KINDS.has(kind) || !game) return Response.json({ error: "kind (fuzz|visual|suite|perf) and game are required" }, { status: 400 })
     const sum = (b.summary && typeof b.summary === "object" ? b.summary : {}) as Record<string, unknown>
     // fuzz summaries say pairs/failed, visual ones maps/ok: accept those names as well.
     const total = num(sum.total) ?? num(sum.pairs) ?? num(sum.maps) ?? 0

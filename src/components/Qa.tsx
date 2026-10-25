@@ -15,12 +15,13 @@ export function Qa() {
     return (
         <div className="mx-auto max-w-6xl px-6 py-5 max-md:px-3">
             <h1 className="text-[15px] font-semibold tracking-tight">QA</h1>
-            <p className="mt-0.5 mb-4 text-[12px] text-muted">Fuzz sweeps, visual checks and suites pushed from the game machine, newest run per game and kind with the last {TREND} as a trend.</p>
+            <p className="mt-0.5 mb-4 text-[12px] text-muted">Fuzz sweeps, visual checks, suites and the nightly frame-time budget pushed from the game machine, newest run per game and kind with the last {TREND} as a trend.</p>
             {list.isLoading && <div className="p-6 text-center text-muted">Loading…</div>}
             {list.data && keys.length === 0 && <div className="mb-6 rounded-lg border border-line px-3 py-6 text-center text-muted">No QA runs yet. Post one (see below).</div>}
             <div className="space-y-4">
                 {keys.map((k) => {
                     const [game, kind] = k.split("\u0000")
+                    if (kind === "perf") return <PerfCard key={k} game={game} runs={rows.filter((r) => r.game === game && r.kind === kind).slice(0, TREND)} />
                     return <Card key={k} game={game} kind={kind} runs={rows.filter((r) => r.game === game && r.kind === kind).slice(0, TREND)} />
                 })}
             </div>
@@ -90,6 +91,77 @@ function Card({ game, kind, runs }: { game: string; kind: string; runs: Run[] })
     )
 }
 
+const UNIT: Record<string, string> = { p50_ms: "ms", p95_ms: "ms", p99_ms: "ms", stall_ms: "ms", load_s: "s", rss_mb: "MB", pack_mb: "MB" }
+
+type Pt = { v: number; base?: number; budget: number; bad: boolean; at: string }
+
+/** One metric over the last runs, oldest to newest: value line, baseline and budget as dashed lines, failing runs in red. */
+function Trend({ metric, points }: { metric: string; points: Pt[] }) {
+    const W = 220, H = 70, P = 4
+    const all = points.flatMap((p) => [p.v, p.base ?? p.v, Math.min(p.budget, Math.max(p.v, (p.base ?? p.v) * 1.5))])
+    const lo = Math.min(...all) * 0.9, hi = Math.max(...all) * 1.05 || 1
+    const x = (i: number) => P + (points.length < 2 ? (W - 2 * P) / 2 : (i * (W - 2 * P)) / (points.length - 1))
+    const y = (v: number) => H - P - ((v - lo) / (hi - lo || 1)) * (H - 2 * P)
+    const line = (f: (p: Pt) => number | undefined) =>
+        points.flatMap((p, i) => { const v = f(p); return v === undefined ? [] : [`${x(i).toFixed(1)},${y(v).toFixed(1)}`] }).join(" ")
+    const last = points[points.length - 1]
+    return (
+        <figure className="rounded-md border border-line px-2 py-1.5">
+            <figcaption className="flex items-baseline justify-between text-[11px]">
+                <span className="font-mono text-dim">{metric}</span>
+                <span className={`tabular-nums ${last.bad ? "text-red-300" : "text-muted"}`}>{last.v.toFixed(1)} {UNIT[metric]}{last.base !== undefined && <> · base {last.base.toFixed(1)}</>}</span>
+            </figcaption>
+            <svg viewBox={`0 0 ${W} ${H}`} className="mt-1 h-[70px] w-full" role="img" aria-label={`${metric} trend`}>
+                <polyline points={line((p) => p.budget)} fill="none" stroke="#f5b84a" strokeWidth="1" strokeDasharray="3 3" opacity="0.7" />
+                <polyline points={line((p) => p.base)} fill="none" stroke="#6c717c" strokeWidth="1" strokeDasharray="2 3" />
+                <polyline points={line((p) => p.v)} fill="none" stroke="#8b8cf8" strokeWidth="1.5" />
+                {points.map((p, i) => (
+                    <circle key={i} cx={x(i)} cy={y(p.v)} r={p.bad ? 3 : 1.8} fill={p.bad ? "#f87171" : "#8b8cf8"}><title>{`${new Date(p.at).toLocaleString("en-GB")}: ${p.v.toFixed(2)} ${UNIT[metric]}${p.bad ? " (over budget)" : ""}`}</title></circle>
+                ))}
+            </svg>
+        </figure>
+    )
+}
+
+/** Frame-time, memory and load budget per map (kind perf): a chart per metric, last runs, baseline and budget drawn. */
+function PerfCard({ game, runs }: { game: string; runs: Run[] }) {
+    const newest = runs[0]
+    const sum = newest.summary
+    const chrono = [...runs].reverse().filter((r) => r.summary?.metrics)
+    const maps = Object.keys(sum?.metrics ?? {})
+    return (
+        <section className="rounded-lg border border-line bg-panel/40 p-4">
+            <div className="flex flex-wrap items-center gap-2">
+                <span className="font-mono text-[13px] font-medium">{game}</span>
+                <span className="rounded bg-hover px-1.5 text-[11px] text-dim">perf</span>
+                <span className={`rounded px-1.5 text-[11px] ${badge(newest.ok)}`}>{newest.ok ? "within budget" : "OVER BUDGET"}</span>
+                <span className="text-[12px] tabular-nums text-muted">{newest.failedCount} of {newest.total} metrics over · {ago(newest.ranAt)}{newest.commit && <> · <span className="font-mono">{newest.commit.slice(0, 9)}</span></>}{sum?.dirty && " · dirty tree"}</span>
+                <span className="ml-auto text-[12px] text-muted">{sum?.gpu} · {sum?.resolution} · tolerance {Math.round((sum?.tolerance ?? 0) * 100)}%</span>
+            </div>
+            {newest.failures.length > 0 && (
+                <ul className="mt-3 space-y-1">
+                    {newest.failures.map((f, i) => <li key={i} className="font-mono text-[12px] text-red-300">{f.name} <span className="text-dim">{f.reasons.join("; ")}</span></li>)}
+                </ul>
+            )}
+            {maps.map((m) => (
+                <div key={m} className="mt-4">
+                    <div className="mb-1.5 font-mono text-[12px] text-dim">{m}</div>
+                    <div className="grid grid-cols-[repeat(auto-fill,minmax(210px,1fr))] gap-2">
+                        {Object.keys(sum?.metrics?.[m] ?? {}).map((k) => {
+                            const points: Pt[] = chrono.filter((r) => r.summary?.metrics?.[m]?.[k]).map((r) => {
+                                const x = r.summary!.metrics![m][k]
+                                return { v: x.value, base: x.baseline, budget: x.budget, bad: x.status === "fail", at: String(r.ranAt) }
+                            })
+                            return <Trend key={k} metric={k} points={points} />
+                        })}
+                    </div>
+                </div>
+            ))}
+            <p className="mt-3 text-[11px] text-muted">Purple: median of the night&apos;s runs. Grey dashed: baseline (tests/perf_budget.json). Amber dashed: budget (baseline plus tolerance, or the cap). Red: over budget. Last {TREND} runs, oldest left.</p>
+        </section>
+    )
+}
+
 function Docs() {
     return (
         <section className="mt-8 border-t border-line pt-4 text-[12px] text-dim">
@@ -97,9 +169,10 @@ function Docs() {
             <p className="mt-2">From the game machine (needs only curl and python3; set <code className="font-mono">QA_URL</code>, default <code className="font-mono">http://x-tmc-dev01:3010</code>; if the panel login is on, also <code className="font-mono">QA_USER</code> and <code className="font-mono">QA_PASSWORD</code>):</p>
             <pre className="mt-2 overflow-x-auto rounded-md bg-hover p-3 font-mono text-[11px] leading-relaxed">{`scripts/qa-post.sh fuzz game-arena .godot/fuzz/first/summary.json
 scripts/qa-post.sh visual game-arena visual.log .godot/test-logs/visual
-scripts/qa-post.sh suite game-arena result.json     # a payload in the format below`}</pre>
+scripts/qa-post.sh suite game-arena result.json     # a payload in the format below
+scripts/qa-post.sh perf game-arena result.json      # tools/perf_budget.sh --post builds it; summary.metrics drives the trend charts`}</pre>
             <p className="mt-2">Ingest is <code className="font-mono">POST /api/qa</code> with JSON, which anything can call directly:</p>
-            <pre className="mt-2 overflow-x-auto rounded-md bg-hover p-3 font-mono text-[11px] leading-relaxed">{`{ "kind": "fuzz|visual|suite", "game": "game-arena", "commit": "abc1234", "timestamp": "ISO-8601 (default now)",
+            <pre className="mt-2 overflow-x-auto rounded-md bg-hover p-3 font-mono text-[11px] leading-relaxed">{`{ "kind": "fuzz|visual|suite|perf", "game": "game-arena", "commit": "abc1234", "timestamp": "ISO-8601 (default now)",
   "summary": { "total": 9, "failed": 0 },          // fuzz summary.json (pairs, failed) and visual (maps, ok) also accepted
   "failures": [ { "name": "dm_pit seed 2", "repro": "tools/fuzz.sh --repro dm_pit 2", "reasons": ["..."] } ],
   "attachments": [ { "name": "dm_box_eye_diff.png", "data": "<base64>", "note": "dm_box" } ] }   // png/jpg, 6 MB each, 40 max`}</pre>

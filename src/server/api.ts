@@ -365,6 +365,9 @@ const attachmentRouter = router({
         }),
 })
 
+export type PerfMetric = { value: number; baseline?: number; budget: number; cap: number; noise_pct?: number; status: string }
+export type PerfSummary = { gpu?: string; tolerance?: number; resolution?: string; dirty?: boolean; metrics?: Record<string, Record<string, PerfMetric>> }
+
 const qaRouter = router({
     /** Newest QA runs (all games and kinds); the page groups and trends them. */
     list: procedure.query(async ({ ctx }) => {
@@ -373,6 +376,8 @@ const qaRouter = router({
             id: r.id, kind: r.kind, game: r.game, commit: r.commit, ranAt: r.ranAt, ok: r.ok, total: r.total, failedCount: r.failedCount,
             failures: JSON.parse(r.failures) as { name: string; repro: string; note: string; reasons: string[] }[],
             images: JSON.parse(r.images) as { file: string; note: string }[],
+            // only perf runs carry per-metric numbers worth shipping to the page
+            summary: r.kind === "perf" ? (JSON.parse(r.summary) as PerfSummary) : null,
         }))
     }),
 })

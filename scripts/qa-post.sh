@@ -3,6 +3,7 @@
 #   qa-post.sh fuzz   GAME path/to/summary.json
 #   qa-post.sh visual GAME path/to/log-with-"visual: N/M maps ok" [diff-dir]
 #   qa-post.sh suite  GAME path/to/payload.json     (payload in the /api/qa format; kind/game filled in)
+#   qa-post.sh perf   GAME path/to/payload.json     (same; summary.metrics = {map:{metric:{value,baseline,budget,cap,status}}}, built by game-arena tools/perf_budget.sh --post)
 # Env: QA_URL (default http://x-tmc-dev01:3010), QA_USER / QA_PASSWORD if the panel login is on,
 #      QA_COMMIT (default: git rev-parse HEAD of the current directory).
 set -euo pipefail
