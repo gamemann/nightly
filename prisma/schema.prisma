@@ -164,3 +164,23 @@ model PromptVersion {
 
   @@index([promptId])
 }
+
+/// One QA result pushed from a game machine (POST /api/qa; scripts/qa-post.sh). Panel-only table:
+/// the CLI never touches it. kind: fuzz | visual | suite. summary/failures are JSON text; images
+/// are files in NIGHTLY_ATTACH/qa-<id>/ (served by /attachments/qa-<id>/<file>).
+model QaRun {
+  id          Int      @id @default(autoincrement())
+  kind        String
+  game        String
+  commit      String   @default("")
+  ranAt       DateTime
+  ok          Boolean
+  total       Int      @default(0)
+  failedCount Int      @default(0)
+  summary     String   @default("{}")
+  failures    String   @default("[]")
+  images      String   @default("[]")
+  createdAt   DateTime @default(now())
+
+  @@index([game, kind, ranAt])
+}

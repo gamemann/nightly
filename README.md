@@ -137,6 +137,8 @@ Sidebar: Queue · In progress · Review · Blocked · Issues · Checks · Done �
 
 **Item attachments.** `nightly attach <item> <file.png|jpg> [--note ..]` downscales to 1280 px wide, keeps it under 2 MB (JPEG fallback), stores it in `NIGHTLY_ATTACH` (default `data/attachments/<item>/`, with an `index.json`) and keeps the last 20 per item. The item page shows thumbnails (click to enlarge) with notes, `nightly show` lists the URLs (`NIGHTLY_PUBLIC_URL`, default `http://<hostname>:3010`), served at `/attachments/<item>/<file>`. From another machine: copy the image to a temp path and run `ssh <host> nightly attach ...`, which is what a wrapper script does.
 
+**QA** (`/qa`): game machines push fuzz / visual / suite results with `scripts/qa-post.sh <kind> <game> <file>` (POST `/api/qa`, schema on the page; table `QaRun`, images under `NIGHTLY_ATTACH/qa-<id>/`). Same optional password as the panel; the poster logs in with `QA_USER`/`QA_PASSWORD`. Panel-only table, the CLI does not read it.
+
 **Screenshots** are read from `NIGHTLY_MEDIA` (default `archive/screenshots`, laid out `<YYYY-MM-DD>/…`) and served at `/media/…`; a report's `![](screenshots/<date>/x.png)` renders inline.
 
 **Opening the dev panel from another machine:** set `NIGHTLY_DEV_ORIGINS` to the hostname(s) you use (see `.env.example`), or `npm run dev` serves the page and never hydrates.

@@ -365,6 +365,18 @@ const attachmentRouter = router({
         }),
 })
 
+const qaRouter = router({
+    /** Newest QA runs (all games and kinds); the page groups and trends them. */
+    list: procedure.query(async ({ ctx }) => {
+        const rows = await ctx.db.qaRun.findMany({ orderBy: { ranAt: "desc" }, take: 600 })
+        return rows.map((r) => ({
+            id: r.id, kind: r.kind, game: r.game, commit: r.commit, ranAt: r.ranAt, ok: r.ok, total: r.total, failedCount: r.failedCount,
+            failures: JSON.parse(r.failures) as { name: string; repro: string; note: string; reasons: string[] }[],
+            images: JSON.parse(r.images) as { file: string; note: string }[],
+        }))
+    }),
+})
+
 const agentRouter = router({
     board: procedure.query(async ({ ctx }) => {
         const [agents, recent, claims, messages] = await Promise.all([
@@ -438,5 +450,5 @@ const authRouter = router({
         })),
 })
 
-export const appRouter = router({ item: itemRouter, note: noteRouter, run: runRouter, schedule: scheduleRouter, prompt: promptRouter, attachment: attachmentRouter, agent: agentRouter, setting: settingRouter, auth: authRouter })
+export const appRouter = router({ item: itemRouter, note: noteRouter, run: runRouter, schedule: scheduleRouter, prompt: promptRouter, attachment: attachmentRouter, qa: qaRouter, agent: agentRouter, setting: settingRouter, auth: authRouter })
 export type AppRouter = typeof appRouter

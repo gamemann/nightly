@@ -56,6 +56,9 @@ export function Sidebar() {
                 <Link href="/screenshots" className={link('/screenshots', path === '/screenshots')} title="Screenshots">
                     <span className="w-2 text-center text-[11px] text-muted">▣</span><span className="max-md:hidden">Screenshots</span>
                 </Link>
+                <Link href="/qa" className={link('/qa', path === '/qa')} title="QA">
+                    <span className="w-2 text-center text-[11px] text-muted">✓</span><span className="max-md:hidden">QA</span>
+                </Link>
                 <Link href="/schedules" className={link('/schedules', path === '/schedules')} title="Schedules">
                     <span className="w-2 text-center text-[11px] text-muted">◷</span><span className="max-md:hidden">Schedules</span>
                 </Link>
