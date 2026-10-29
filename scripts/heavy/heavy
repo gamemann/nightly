@@ -61,6 +61,8 @@ DIR=${HEAVY_DIR:-/var/tmp/heavy}
 # Optional offload hook (see the wait loop); unset on dev01.
 OFFLOAD=${HEAVY_OFFLOAD:-}
 OFFLOAD_EVERY=${HEAVY_OFFLOAD_EVERY:-15}
+# heavy sources /etc/heavy.conf without exporting, and the hook reads this from its environment.
+export HEAVY_PREFER_OFFLOAD
 
 lane=build
 while [ $# -gt 0 ]; do
@@ -75,6 +77,10 @@ while [ $# -gt 0 ]; do
           echo "busy  $(basename "$f" .lock): $(cat "${f%.lock}.who" 2>/dev/null)"
         fi
       done
+      # The boxes behind the offload hook (dev02: staging, staging02): free suite slots and their jobs.
+      if [ -n "$OFFLOAD" ] && [ -x "$OFFLOAD" ] && [ "${GPU_OFFLOAD:-1}" != 0 ]; then
+        echo "boxes:"; HEAVY_HELD=offload timeout 40 "$OFFLOAD" capacity 2>/dev/null | sed "s/^/  /"
+      fi
       echo "MemAvailable: $(awk '/MemAvailable/ {printf "%.1f GB", $2/1048576}' /proc/meminfo) (start needs >= ${MIN_AVAIL_GB} GB; build slots 2-${SLOTS_build} need >= ${EXTRA_AVAIL_GB} GB)"
       exit 0 ;;
     -h|--help) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;

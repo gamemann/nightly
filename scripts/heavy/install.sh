@@ -32,7 +32,11 @@ else
   install -m 755 "$here/heavy-smoke.py" ~/.claude/hooks/heavy-smoke.py
 fi
 printf 'HEAVY_SLOTS_BUILD=%s\nHEAVY_SLOTS_CHECK=2\nHEAVY_MIN_AVAIL_GB=%s\nHEAVY_EXTRA_AVAIL_GB=%s\nHEAVY_JOB_MAX_GB=%s\n' "$builds" "$avail" "$extra" "$job" | sudo tee /etc/heavy.conf >/dev/null
-[ -n "$off" ] && echo "HEAVY_OFFLOAD=$off" | sudo tee -a /etc/heavy.conf >/dev/null
+if [ -n "$off" ]; then
+  echo "HEAVY_OFFLOAD=$off" | sudo tee -a /etc/heavy.conf >/dev/null
+  # Eligible jobs go to the GPU boxes first, not only after a wait (GPU_OFFLOAD=0 or HEAVY_PREFER_OFFLOAD=0 opts out).
+  echo ": \${HEAVY_PREFER_OFFLOAD:=1}" | sudo tee -a /etc/heavy.conf >/dev/null
+fi
 
 python3 - <<'PY'
 import json, os
