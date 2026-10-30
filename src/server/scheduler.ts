@@ -8,9 +8,14 @@ import path from 'node:path'
 // is harmless. Runs it starts are detached: restarting the panel does not stop them.
 const g = globalThis as unknown as { nightlyScheduler?: NodeJS.Timeout }
 
+let ticking = false
+
 function tick() {
+    if (ticking) return   // a tick that outlives its minute is not stacked on
+    ticking = true
     const bin = path.join(/*turbopackIgnore: true*/ process.cwd(), 'bin', 'nightly')
     execFile(bin, ['tick'], { timeout: 50_000, env: { ...process.env, NIGHTLY_TICK_SOURCE: 'panel' } }, (err, stdout, stderr) => {
+        ticking = false
         if (stdout.trim()) console.log(`[scheduler] ${stdout.trim()}`)
         if (err) console.error(`[scheduler] tick failed: ${(stderr || err.message).trim()}`)
     })

@@ -16,4 +16,27 @@ if [ -z "$node" ]; then
     done
 fi
 [ -n "$node" ] || { echo "nightly: node not found" >&2; exit 127; }
+# One process per call must never outlive its welcome. 2026-10-30: dev01 reached load 50-65 with
+# dozens of nightly.mjs alive and had to be rebooted; a call that waits on stdin (note/add/say
+# with no text, from a session whose stdin never closes) or on a swapped-out box has no other
+# way to end. `exec` is the only long call (it waits for the runner) and is not time-capped.
+lockdir=${NIGHTLY_LOCK_DIR:-${TMPDIR:-/tmp}}
+mkdir -p "$lockdir" 2>/dev/null || true
+cmd=${1:-}
+limit=${NIGHTLY_CLI_TIMEOUT:-60}
+case $cmd in
+    tick)
+        # One tick at a time: a tick that outlives its minute (loaded box) is not joined by the next.
+        exec 9>"$lockdir/nightly-tick.lock"
+        flock -n 9 || { echo "nightly: previous tick still running, skipped" >&2; exit 0; }
+        limit=${NIGHTLY_TICK_TIMEOUT:-45} ;;
+    exec)
+        # One exec per run id: a second `nightly exec 110` would start the runner twice.
+        exec 9>"$lockdir/nightly-exec-${2:-x}.lock"
+        flock -n 9 || { echo "nightly: run ${2:-?} is already being executed" >&2; exit 0; }
+        limit=0 ;;
+esac
+if [ "$limit" != 0 ] && command -v timeout >/dev/null 2>&1; then
+    exec timeout --kill-after=5 "$limit" "$node" --no-warnings "$here/nightly.mjs" "$@"
+fi
 exec "$node" --no-warnings "$here/nightly.mjs" "$@"
