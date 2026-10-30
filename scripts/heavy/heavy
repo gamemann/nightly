@@ -58,6 +58,34 @@ JOB_HEADROOM_GB=${HEAVY_JOB_HEADROOM_GB:-3}
 # the VM still answers while a build has every core busy.
 JOB_CPUS=${HEAVY_JOB_CPUS:-$(( $(nproc) > 3 ? $(nproc) - 2 : 1 ))}
 DIR=${HEAVY_DIR:-/var/tmp/heavy}
+
+# Available memory (kB): the lesser of the VM's MemAvailable and the headroom of the user's
+# cgroup (min of memory.max/memory.high less memory.current, less swap in use, with
+# reclaimable file cache not counted). The cgroup caps at 20-22 GB on dev01 while the VM has
+# more, so MemAvailable alone let a build in at the cap and swap thrashed (2026-10-30).
+# HEAVY_CGROUP overrides the directory (tests); a missing or unlimited cgroup falls back.
+CGROUP=${HEAVY_CGROUP:-/sys/fs/cgroup/user.slice/user-$(id -u).slice}
+avail_kb() {
+  local vm cg lim v cur swp inact
+  vm=$(awk '/MemAvailable/ {print $2}' /proc/meminfo)
+  if [ -r "$CGROUP/memory.current" ]; then
+    lim=
+    for f in memory.max memory.high; do
+      v=$(cat "$CGROUP/$f" 2>/dev/null)
+      case $v in ''|max|*[!0-9]*) continue ;; esac
+      if [ -z "$lim" ] || [ "$v" -lt "$lim" ]; then lim=$v; fi
+    done
+    if [ -n "$lim" ]; then
+      cur=$(cat "$CGROUP/memory.current" 2>/dev/null); cur=${cur:-0}
+      swp=$(cat "$CGROUP/memory.swap.current" 2>/dev/null); swp=${swp:-0}
+      inact=$(awk '/^inactive_file / {print $2}' "$CGROUP/memory.stat" 2>/dev/null); inact=${inact:-0}
+      cg=$(( (lim - cur + inact - swp) / 1024 ))
+      [ "$cg" -lt 0 ] && cg=0
+      [ "$cg" -lt "$vm" ] && vm=$cg
+    fi
+  fi
+  echo "$vm"
+}
 # Optional offload hook (see the wait loop); unset on dev01.
 OFFLOAD=${HEAVY_OFFLOAD:-}
 OFFLOAD_EVERY=${HEAVY_OFFLOAD_EVERY:-15}
@@ -81,7 +109,7 @@ while [ $# -gt 0 ]; do
       if [ -n "$OFFLOAD" ] && [ -x "$OFFLOAD" ] && [ "${GPU_OFFLOAD:-1}" != 0 ]; then
         echo "boxes:"; HEAVY_HELD=offload timeout 40 "$OFFLOAD" capacity 2>/dev/null | sed "s/^/  /"
       fi
-      echo "MemAvailable: $(awk '/MemAvailable/ {printf "%.1f GB", $2/1048576}' /proc/meminfo) (start needs >= ${MIN_AVAIL_GB} GB; build slots 2-${SLOTS_build} need >= ${EXTRA_AVAIL_GB} GB)"
+      echo "Available (min of VM MemAvailable, user cgroup headroom less swap): $(awk -v k=$(avail_kb) 'BEGIN {printf "%.1f GB", k/1048576}') (start needs >= ${MIN_AVAIL_GB} GB; build slots 2-${SLOTS_build} need >= ${EXTRA_AVAIL_GB} GB)"
       exit 0 ;;
     -h|--help) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     --) shift; break ;;
@@ -124,7 +152,7 @@ while :; do
     exec {fd}>>"$DIR/$lane.$i.lock" || exit 70
     if flock -n "$fd"; then
       if [ "$i" -eq 1 ] || [ "$lane" != build ] ||
-         [ "$(awk '/MemAvailable/ {print $2}' /proc/meminfo)" -ge $((EXTRA_AVAIL_GB * 1048576)) ]; then
+         [ "$(avail_kb)" -ge $((EXTRA_AVAIL_GB * 1048576)) ]; then
         slot=$i; break 2
       fi
     fi
@@ -153,7 +181,7 @@ printf '%s pid %s since %s: %s\n' "$(whoami)@$(hostname -s)" "$$" "$(date +%H:%M
 
 last_note=0
 while :; do
-  avail_kb=$(awk '/MemAvailable/ {print $2}' /proc/meminfo)
+  avail_kb=$(avail_kb)
   [ "$avail_kb" -ge $((MIN_AVAIL_GB * 1048576)) ] && break
   now=$(date +%s)
   if [ $((now - last_note)) -ge 60 ]; then
@@ -168,9 +196,15 @@ waited=$(( $(date +%s) - start ))
 # Its own cgroup when the user manager is reachable (the nightly runner and SSH sessions
 # may have no user bus): MemoryMax kills the job, MemorySwapMax keeps it out of swap.
 export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
+# A job with no cap is how a build took a VM down, so a missing user bus is an error, not a
+# silent skip. `loginctl enable-linger` keeps the user manager (and its bus) up for every login.
+if [ "$JOB_MAX_GB" != 0 ] && [ "${HEAVY_ALLOW_UNCAPPED:-0}" != 1 ] && { [ ! -S "$XDG_RUNTIME_DIR/bus" ] || ! command -v systemd-run >/dev/null; }; then
+  echo "heavy: no systemd user bus at $XDG_RUNTIME_DIR/bus, so this job would run with no memory cap; refusing (HEAVY_ALLOW_UNCAPPED=1 overrides)." >&2
+  exit 126
+fi
 scope=(); job_mb=0; unit=
 if [ "$JOB_MAX_GB" != 0 ] && [ -S "$XDG_RUNTIME_DIR/bus" ] && command -v systemd-run >/dev/null; then
-  avail_mb=$(( $(awk '/MemAvailable/ {print $2}' /proc/meminfo) / 1024 ))
+  avail_mb=$(( $(avail_kb) / 1024 ))
   job_mb=$(( JOB_MAX_GB * 1024 ))
   fit_mb=$(( avail_mb - JOB_HEADROOM_GB * 1024 ))
   [ "$fit_mb" -lt "$job_mb" ] && job_mb=$fit_mb
