@@ -58,7 +58,7 @@ function Weapon({ rkey, id, w }: { rkey: string; id: string; w: ReviewWeapon }) 
     }
     return (
         <div className="px-4 py-3">
-            <div className="mb-2 flex items-center gap-2">
+            <div className="mb-2 flex flex-wrap items-center gap-2">
                 <h3 className="text-[13px] font-medium">{w.title}</h3>
                 <code className="font-mono text-[11px] text-muted">{id}</code>
                 <span className={`rounded px-1.5 text-[11px] ${v.cls}`}>{v.label}</span>
@@ -78,7 +78,7 @@ function Weapon({ rkey, id, w }: { rkey: string; id: string; w: ReviewWeapon }) 
                 </div>
             )}
             <div className="mt-3 flex flex-wrap items-start gap-2">
-                <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} placeholder="Note for the builder (what is still wrong)" className="min-w-[16rem] flex-1 rounded-md border border-line bg-transparent px-2 py-1 text-[12px]" />
+                <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} placeholder="Note for the builder (what is still wrong)" className="min-w-0 basis-60 flex-1 rounded-md border border-line bg-transparent px-2 py-1 text-[12px]" />
                 <button disabled={busy} onClick={() => send("good")} className="rounded-md bg-emerald-400/15 px-3 py-1 text-[12px] text-emerald-300 hover:bg-emerald-400/25">Good</button>
                 <button disabled={busy} onClick={() => send("wrong")} className="rounded-md bg-red-400/15 px-3 py-1 text-[12px] text-red-300 hover:bg-red-400/25">Still wrong</button>
                 {(w.verdict || w.note) && <button disabled={busy} onClick={() => send("")} className="rounded-md px-2 py-1 text-[12px] text-muted hover:bg-hover">Clear</button>}
