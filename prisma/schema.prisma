@@ -7,7 +7,7 @@ datasource db {
   provider = "sqlite"
 }
 
-/// kind: task | issue | check | study
+/// kind: task | issue | check | study | review
 /// status: queue | in_progress | review | blocked | done | wontfix
 /// addedBy: christian | nightly | session
 model Item {

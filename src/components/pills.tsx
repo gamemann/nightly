@@ -26,9 +26,9 @@ export function StatusPill({ status }: { status: string }) {
 }
 
 const KIND_STYLE: Record<string, string> = {
-    task: 'text-dim', issue: 'text-rose-300', check: 'text-teal-300', study: 'text-yellow-200',
+    task: 'text-dim', issue: 'text-rose-300', check: 'text-teal-300', study: 'text-yellow-200', review: 'text-sky-300',
 }
-const KIND_ICON: Record<string, string> = { task: '◇', issue: '⚑', check: '↻', study: '✎' }
+const KIND_ICON: Record<string, string> = { task: '◇', issue: '⚑', check: '↻', study: '✎', review: '◉' }
 
 export function KindTag({ kind }: { kind: string }) {
     return (

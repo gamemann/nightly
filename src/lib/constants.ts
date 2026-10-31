@@ -1,4 +1,4 @@
-export const KINDS = ['task', 'issue', 'check', 'study'] as const
+export const KINDS = ['task', 'issue', 'check', 'study', 'review'] as const
 export const STATUSES = ['queue', 'in_progress', 'review', 'blocked', 'done', 'wontfix'] as const
 export const OPEN_STATUSES = ['in_progress', 'review', 'queue', 'blocked'] as const
 export const CADENCES = ['nightly', 'every-2-days', 'weekly', 'monthly'] as const

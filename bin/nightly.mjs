@@ -7,6 +7,7 @@ import * as A from '../lib/agents.mjs'
 import * as Att from '../lib/attach.mjs'
 import { cronError, nextFires } from '../lib/cron.mjs'
 import * as P from '../lib/prompts.mjs'
+import * as Rv from '../lib/review.mjs'
 import * as R from '../lib/runner.mjs'
 import * as S from '../lib/store.mjs'
 
@@ -71,6 +72,8 @@ const HELP = `nightly -- the nightly run's to-do database (${S.DB_PATH})
       [--repos ..] [--done-when ..] [--kind ..] [--cadence ..]
   attach <key> <file.png|jpg> [--note ..] [--by ..]   store a screenshot on the item (max 1280 px wide, 2 MB, last 20 kept)
   attachments [--item KEY] [--json]            every screenshot on every item, newest first
+  review new "TITLE" [--key K] | list | show KEY | open KEY | media KEY WEAPON FILE --slot filmstrip|clip|audio|image [--variant before|after] [--label L] [--licence ..] [--source URL] [--title T] [--waveform W.png] | verdict KEY WEAPON good|wrong [--note ..]
+      a review item (kind review): per-weapon filmstrips/clips/audio and the verdict; open lists the weapons not yet good, with notes (--json)
   note <key> [--run ID] [--by nightly] <text | --file F | stdin>
   checks [--due]                                recurring checks (and which are due)
   checked <key> [--note ..] [--run ID]          stamp a check's lastRunAt
@@ -207,6 +210,47 @@ function cmdAttach() {
 function cmdAttachments() {
     const rows = Att.listAll(opt.item ? String(opt.item) : "")
     out(rows, () => rows.map((a) => `${S.local(a.at)}  ${a.item}  by ${a.by}${a.note ? ` -- ${a.note}` : ""}\n    ${a.url}`).join("\n") || "(no attachments)")
+}
+
+function cmdReview() {
+    const sub = pos.shift() ?? die('review new|list|show|open|media|verdict (see: nightly help)')
+    if (sub === 'new') {
+        const title = opt.title ?? (pos.length ? pos.join(' ') : die('review new "TITLE" [--key K]'))
+        const it = S.addItem(db, { title: String(title), key: opt.key, kind: 'review', status: 'review', body: bodyOpt(true), addedBy: opt.by ?? 'session' })
+        return out(it, () => `review ${it.key} created (panel: /reviews)`)
+    }
+    if (sub === 'list') {
+        const rows = db.prepare("SELECT key, title, status FROM Item WHERE kind = 'review' ORDER BY id DESC").all()
+            .map((r) => ({ ...r, open: Rv.open(r.key).length }))
+        return out(rows, () => rows.map((r) => `${r.key}  ${r.title}  (${r.open} weapons not good)`).join('\n') || '(no reviews)')
+    }
+    const key = pos.shift() ?? die(`review ${sub} KEY ...`)
+    S.mustItem(db, key)
+    if (sub === 'show') {
+        const d = Rv.load(key)
+        for (const w of Object.values(d.weapons)) for (const m of w.media) m.url = Rv.urlFor(key, m.file)
+        return out(d, () => Object.entries(d.weapons).map(([id, w]) => `${id}  [${w.verdict || 'unreviewed'}]${w.note ? ` ${w.note}` : ''}  (${w.media.length} media)`).join('\n') || '(empty)')
+    }
+    if (sub === 'open') {
+        const rows = Rv.open(key)
+        return out(rows, () => rows.map((r) => `${r.weapon}  [${r.verdict}]${r.note ? ` ${r.note}` : ''}`).join('\n') || 'all good')
+    }
+    const weapon = pos.shift() ?? die(`review ${sub} KEY WEAPON ...`)
+    if (sub === 'media') {
+        const file = pos.shift() ?? die('review media KEY WEAPON FILE --slot filmstrip|clip|audio|image')
+        const m = Rv.addMedia(key, weapon, file, {
+            slot: String(opt.slot ?? die('--slot is required')), variant: opt.variant ? String(opt.variant) : '', label: opt.label ? String(opt.label) : '',
+            licence: opt.licence ? String(opt.licence) : '', source: opt.source ? String(opt.source) : '', note: opt.note ? String(opt.note) : '',
+            title: opt.title ? String(opt.title) : '', waveform: opt.waveform ? String(opt.waveform) : '', by: opt.by ?? 'session',
+        })
+        return out(m, () => `added ${m.file}: ${m.url}`)
+    }
+    if (sub === 'verdict') {
+        const v = pos.shift() ?? die('review verdict KEY WEAPON good|wrong|clear [--note ..]')
+        const r = Rv.setVerdict(key, weapon, v === 'clear' ? '' : v, { note: opt.note ? String(opt.note) : '', by: opt.by ?? 'christian' })
+        return out(r, () => `${key}/${r.weapon}: ${r.verdict || 'cleared'}`)
+    }
+    die(`unknown review command "${sub}"`)
 }
 
 function cmdChecks() {
@@ -481,7 +525,7 @@ if (!cmd || opt.help || cmd === 'help') {
 let db
 try {
     db = S.open()
-    const table = { list: cmdList, ls: cmdList, show: cmdShow, add: cmdAdd, set: cmdSet, note: cmdNote, attach: cmdAttach, attachments: cmdAttachments, checks: cmdChecks,
+    const table = { list: cmdList, ls: cmdList, show: cmdShow, add: cmdAdd, set: cmdSet, note: cmdNote, attach: cmdAttach, attachments: cmdAttachments, review: cmdReview, reviews: cmdReview, checks: cmdChecks,
         checked: cmdChecked, run: cmdRun, get: cmdGet, 'set-setting': cmdSetSetting, brief: cmdBrief,
         prompt: cmdPrompt, prompts: cmdPrompt, schedule: cmdSchedule, schedules: cmdSchedule, tick: cmdTick, start: cmdStart, exec: cmdExec, agent: cmdAgent, account: cmdAccount, accounts: cmdAccount }
     const fn = table[cmd] ?? die(`unknown command "${cmd}" (try: nightly help)`)
