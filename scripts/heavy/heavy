@@ -92,11 +92,15 @@ OFFLOAD_EVERY=${HEAVY_OFFLOAD_EVERY:-15}
 # heavy sources /etc/heavy.conf without exporting, and the hook reads this from its environment.
 export HEAVY_PREFER_OFFLOAD
 
+# Seconds a job may wait for a slot and memory before giving up (exit 124); 0 = forever.
+MAX_WAIT=${HEAVY_MAX_WAIT:-0}
 lane=build
 while [ $# -gt 0 ]; do
   case $1 in
     --lane) lane=${2:-}; shift 2 ;;
     --lane=*) lane=${1#*=}; shift ;;
+    --max-wait) MAX_WAIT=${2:-}; shift 2 ;;
+    --max-wait=*) MAX_WAIT=${1#*=}; shift ;;
     --status)
       mkdir -p "$DIR"
       for f in "$DIR"/*.lock; do
@@ -116,6 +120,7 @@ while [ $# -gt 0 ]; do
     *) break ;;
   esac
 done
+case $MAX_WAIT in ''|*[!0-9]*) echo "heavy: --max-wait/HEAVY_MAX_WAIT needs whole seconds" >&2; exit 64 ;; esac
 [ $# -gt 0 ] || { echo "heavy: no command given (heavy [--lane build|check] -- <command>)" >&2; exit 64; }
 
 case $lane in
@@ -150,15 +155,22 @@ start=$(date +%s); last_note=0; last_offer=0; fd=; slot=
 while :; do
   for i in $(seq 1 "$slots"); do
     exec {fd}>>"$DIR/$lane.$i.lock" || exit 70
+    # The slot is kept only if the memory for it is free now: a job that owns a slot while it
+    # waits for memory blocks every other job behind it (dev02, 2026-10-31, 1-2 h).
     if flock -n "$fd"; then
-      if [ "$i" -eq 1 ] || [ "$lane" != build ] ||
-         [ "$(avail_kb)" -ge $((EXTRA_AVAIL_GB * 1048576)) ]; then
+      avail=$(avail_kb)
+      if [ "$avail" -ge $((MIN_AVAIL_GB * 1048576)) ] &&
+         { [ "$i" -eq 1 ] || [ "$lane" != build ] || [ "$avail" -ge $((EXTRA_AVAIL_GB * 1048576)) ]; }; then
         slot=$i; break 2
       fi
     fi
     exec {fd}>&-
   done
   now=$(date +%s)
+  if [ "$MAX_WAIT" -gt 0 ] && [ $((now - start)) -ge "$MAX_WAIT" ]; then
+    echo "heavy: gave up after $((now - start))s waiting for a $lane slot with ${MIN_AVAIL_GB} GB free (have $(( $(avail_kb) / 1048576 )) GB); nothing was held." >&2
+    exit 124
+  fi
   # Offload: a VM may name a script that runs a waiting build-lane job on another machine
   # (dev02: ~/godot/gpu.sh, the laptop "staging"). Offered only while waiting, never instead
   # of a free slot here, because the other machine may be slower per job. Exit 75 means
@@ -171,25 +183,13 @@ while :; do
     now=$(date +%s)
   fi
   if [ $((now - last_note)) -ge 60 ]; then
-    echo "heavy: waiting for a $lane slot ($((now - start))s). Held by:" >&2
+    echo "heavy: waiting for a $lane slot and ${MIN_AVAIL_GB} GB free ($((now - start))s; have $(( $(avail_kb) / 1048576 )) GB). Held by:" >&2
     for i in $(seq 1 "$slots"); do echo "  $(cat "$DIR/$lane.$i.who" 2>/dev/null)" >&2; done
     last_note=$now
   fi
   sleep 3
 done
 printf '%s pid %s since %s: %s\n' "$(whoami)@$(hostname -s)" "$$" "$(date +%H:%M:%S)" "$*" | cut -c1-300 > "$DIR/$lane.$slot.who"
-
-last_note=0
-while :; do
-  avail_kb=$(avail_kb)
-  [ "$avail_kb" -ge $((MIN_AVAIL_GB * 1048576)) ] && break
-  now=$(date +%s)
-  if [ $((now - last_note)) -ge 60 ]; then
-    echo "heavy: holding $lane/$slot, waiting for ${MIN_AVAIL_GB} GB free (have $((avail_kb / 1048576)) GB)" >&2
-    last_note=$now
-  fi
-  sleep 5
-done
 
 waited=$(( $(date +%s) - start ))
 [ "$waited" -ge 3 ] && echo "heavy: $lane/$slot acquired after ${waited}s" >&2
