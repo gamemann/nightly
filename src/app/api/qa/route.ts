@@ -11,6 +11,7 @@ import { ATTACH_DIR } from "~/server/media"
 const KINDS = new Set(["fuzz", "visual", "suite", "perf"])
 const KEEP = 200
 const MAX_IMAGE = 6_000_000
+const MAX_VIDEO = 30_000_000
 const MAX_IMAGES = 40
 const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.floor(v)) : undefined)
 const text = (v: unknown, max: number) => (typeof v === "string" ? v.slice(0, max) : "")
@@ -44,9 +45,9 @@ export async function POST(req: Request) {
     for (const f of files) {
         const o = (f && typeof f === "object" ? f : {}) as Record<string, unknown>
         const name = path.basename(text(o.name, 120)).replace(/[^\w.-]/g, "_")
-        if (!/\.(png|jpe?g)$/i.test(name) || typeof o.data !== "string") continue
+        if (!/\.(png|jpe?g|mp4|webm)$/i.test(name) || typeof o.data !== "string") continue
         const buf = Buffer.from(o.data, "base64")
-        if (buf.length === 0 || buf.length > MAX_IMAGE) continue
+        if (buf.length === 0 || buf.length > (/\.(mp4|webm)$/i.test(name) ? MAX_VIDEO : MAX_IMAGE)) continue
         await mkdir(dir, { recursive: true })
         await writeFile(path.join(dir, name), buf)
         images.push({ file: name, note: text(o.note, 200) })

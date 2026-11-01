@@ -78,10 +78,14 @@ function Card({ game, kind, runs }: { game: string; kind: string; runs: Run[] })
                 <div className="mt-3 grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-3">
                     {run.images.map((im) => (
                         <figure key={im.file} className="space-y-1">
-                            <a href={imgUrl(run, im.file)} target="_blank" rel="noreferrer">
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img src={imgUrl(run, im.file)} alt={im.file} loading="lazy" className="h-28 w-full rounded-md border border-line object-cover" />
-                            </a>
+                            {/\.(mp4|webm)$/i.test(im.file) ? (
+                                <video src={imgUrl(run, im.file)} controls loop muted playsInline preload="metadata" className="h-28 w-full rounded-md border border-line object-cover" />
+                            ) : (
+                                <a href={imgUrl(run, im.file)} target="_blank" rel="noreferrer">
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                    <img src={imgUrl(run, im.file)} alt={im.file} loading="lazy" className="h-28 w-full rounded-md border border-line object-cover" />
+                                </a>
+                            )}
                             <figcaption className="truncate text-[11px] text-muted" title={im.note || im.file}>{im.note || im.file}</figcaption>
                         </figure>
                     ))}
