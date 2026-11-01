@@ -9,6 +9,8 @@ import { cronError, nextFires } from '../../lib/cron.mjs'
 import { CADENCES, KINDS, LIVE_MINUTES, OPEN_STATUSES, STATUSES, isDue, slugify } from '~/lib/constants'
 import { AUTH_KEYS, PRIVATE_SETTINGS, forgetAuth, hashPassword, newSecret } from './auth'
 import { ATTACH_DIR, MEDIA_DIR, MEDIA_EXT } from './media'
+import { gameRouter } from './gameRouter'
+import { modelSibling } from './models'
 import { procedure, router } from './trpc'
 
 const run = promisify(execFile)
@@ -112,7 +114,7 @@ const itemRouter = router({
         if (!it) throw new TRPCError({ code: 'NOT_FOUND', message: `no item ${input.key}` })
         let attachments: { file: string; note: string; by: string; at: string; bytes: number }[] = []
         try { attachments = JSON.parse(await readFile(path.join(ATTACH_DIR, it.key.replace(/[^\w.-]/g, '_'), 'index.json'), 'utf8')) } catch { /* none */ }
-        return { ...it, due: isDue(it), attachments }
+        return { ...it, due: isDue(it), attachments: await withModels(it.key, attachments) }
     }),
 
     create: procedure
@@ -341,6 +343,12 @@ const promptRouter = router({
     }),
 })
 
+/** Adds the sibling model file name (or null) to each attachment of one item. */
+export async function withModels<T extends { file: string }>(item: string, rows: T[]): Promise<(T & { model: string | null })[]> {
+    const files = await readdir(path.join(ATTACH_DIR, item.replace(/[^\w.-]/g, '_'))).catch(() => [] as string[])
+    return rows.map((r) => ({ ...r, model: modelSibling(files, r.file) }))
+}
+
 const liveSince = () => new Date(Date.now() - LIVE_MINUTES * 60_000)
 
 const attachmentRouter = router({
@@ -361,7 +369,9 @@ const attachmentRouter = router({
             const rows = all
                 .filter((a) => (!input.item || a.item === input.item) && (!q || `${a.item} ${a.note}`.toLowerCase().includes(q)))
                 .sort((a, b) => b.at.localeCompare(a.at))
-            return { total: rows.length, items, rows: rows.slice(input.offset, input.offset + input.limit) }
+            const page = rows.slice(input.offset, input.offset + input.limit)
+            const withModel = (await Promise.all([...new Set(page.map((a) => a.item))].map(async (k) => withModels(k, page.filter((a) => a.item === k))))).flat()
+            return { total: rows.length, items, rows: page.map((a) => withModel.find((m) => m.item === a.item && m.file === a.file)!) }
         }),
 })
 
@@ -455,5 +465,5 @@ const authRouter = router({
         })),
 })
 
-export const appRouter = router({ item: itemRouter, note: noteRouter, run: runRouter, schedule: scheduleRouter, prompt: promptRouter, attachment: attachmentRouter, qa: qaRouter, agent: agentRouter, setting: settingRouter, auth: authRouter })
+export const appRouter = router({ item: itemRouter, note: noteRouter, run: runRouter, schedule: scheduleRouter, prompt: promptRouter, attachment: attachmentRouter, qa: qaRouter, agent: agentRouter, setting: settingRouter, auth: authRouter, game: gameRouter })
 export type AppRouter = typeof appRouter

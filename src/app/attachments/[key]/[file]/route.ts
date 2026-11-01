@@ -7,7 +7,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ key: string; f
     const { key, file } = await ctx.params
     const safe = decodeURIComponent(key).replace(/[^\w.-]/g, '_')
     const name = decodeURIComponent(file)
-    const type = { '.png': 'image/png', '.jpg': 'image/jpeg', '.mp4': 'video/mp4', '.webm': 'video/webm' }[path.extname(name).toLowerCase()]
+    const type = { '.png': 'image/png', '.jpg': 'image/jpeg', '.mp4': 'video/mp4', '.webm': 'video/webm', '.glb': 'model/gltf-binary', '.gltf': 'model/gltf+json' }[path.extname(name).toLowerCase()]
     if (!type || name !== path.basename(name)) return new Response('not found', { status: 404 })
     try {
         return new Response(await readFile(path.join(ATTACH_DIR, safe, name)), { headers: { 'content-type': type, 'cache-control': 'private, max-age=86400' } })

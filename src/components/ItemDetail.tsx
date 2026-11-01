@@ -6,6 +6,7 @@ import { CADENCES, KINDS, STATUSES, STATUS_LABEL } from '~/lib/constants'
 import { clearDraft, readDraft, writeDraft } from '~/lib/drafts'
 import { api } from '~/trpc/react'
 import { Markdown } from './Markdown'
+import { PictureViewer } from "./PictureViewer"
 import { MarkdownEditor } from './MarkdownEditor'
 import { KindTag, RepoChips, StatusPill, ago, fmt } from './pills'
 
@@ -184,7 +185,7 @@ function TextField(p: { label: string; value: string; onSave: (v: string) => voi
     )
 }
 
-type AttachT = { file: string; note: string; by: string; at: string }
+type AttachT = { file: string; note: string; by: string; at: string; model?: string | null }
 
 function Attachments({ itemKey, items }: { itemKey: string; items: AttachT[] }) {
     const [open, setOpen] = useState<AttachT | null>(null)
@@ -202,13 +203,7 @@ function Attachments({ itemKey, items }: { itemKey: string; items: AttachT[] }) 
                     </figure>
                 ))}
             </div>
-            {open && (
-                <div onClick={() => setOpen(null)} className="fixed inset-0 z-50 flex cursor-zoom-out flex-col items-center justify-center gap-2 bg-black/80 p-6">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={url(open)} alt={open.note || open.file} className="max-h-[85vh] max-w-full rounded-md" />
-                    {open.note && <p className="text-sm text-white">{open.note}</p>}
-                </div>
-            )}
+            {open && <PictureViewer shot={{ item: itemKey, file: open.file, note: open.note, at: open.at, model: open.model ?? null }} onClose={() => setOpen(null)} />}
         </section>
     )
 }

@@ -184,3 +184,24 @@ model QaRun {
 
   @@index([game, kind, ranAt])
 }
+
+/// A pinned note on a picture or its 3D model. target is an attachment file name of itemKey
+/// (the .glb/.gltf for kind "model", the picture for "image"). Model pins: x,y,z in model
+/// space plus the surface normal; image pins: x,y fractions of the picture (z and normal 0).
+model Annotation {
+  id        Int      @id @default(autoincrement())
+  itemKey   String
+  kind      String
+  target    String
+  x         Float
+  y         Float
+  z         Float    @default(0)
+  nx        Float    @default(0)
+  ny        Float    @default(0)
+  nz        Float    @default(0)
+  text      String
+  author    String   @default("christian")
+  createdAt DateTime @default(now())
+
+  @@index([itemKey, target])
+}

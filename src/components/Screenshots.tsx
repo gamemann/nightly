@@ -3,10 +3,11 @@ import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { api } from '~/trpc/react'
 import { ago } from './pills'
+import { PictureViewer, type Shot as ViewShot } from './PictureViewer'
 
 const PAGE = 48
 
-type Shot = { item: string; file: string; note: string; by: string; at: string }
+type Shot = ViewShot & { by: string }
 const url = (a: Shot) => `/attachments/${encodeURIComponent(a.item)}/${encodeURIComponent(a.file)}`
 
 export function Screenshots() {
@@ -57,13 +58,7 @@ export function Screenshots() {
                     <button disabled={page + 1 >= pages} onClick={() => setPage(page + 1)} className="rounded-md border border-line px-3 py-1 disabled:opacity-40">Next</button>
                 </div>
             )}
-            {open && (
-                <div onClick={() => setOpen(null)} className="fixed inset-0 z-50 flex cursor-zoom-out flex-col items-center justify-center gap-2 bg-black/80 p-6">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={url(open)} alt={open.note || open.file} className="max-h-[85vh] max-w-full rounded-md" />
-                    <p className="text-sm text-white">{open.item}{open.note ? ` · ${open.note}` : ''}</p>
-                </div>
-            )}
+            {open && <PictureViewer shot={open} onClose={() => setOpen(null)} />}
         </div>
     )
 }

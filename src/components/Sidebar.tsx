@@ -2,6 +2,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { api } from '~/trpc/react'
+import { gameLabel } from "~/lib/games"
 
 const NAV = [
     { href: '/queue', label: 'Queue', count: 'queue', dot: 'bg-sky-400' },
@@ -17,6 +18,7 @@ export function Sidebar() {
     const path = usePathname()
     const counts = api.item.counts.useQuery(undefined, { refetchInterval: 30_000 })
     const settings = api.setting.all.useQuery()
+    const games = api.game.list.useQuery(undefined, { refetchInterval: 60_000 })
     const liveAgents = api.agent.liveCount.useQuery(undefined, { refetchInterval: 15_000 })
     const doRun = settings.data?.doRun === 'true'
     if (path === '/login') return null
@@ -45,6 +47,14 @@ export function Sidebar() {
             </nav>
             <div className="my-3 border-t border-line" />
             <nav className="flex flex-col gap-0.5">
+                <div className="px-2 pb-0.5 pt-1 text-[11px] uppercase tracking-wide text-muted max-md:hidden"><Link href="/game" className="hover:text-fg">Games</Link></div>
+                {games.data?.map((g) => (
+                    <Link key={g.slug} href={`/game/${g.slug}`} className={link(`/game/${g.slug}`, path === `/game/${g.slug}`)} title={g.slug}>
+                        <span className="flex-1 truncate max-md:hidden">{gameLabel(g.slug)}</span>
+                        {g.open > 0 && <span className="text-[11px] tabular-nums text-muted max-md:hidden">{g.open}</span>}
+                    </Link>
+                ))}
+                <div className="my-1.5 border-t border-line" />
                 <Link href="/agents" className={link('/agents', path === '/agents')} title="Agents">
                     <span className={`size-2 shrink-0 rounded-full ${liveAgents.data ? 'bg-teal-400 shadow-[0_0_6px] shadow-teal-400' : 'bg-zinc-600'}`} />
                     <span className="flex-1 max-md:hidden">Agents</span>
