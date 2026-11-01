@@ -72,7 +72,7 @@ const HELP = `nightly -- the nightly run's to-do database (${S.DB_PATH})
       [--repos ..] [--done-when ..] [--kind ..] [--cadence ..]
   attach <key> <file.png|jpg> [--note ..] [--by ..]   store a screenshot on the item (max 1280 px wide, 2 MB, last 20 kept)
   attachments [--item KEY] [--json]            every screenshot on every item, newest first
-  review new "TITLE" [--key K] | list | show KEY | open KEY | media KEY WEAPON FILE --slot filmstrip|clip|audio|image [--variant before|after] [--label L] [--licence ..] [--source URL] [--title T] [--waveform W.png] | verdict KEY WEAPON good|wrong [--note ..]
+  review new "TITLE" [--key K] | list | show KEY | open KEY | media KEY WEAPON FILE --slot filmstrip|clip|audio|image|screenshot [--variant before|after] [--label L] [--licence ..] [--source URL] [--title T] [--waveform W.png] [--look TEXT] [--metrics JSON] | verdict KEY WEAPON good|wrong [--note ..]
       a review item (kind review): per-weapon filmstrips/clips/audio and the verdict; open lists the weapons not yet good, with notes (--json)
   note <key> [--run ID] [--by nightly] <text | --file F | stdin>
   checks [--due]                                recurring checks (and which are due)
@@ -237,11 +237,12 @@ function cmdReview() {
     }
     const weapon = pos.shift() ?? die(`review ${sub} KEY WEAPON ...`)
     if (sub === 'media') {
-        const file = pos.shift() ?? die('review media KEY WEAPON FILE --slot filmstrip|clip|audio|image')
+        const file = pos.shift() ?? die('review media KEY WEAPON FILE --slot filmstrip|clip|audio|image|screenshot')
         const m = Rv.addMedia(key, weapon, file, {
             slot: String(opt.slot ?? die('--slot is required')), variant: opt.variant ? String(opt.variant) : '', label: opt.label ? String(opt.label) : '',
             licence: opt.licence ? String(opt.licence) : '', source: opt.source ? String(opt.source) : '', note: opt.note ? String(opt.note) : '',
             title: opt.title ? String(opt.title) : '', waveform: opt.waveform ? String(opt.waveform) : '', by: opt.by ?? 'session',
+            look: opt.look ? String(opt.look) : '', metrics: opt.metrics ? String(opt.metrics) : null, entryLook: opt['entry-look'] ? String(opt['entry-look']) : '', entryMetrics: opt['entry-metrics'] ? String(opt['entry-metrics']) : null,
         })
         return out(m, () => `added ${m.file}: ${m.url}`)
     }

@@ -59,6 +59,7 @@ export async function POST(req: Request) {
                 const m = addMedia(key, weapon, src, {
                     slot: text(b.slot, 20), variant: text(b.variant, 10), label: text(b.label, 80), licence: text(b.licence, 200), source: text(b.source, 400),
                     note: text(b.note, 400), title: text(b.title, 120), waveform, by: text(b.by, 40) || "session",
+                    look: text(b.look, 300), metrics: b.metrics as never, entryLook: text(b.entry_look, 300), entryMetrics: b.entry_metrics as never,
                 })
                 return Response.json(m, { status: 201 })
             } finally {

@@ -3,12 +3,13 @@
 #   review-post.sh new     KEY "Title"
 #   review-post.sh media   KEY WEAPON FILE --slot filmstrip|clip|audio|image [--variant before|after] [--label L] [--title T]
 #                          [--licence L] [--source URL] [--note N] [--waveform W.png]
+#                          [--look "what to look for"] [--metrics '{"fps":60}'] [--entry-look L] [--entry-metrics JSON]
 #   review-post.sh verdict KEY WEAPON good|wrong|clear [--note N]
 #   review-post.sh open    KEY        (weapons not yet good, as JSON, with the notes)
 #   review-post.sh show    KEY        (every weapon with verdict, note and media)
 # Env: QA_URL (default http://x-tmc-dev01:3010), QA_USER / QA_PASSWORD if the panel login is on.
 set -euo pipefail
-[ $# -ge 2 ] || { sed -n 2,10p "$0"; exit 2; }
+[ $# -ge 2 ] || { sed -n 2,11p "$0"; exit 2; }
 url=${QA_URL:-http://x-tmc-dev01:3010}
 jar=$(mktemp); body=$(mktemp); trap 'rm -f "$jar" "$body"' EXIT
 auth=()
@@ -39,8 +40,11 @@ elif cmd == "verdict":
 elif cmd == "media":
     f = pos[2]
     p = {"action": "media", "key": pos[0], "weapon": pos[1], "name": os.path.basename(f), "data": b64(f)}
-    for k in ("slot", "variant", "label", "title", "licence", "source", "note", "by"):
+    for k in ("slot", "variant", "label", "title", "licence", "source", "note", "by", "look"):
         if k in opt: p[k] = opt[k]
+    for k in ("metrics", "entry-metrics"):
+        if k in opt: p[k.replace("-", "_")] = json.loads(opt[k])
+    if "entry-look" in opt: p["entry_look"] = opt["entry-look"]
     if "waveform" in opt: p["waveform"] = b64(opt["waveform"])
 else:
     sys.exit("unknown command " + cmd)
