@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Push a QA result to the nightly panel (/qa). Runs on the game machine: needs curl and python3.
 #   qa-post.sh fuzz   GAME path/to/summary.json
-#   qa-post.sh visual GAME path/to/log-with-"visual: N/M maps ok" [diff-dir]
+#   qa-post.sh visual GAME path/to/log-with-"visual: N/M maps ok" [diff-dir: *_diff.png and *.mp4 are attached]
 #   qa-post.sh suite  GAME path/to/payload.json     (payload in the /api/qa format; kind/game filled in)
 #   qa-post.sh perf   GAME path/to/payload.json     (same; summary.metrics = {map:{metric:{value,baseline,budget,cap,status}}}, built by game-arena tools/perf_budget.sh --post)
 # Env: QA_URL (default http://x-tmc-dev01:3010), QA_USER / QA_PASSWORD if the panel login is on,
@@ -28,7 +28,7 @@ elif kind == "visual":
     ok, tot = int(m[-1][0]), int(m[-1][1])
     bad = re.findall(r"^map (\S+): FAIL", txt, re.M)
     p = {"summary": {"total": tot, "failed": tot - ok}, "failures": [{"name": b} for b in bad], "attachments": []}
-    for png in sorted(glob.glob(os.path.join(d, "*_diff.png")) if d else []):
+    for png in sorted(glob.glob(os.path.join(d, "*_diff.png")) + glob.glob(os.path.join(d, "*.mp4")) if d else []):
         p["attachments"].append({"name": os.path.basename(png), "data": base64.b64encode(open(png, "rb").read()).decode()})
 else:
     p = json.load(open(file))
