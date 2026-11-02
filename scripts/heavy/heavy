@@ -15,6 +15,8 @@
 # memory free when it starts less HEAVY_JOB_HEADROOM_GB if that is lower, with no swap, so a
 # runaway is killed instead of thrashing the VM. It gets HEAVY_JOB_CPUS CPUs at low priority.
 #
+# Waiters queue FIFO (tickets in $DIR); a job over HEAVY_JOB_MAX_MIN (45) minutes is stopped.
+#
 # Lanes: `build` (next build, smoke, verify, Playwright, Godot suites/imports, cargo and
 # docker builds) has HEAVY_SLOTS_BUILD slots, default 1; `check` (tsc, npm run check/lint,
 # godot --check-only) has HEAVY_SLOTS_CHECK, default 2. Before starting, it also waits until
@@ -123,6 +125,11 @@ done
 case $MAX_WAIT in ''|*[!0-9]*) echo "heavy: --max-wait/HEAVY_MAX_WAIT needs whole seconds" >&2; exit 64 ;; esac
 [ $# -gt 0 ] || { echo "heavy: no command given (heavy [--lane build|check] -- <command>)" >&2; exit 64; }
 
+# A parse or import pass is a check, not a build: it must not queue behind 50-minute suites.
+if [ "$lane" = build ]; then
+  case " $* " in *" --check-only "*|*" --import "*) lane=check ;; esac
+fi
+
 case $lane in
   build) slots=$SLOTS_build ;;
   check) slots=$SLOTS_check ;;
@@ -152,43 +159,63 @@ fi
 
 mkdir -p "$DIR" 2>/dev/null; chmod 1777 "$DIR" 2>/dev/null
 start=$(date +%s); last_note=0; last_offer=0; fd=; slot=
+# FIFO: a waiter only tries for a slot when its ticket is the oldest live one in its lane, so none starves.
+ticket="$DIR/queue.$lane.$(date +%s%N).$$"; : > "$ticket"; trap 'rm -f "$ticket"' EXIT
 while :; do
-  for i in $(seq 1 "$slots"); do
-    exec {fd}>>"$DIR/$lane.$i.lock" || exit 70
-    # The slot is kept only if the memory for it is free now: a job that owns a slot while it
-    # waits for memory blocks every other job behind it (dev02, 2026-10-31, 1-2 h).
-    if flock -n "$fd"; then
-      avail=$(avail_kb)
-      if [ "$avail" -ge $((MIN_AVAIL_GB * 1048576)) ] &&
-         { [ "$i" -eq 1 ] || [ "$lane" != build ] || [ "$avail" -ge $((EXTRA_AVAIL_GB * 1048576)) ]; }; then
-        slot=$i; break 2
-      fi
-    fi
-    exec {fd}>&-
+  head=
+  for t in "$DIR"/queue.$lane.*; do
+    [ -e "$t" ] || continue
+    kill -0 "${t##*.}" 2>/dev/null || { rm -f "$t"; continue; }
+    head=$t; break
   done
   now=$(date +%s)
   if [ "$MAX_WAIT" -gt 0 ] && [ $((now - start)) -ge "$MAX_WAIT" ]; then
     echo "heavy: gave up after $((now - start))s waiting for a $lane slot with ${MIN_AVAIL_GB} GB free (have $(( $(avail_kb) / 1048576 )) GB); nothing was held." >&2
     exit 124
   fi
+  at_head=1
+  if [ -n "$head" ] && [ "$head" != "$ticket" ]; then
+    at_head=0
+    if [ $((now - last_note)) -ge 60 ]; then
+      echo "heavy: queued for a $lane slot ($((now - start))s), behind $(ls "$DIR"/queue.$lane.* 2>/dev/null | awk -v me="$ticket" '$0==me{exit} {n++} END{print n+0}') job(s)." >&2
+      last_note=$now
+    fi
+  else
+    for i in $(seq 1 "$slots"); do
+      exec {fd}>>"$DIR/$lane.$i.lock" || exit 70
+      # The slot is kept only if the memory for it is free now: a job that owns a slot while it
+      # waits for memory blocks every other job behind it (dev02, 2026-10-31, 1-2 h).
+      if flock -n "$fd"; then
+        avail=$(avail_kb)
+        if [ "$avail" -ge $((MIN_AVAIL_GB * 1048576)) ] &&
+           { [ "$i" -eq 1 ] || [ "$lane" != build ] || [ "$avail" -ge $((EXTRA_AVAIL_GB * 1048576)) ]; }; then
+          slot=$i; break 2
+        fi
+      fi
+      exec {fd}>&-
+    done
+  fi
   # Offload: a VM may name a script that runs a waiting build-lane job on another machine
-  # (dev02: ~/godot/gpu.sh, the laptop "staging"). Offered only while waiting, never instead
-  # of a free slot here, because the other machine may be slower per job. Exit 75 means
-  # "not taken": keep waiting and offer again in HEAVY_OFFLOAD_EVERY seconds.
+  # (dev02: ~/godot/gpu.sh). Offered only while waiting, never instead of a free slot here.
+  # Every waiter offers, head or not: a local-only job at the head (import, tool script) would
+  # otherwise keep every suite behind it from the idle boxes (2026-11-02). Exit 75 = not taken.
   if [ "$lane" = build ] && [ -n "$OFFLOAD" ] && [ -x "$OFFLOAD" ] && [ $((now - last_offer)) -ge "$OFFLOAD_EVERY" ]; then
     last_offer=$now
+    rm -f "$ticket"   # an offered job runs on the other box for minutes; it must not head the local queue meanwhile
     HEAVY_HELD=offload "$OFFLOAD" offer "$@"
     rc=$?
     [ "$rc" != 75 ] && exit "$rc"
+    : > "$ticket"
     now=$(date +%s)
   fi
-  if [ $((now - last_note)) -ge 60 ]; then
+  if [ "$at_head" = 1 ] && [ $((now - last_note)) -ge 60 ]; then
     echo "heavy: waiting for a $lane slot and ${MIN_AVAIL_GB} GB free ($((now - start))s; have $(( $(avail_kb) / 1048576 )) GB). Held by:" >&2
     for i in $(seq 1 "$slots"); do echo "  $(cat "$DIR/$lane.$i.who" 2>/dev/null)" >&2; done
     last_note=$now
   fi
   sleep 3
 done
+rm -f "$ticket"
 printf '%s pid %s since %s: %s\n' "$(whoami)@$(hostname -s)" "$$" "$(date +%H:%M:%S)" "$*" | cut -c1-300 > "$DIR/$lane.$slot.who"
 
 waited=$(( $(date +%s) - start ))
@@ -219,8 +246,13 @@ fi
 # The scope's OOM kills are counted in the user journal; read them to tell its ceiling
 # from a kill by somebody else.
 oom_before=$(journalctl --user -q -o cat -u "$unit.scope" 2>/dev/null | grep -c 'oom' || true)
-HEAVY_HELD=$lane "${scope[@]}" "$@" {fd}>&-
+# Wall-clock ceiling: a 7000 s exploration run held both dev02 build slots for over an hour
+# (2026-11-02). Raise per job with HEAVY_JOB_MAX_MIN=N, 0 disables.
+MAX_MIN=${HEAVY_JOB_MAX_MIN:-45}
+cap=(); [ "$MAX_MIN" != 0 ] && cap=(timeout -k 15 "$(( MAX_MIN * 60 ))")
+HEAVY_HELD=$lane "${cap[@]}" "${scope[@]}" "$@" {fd}>&-
 rc=$?
+[ "$rc" = 124 ] && echo "heavy: stopped after ${MAX_MIN} min (HEAVY_JOB_MAX_MIN) so it cannot hold a slot for hours." >&2
 if [ "$rc" = 137 ] && [ ${#scope[@]} -gt 0 ]; then
   oom_after=$(journalctl --user -q -o cat -u "$unit.scope" 2>/dev/null | grep -c 'oom' || true)
   if [ "${oom_after:-0}" -gt "${oom_before:-0}" ]; then
