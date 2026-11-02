@@ -80,7 +80,8 @@ avail_kb() {
     if [ -n "$lim" ]; then
       cur=$(cat "$CGROUP/memory.current" 2>/dev/null); cur=${cur:-0}
       swp=$(cat "$CGROUP/memory.swap.current" 2>/dev/null); swp=${swp:-0}
-      inact=$(awk '/^inactive_file / {print $2}' "$CGROUP/memory.stat" 2>/dev/null); inact=${inact:-0}
+      # Half of active_file is also reclaimable: counting only inactive_file read ~1 GB headroom with 3.6 GB of page cache and jammed the queue (2026-11-02).
+      inact=$(awk '/^inactive_file / {i=$2} /^active_file / {a=$2} END {print i + int(a / 2)}' "$CGROUP/memory.stat" 2>/dev/null); inact=${inact:-0}
       cg=$(( (lim - cur + inact - swp) / 1024 ))
       [ "$cg" -lt 0 ] && cg=0
       [ "$cg" -lt "$vm" ] && vm=$cg
