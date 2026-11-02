@@ -80,8 +80,8 @@ avail_kb() {
     if [ -n "$lim" ]; then
       cur=$(cat "$CGROUP/memory.current" 2>/dev/null); cur=${cur:-0}
       swp=$(cat "$CGROUP/memory.swap.current" 2>/dev/null); swp=${swp:-0}
-      # All file cache is reclaimable (the cgroup sits at memory.max with 3.7 GB of it and idle CPU; counting half of active_file still read 2.5 GB and jammed local-only waiters, 2026-11-02).
-      inact=$(awk '/^inactive_file / {i=$2} /^active_file / {a=$2} END {print i + a}' "$CGROUP/memory.stat" 2>/dev/null); inact=${inact:-0}
+      # File cache and reclaimable slab both count: the cgroup sat at memory.max with 3.7 GB cache plus 1 GB dentry/inode slab and idle CPU, which jammed local-only waiters (2026-11-02).
+      inact=$(awk '/^inactive_file / {i=$2} /^active_file / {a=$2} /^slab_reclaimable / {s=$2} END {print i + a + s}' "$CGROUP/memory.stat" 2>/dev/null); inact=${inact:-0}
       cg=$(( (lim - cur + inact - swp) / 1024 ))
       [ "$cg" -lt 0 ] && cg=0
       [ "$cg" -lt "$vm" ] && vm=$cg
