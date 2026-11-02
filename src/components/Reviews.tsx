@@ -1,10 +1,12 @@
 "use client"
 import { useRouter } from "next/navigation"
+import { gameLabel } from "~/lib/games"
 import { useMemo, useState } from "react"
 import { Metrics, Stage, Viewer, type MediaGroup, type MediaItem } from "./MediaViewer"
 import type { ReviewMedia, ReviewWeapon } from "../../lib/review.mjs"
 
-type Review = { key: string; title: string; body: string; createdAt: string; weapons: Record<string, ReviewWeapon> }
+type Counts = { total: number; good: number; wrong: number; todo: number }
+type Review = { key: string; title: string; body: string; createdAt: string; updatedAt: string; weapons: Record<string, ReviewWeapon>; game: string; counts: Counts }
 const url = (key: string, file: string) => `/reviewmedia/${encodeURIComponent(key)}/${file.split("/").map(encodeURIComponent).join("/")}`
 const VERDICT: Record<string, { label: string; cls: string }> = {
     good: { label: "good", cls: "bg-emerald-400/15 text-emerald-300" },
@@ -13,12 +15,48 @@ const VERDICT: Record<string, { label: string; cls: string }> = {
 }
 
 export function Reviews({ reviews }: { reviews: Review[] }) {
+    const [game, setGame] = useState("")
+    const [state, setState] = useState<"" | "todo" | "wrong" | "good">("")
+    const [open, setOpen] = useState<Set<string>>(new Set())
+    const games = [...new Set(reviews.map((r) => r.game))].sort()
+    const sum = (f: (r: Review) => number) => reviews.reduce((n, r) => n + f(r), 0)
+    const shown = reviews.filter((r) => (!game || r.game === game) && (!state || r.counts[state] > 0))
+    const toggle = (k: string) => setOpen((o) => { const n = new Set(o); if (!n.delete(k)) n.add(k); return n })
+    const chip = (on: boolean) => `rounded-md px-2 py-0.5 text-[12px] ${on ? "bg-hover text-fg" : "text-dim hover:bg-hover/60"}`
     return (
         <div className="mx-auto max-w-6xl px-6 py-5 max-md:px-3">
             <h1 className="text-[15px] font-semibold tracking-tight">Reviews</h1>
-            <p className="mt-0.5 mb-4 text-[12px] text-muted">Per-weapon animation (filmstrips and looping clips, before and after) and audio (waveform, licence), each with a good / still-wrong verdict and a note that builders read back with <code className="font-mono">nightly review open KEY</code>.</p>
-            {reviews.length === 0 && <div className="mb-6 rounded-lg border border-line px-3 py-6 text-center text-muted">No reviews yet. File one (see below).</div>}
-            <div className="space-y-6">{reviews.map((r) => <ReviewCard key={r.key} r={r} />)}</div>
+            <p className="mt-0.5 mb-3 text-[12px] text-muted">Animation clips, filmstrips and sounds waiting for a look. Verdict good / still wrong with a note that builders read back with <code className="font-mono">nightly review open KEY</code>. Task tickets in review status are under Review in the sidebar.</p>
+            <div className="mb-3 flex flex-wrap items-center gap-1.5">
+                <button className={chip(state === "")} onClick={() => setState("")}>All {sum((r) => r.counts.total)}</button>
+                <button className={chip(state === "todo")} onClick={() => setState("todo")}>Not reviewed <span className="text-dim">{sum((r) => r.counts.todo)}</span></button>
+                <button className={chip(state === "good")} onClick={() => setState("good")}>Good <span className="text-emerald-300">{sum((r) => r.counts.good)}</span></button>
+                <button className={chip(state === "wrong")} onClick={() => setState("wrong")}>Still wrong <span className="text-red-300">{sum((r) => r.counts.wrong)}</span></button>
+                <select value={game} onChange={(e) => setGame(e.target.value)} className="ml-auto rounded-md border border-line bg-panel px-2 py-0.5 text-[12px]">
+                    <option value="">All games</option>
+                    {games.map((g) => <option key={g} value={g}>{gameLabel(g)} ({reviews.filter((r) => r.game === g).length})</option>)}
+                </select>
+            </div>
+            {shown.length === 0 && <div className="mb-6 rounded-lg border border-line px-3 py-6 text-center text-muted">{reviews.length ? "No reviews match." : "No reviews yet. File one (see below)."}</div>}
+            <div className="space-y-2">
+                {shown.map((r) => (
+                    <div key={r.key}>
+                        <button onClick={() => toggle(r.key)} className="flex w-full flex-wrap items-baseline gap-3 rounded-lg border border-line px-4 py-2.5 text-left hover:bg-hover/40">
+                            <span className="w-3 text-[11px] text-muted">{open.has(r.key) ? "▾" : "▸"}</span>
+                            <span className="text-[13px] font-semibold">{r.title}</span>
+                            <code className="font-mono text-[11px] text-muted">{r.key}</code>
+                            <span className="rounded bg-hover px-1.5 text-[11px] text-dim">{gameLabel(r.game)}</span>
+                            <span className="ml-auto flex gap-2 text-[11px]">
+                                <span className="text-dim">{r.counts.total} entries</span>
+                                <span className="text-dim">{r.counts.todo} not reviewed</span>
+                                <span className="text-emerald-300">{r.counts.good} good</span>
+                                <span className="text-red-300">{r.counts.wrong} still wrong</span>
+                            </span>
+                        </button>
+                        {open.has(r.key) && <div className="mt-2 mb-4"><ReviewCard r={r} /></div>}
+                    </div>
+                ))}
+            </div>
             <Docs />
         </div>
     )

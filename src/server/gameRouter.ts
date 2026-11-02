@@ -13,14 +13,14 @@ export const gameRouter = router({
     /** Every game with its item and QA counts, derived from item repos and QA run games. */
     list: procedure.query(async ({ ctx }) => {
         const [items, qa] = await Promise.all([
-            ctx.db.item.findMany({ select: { repos: true, status: true } }),
+            ctx.db.item.findMany({ select: { repos: true, status: true, key: true, title: true } }),
             ctx.db.qaRun.findMany({ select: { game: true, ok: true, ranAt: true }, orderBy: { ranAt: 'desc' }, take: 600 }),
         ])
         const known = knownGames([...items.map((i) => i.repos), ...qa.map((q) => q.game)])
         const m = new Map<string, { slug: string; open: number; total: number; qa: number; qaFailing: boolean }>()
         const get = (s: string) => { let g = m.get(s); if (!g) m.set(s, g = { slug: s, open: 0, total: 0, qa: 0, qaFailing: false }); return g }
         for (const k of known) get(k)
-        for (const i of items) { const g = get(gameOf(i.repos, known)); g.total++; if (OPEN.has(i.status)) g.open++ }
+        for (const i of items) { const g = get(gameOf(i.repos, known, i.key, i.title)); g.total++; if (OPEN.has(i.status)) g.open++ }
         const seen = new Set<string>()
         for (const q of qa) {
             const g = get(gameOf(q.game, known)); g.qa++
@@ -35,7 +35,7 @@ export const gameRouter = router({
         const all = await ctx.db.item.findMany({ select: { id: true, key: true, title: true, kind: true, status: true, priority: true, repos: true, updatedAt: true }, orderBy: [{ updatedAt: 'desc' }] })
         const qaAll = await ctx.db.qaRun.findMany({ orderBy: { ranAt: 'desc' }, take: 600 })
         const known = knownGames([...all.map((i) => i.repos), ...qaAll.map((q) => q.game)])
-        const items = all.filter((i) => gameOf(i.repos, known) === input.slug)
+        const items = all.filter((i) => gameOf(i.repos, known, i.key, i.title) === input.slug)
         const ids = items.map((i) => i.id)
         const notes = ids.length ? await ctx.db.note.findMany({ where: { itemId: { in: ids }, runId: { not: null } }, select: { runId: true }, distinct: ['runId'] }) : []
         const runs = await ctx.db.run.findMany({

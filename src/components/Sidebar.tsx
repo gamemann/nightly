@@ -30,6 +30,7 @@ export function Sidebar() {
                 <svg viewBox="0 0 32 32" className="size-5 shrink-0"><path d="M20.5 7.5a9 9 0 1 0 4 13.2A7.2 7.2 0 0 1 20.5 7.5Z" fill="#8b8cf8" /></svg>
                 <span className="max-md:hidden">nightly</span>
             </Link>
+            <div className="-mx-1 min-h-0 flex-1 overflow-y-auto px-1">
             <nav className="flex flex-col gap-0.5">
                 {NAV.map((n) => {
                     const c = counts.data?.[n.count]
@@ -82,7 +83,8 @@ export function Sidebar() {
                     <span className="w-2 text-center text-[11px] text-muted">⚙</span><span className="max-md:hidden">Settings</span>
                 </Link>
             </nav>
-            <div className="mt-auto px-2 text-[11px] text-muted max-md:hidden">
+            </div>
+            <div className="shrink-0 px-2 pt-2 text-[11px] text-muted max-md:hidden">
                 {settings.data && (
                     <Link href="/schedules" className="flex items-center gap-1.5 hover:text-dim">
                         <span className={`size-1.5 rounded-full ${doRun ? 'bg-emerald-400 shadow-[0_0_6px] shadow-emerald-400' : 'bg-zinc-600'}`} />

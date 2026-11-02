@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import { suggestRepos } from '../../lib/classify.mjs'
 import { readFile, readdir, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
@@ -138,7 +139,7 @@ const itemRouter = router({
             const it = await tx.item.create({
                 data: {
                     key, title: input.title, kind: input.kind, status: input.status, body: input.body,
-                    repos: input.repos.split(',').map((s) => s.trim()).filter(Boolean).join(', '),
+                    repos: input.repos.split(',').map((s) => s.trim()).filter(Boolean).join(', ') || suggestRepos(key, input.title),
                     doneWhen: input.doneWhen || null, addedBy: 'christian',
                     cadence: input.kind === 'check' ? (input.cadence ?? 'nightly') : null,
                     priority: 1_000_000, completedAt: closed ? new Date() : null,
