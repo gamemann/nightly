@@ -89,8 +89,9 @@ const HELP = `nightly -- the nightly run's to-do database (${S.DB_PATH})
   start <schedule-id|name>                      fire one schedule now (ignores doRun); prints the run id
 
   agent join <name> [--task T] [--repos a,b] [--kind session|nightly] [--run ID]
-  agent claim <name> <path...> [--note N] [--force]   exit 3 if a live agent holds an overlapping path
-  agent release <name> [<path...>]              (no path = all of them)
+  agent claim <name> <scope...> [--note N] [--force]   exit 3 if a live agent holds an overlapping scope.
+      scope = path, or <repo-claim>:<path-or-glob> (dev02:godot/game-arena:scripts/ctf/**); a bare repo = whole repo
+  agent release <name> [<scope...>]              (no path = all of them)
   agent say <name> [--to AGENT] <text | stdin>
   agent inbox <name> [--peek]                   messages for you since you last looked
   agent board                                   who is live, what they hold, recent messages
