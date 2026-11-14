@@ -1,4 +1,5 @@
 import { db } from "~/server/db"
+import { OWNER } from "~/lib/constants"
 
 // Pinned notes on a picture (x, y fractions) or its model (x, y, z + normal). Behind the same optional password as the panel (proxy.ts).
 //   GET    ?item=<key>&target=<file>        list
@@ -23,7 +24,7 @@ export async function POST(req: Request) {
     if (!item || !target || !kind || !note) return Response.json({ error: "item, target, kind (model|image) and text are required" }, { status: 400 })
     if (target !== target.split("/").pop()) return Response.json({ error: "target is a file name" }, { status: 400 })
     const row = await db.annotation.create({
-        data: { itemKey: item, kind, target, x: fin(b.x), y: fin(b.y), z: fin(b.z), nx: fin(b.nx), ny: fin(b.ny), nz: fin(b.nz), text: note, author: text(b.author, 40).trim() || "christian" },
+        data: { itemKey: item, kind, target, x: fin(b.x), y: fin(b.y), z: fin(b.z), nx: fin(b.nx), ny: fin(b.ny), nz: fin(b.nz), text: note, author: text(b.author, 40).trim() || OWNER },
     })
     return Response.json(row, { status: 201 })
 }

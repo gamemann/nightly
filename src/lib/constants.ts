@@ -2,7 +2,9 @@ export const KINDS = ['task', 'issue', 'check', 'study', 'review'] as const
 export const STATUSES = ['queue', 'in_progress', 'review', 'blocked', 'done', 'wontfix'] as const
 export const OPEN_STATUSES = ['in_progress', 'review', 'queue', 'blocked'] as const
 export const CADENCES = ['nightly', 'every-2-days', 'weekly', 'monthly'] as const
-export const AUTHORS = ['christian', 'nightly', 'session'] as const
+// The panel owner's name (NIGHTLY_OWNER in .env, inlined at build by next.config.ts; lib/owner.mjs is the CLI's copy).
+export const OWNER: string = process.env.NEXT_PUBLIC_NIGHTLY_OWNER || 'owner'
+export const AUTHORS = [OWNER, 'nightly', 'session'] as const
 // Keep in step with lib/store.mjs (the CLI's copy).
 export const CADENCE_HOURS: Record<string, number> = { nightly: 20, 'every-2-days': 44, weekly: 6.5 * 24, monthly: 28 * 24 }
 

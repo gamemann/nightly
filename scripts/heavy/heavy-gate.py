@@ -2,7 +2,7 @@
 """PreToolUse gate on Bash: memory-hungry commands must go through `heavy`.
 
 Parallel agents each ran `next build`, the smoke suite or a Godot suite at the same moment,
-the guest filled its RAM and the host killed the VM (x-tmc-dev01, 2026-10-16). `heavy` queues
+the guest filled its RAM and the host killed the VM (the build VM, 2026-10-16). `heavy` queues
 them per VM; this hook refuses one that skips the queue, with exit 2 so the agent sees the
 reason and the exact command to run instead.
 
@@ -130,7 +130,7 @@ def main():
         "  heavy %s-- %s" % ("--lane check " if lane == "check" else "", cmd) for lane, cmd in hits)
     sys.stderr.write(
         "Refused: this runs a memory-hungry command outside the queue. Parallel agents doing "
-        "that filled the VM's RAM and the host killed x-tmc-dev01. Prefix it with `heavy` on "
+        "that filled the VM's RAM and the host killed the build VM. Prefix it with `heavy` on "
         "the machine that runs it (inside the quotes for ssh):\n%s\n"
         "`heavy` waits for a free slot (build lane: one build/smoke/verify/Playwright/Godot "
         "suite per VM; check lane: two tsc/check/test runs) and for free memory, then runs the "

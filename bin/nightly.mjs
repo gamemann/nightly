@@ -1,5 +1,6 @@
 // nightly -- CLI over the nightly to-do database. See README.md for the reference.
 import '../lib/env.mjs'   // first: the other modules read process.env when they load
+import { OWNER } from '../lib/owner.mjs'
 import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
@@ -67,7 +68,7 @@ const HELP = `nightly -- the nightly run's to-do database (${S.DB_PATH})
   show <key>                                    full body + notes
   add --title T [--key K] [--kind task|issue|check|study] [--body B | --body-file F | stdin]
       [--repos a,b] [--done-when ..] [--status S] [--cadence C]
-      [--priority N | --top | --after KEY] [--by christian|nightly|session]
+      [--priority N | --top | --after KEY] [--by <owner>|nightly|session (owner = NIGHTLY_OWNER)]
   set <key> [--status S] [--priority N | --top | --after KEY] [--title ..] [--body B | --body-file F]
       [--repos ..] [--done-when ..] [--kind ..] [--cadence ..]
   attach <key> <file.png|jpg> [--note ..] [--by ..]   store a screenshot on the item (max 1280 px wide, 2 MB, last 20 kept)
@@ -90,7 +91,7 @@ const HELP = `nightly -- the nightly run's to-do database (${S.DB_PATH})
 
   agent join <name> [--task T] [--repos a,b] [--kind session|nightly] [--run ID]
   agent claim <name> <scope...> [--note N] [--force]   exit 3 if a live agent holds an overlapping scope.
-      scope = path, or <repo-claim>:<path-or-glob> (dev02:godot/game-arena:scripts/ctf/**); a bare repo = whole repo
+      scope = path, or <repo-claim>:<path-or-glob> (myhost:org/repo:scripts/**); a bare repo = whole repo
   agent release <name> [<scope...>]              (no path = all of them)
   agent say <name> [--to AGENT] <text | stdin>
   agent inbox <name> [--peek]                   messages for you since you last looked
@@ -249,7 +250,7 @@ function cmdReview() {
     }
     if (sub === 'verdict') {
         const v = pos.shift() ?? die('review verdict KEY WEAPON good|wrong|clear [--note ..]')
-        const r = Rv.setVerdict(key, weapon, v === 'clear' ? '' : v, { note: opt.note ? String(opt.note) : '', by: opt.by ?? 'christian' })
+        const r = Rv.setVerdict(key, weapon, v === 'clear' ? '' : v, { note: opt.note ? String(opt.note) : '', by: opt.by ?? OWNER })
         return out(r, () => `${key}/${r.weapon}: ${r.verdict || 'cleared'}`)
     }
     die(`unknown review command "${sub}"`)
@@ -440,7 +441,7 @@ function cmdAgent() {
     if (sub === 'say') {
         const body = (pos.length ? pos.join(' ') : readStdin()).trim()
         if (!body) die('empty message')
-        if (opt.to && !A.find(db, String(opt.to)) && opt.to !== 'christian') process.stderr.write(`note: no agent "${opt.to}" is on the board right now\n`)
+        if (opt.to && !A.find(db, String(opt.to)) && opt.to !== OWNER) process.stderr.write(`note: no agent "${opt.to}" is on the board right now\n`)
         const m = A.post(db, a, body, { to: opt.to ? String(opt.to) : null })
         out(m, () => `posted #${m.id}`)
         return hint(a)

@@ -202,6 +202,11 @@ Nothing in the runner is specific to one machine. It is configured with environm
 | `NIGHTLY_CLAUDE_BIN` | `claude` | The Claude Code binary. |
 | `NIGHTLY_CLAUDE_ARGS` | none | Extra arguments for `claude -p`, e.g. `--model claude-opus-5-5`. |
 | `NIGHTLY_OFFLOAD_HOST` | none | Optional machine the runner touches over ssh before and after a run; unset means no ssh call. |
+| `NIGHTLY_OWNER` | `owner` | Your name on the board: the author of notes and messages written in the panel, the default `--by`. Set it in `.env` before `npm run build` (the browser bundle inlines it). Rows written under another name stay as they are. |
+| `NIGHTLY_USAGE_HOSTS` | none | Comma list of other machines `scripts/agent-usage.py` also scans over ssh. |
+| `DOCS_CLAIMS_DIR` | `~/docs-site` | The docs site checkout `bin/docs-claims` reads. |
+| `DOCS_CLAIMS_REMOTE_PREFIX`, `DOCS_CLAIMS_REMOTE_HOST` | none | A `source:` prefix (e.g. `box:`) whose files live on another machine, and the ssh host to ask for their last commit time. |
+| `HEAVY_SSH_KEY`, `HEAVY_BUDGETS` | `~/.ssh/id_ed25519`, `~/.config/heavy/budgets` | `scripts/heavy/install.sh --remote` key, and the per-host memory budgets file (see `scripts/heavy/README.md`). |
 | `NIGHTLY_OFFLOAD_KEY` | none | Optional ssh identity file for that machine. |
 | `NIGHTLY_SKIP_PERMISSIONS` | `1` | `0` runs Claude without `--dangerously-skip-permissions`. An unattended run cannot answer permission prompts, so only do this with permissions allowed in your Claude Code settings. |
 
@@ -280,7 +285,7 @@ nightly list [--status queue,in_progress,review] [--kind task,issue] [--all]
 nightly show <key>
 nightly add --title T [--key K] [--kind task|issue|check|study] [--body B | --body-file F | <stdin]
             [--repos a,b] [--done-when ..] [--status S] [--cadence nightly|every-2-days|weekly|monthly]
-            [--priority N | --top | --after KEY] [--by christian|nightly|session]
+            [--priority N | --top | --after KEY] [--by <owner>|nightly|session]
 nightly set <key> [--status S] [--priority N | --top | --after KEY] [--title ..] [--body B | --body-file F]
             [--repos ..] [--done-when ..] [--kind ..] [--cadence ..]
 nightly note <key> [--run ID] [--by nightly] <text | --file F | <stdin>

@@ -2,6 +2,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { db } from "~/server/db"
+import { OWNER } from "~/lib/constants"
 import { addMedia, load, open, setVerdict } from "../../../../lib/review.mjs"
 
 // Review ingest (scripts/review-post.sh) and read-back. Behind the same optional password as the panel (proxy.ts).
@@ -45,7 +46,7 @@ export async function POST(req: Request) {
         const weapon = text(b.weapon, 80)
         if (!weapon) return Response.json({ error: "weapon is required" }, { status: 400 })
         if (action === "verdict") {
-            return Response.json(setVerdict(key, weapon, text(b.verdict, 10), { note: text(b.note, 2000), by: text(b.by, 40) || "christian" }))
+            return Response.json(setVerdict(key, weapon, text(b.verdict, 10), { note: text(b.note, 2000), by: text(b.by, 40) || OWNER }))
         }
         if (action === "media") {
             const name = path.basename(text(b.name, 120)).replace(/[^\w.-]/g, "_")

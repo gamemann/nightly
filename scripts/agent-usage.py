@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Where the Claude tokens went: per model, per agent type, on this VM and the others.
 
-    scripts/agent-usage.py                     # last 7 days, this VM plus x-tmc-dev02
+    scripts/agent-usage.py                     # last 7 days, this machine plus NIGHTLY_USAGE_HOSTS
     scripts/agent-usage.py --days 1 --hosts -  # this VM only
     scripts/agent-usage.py --json              # one JSON object (what --hosts reads back)
     scripts/agent-usage.py --check             # exit 1 if a threshold below is crossed
@@ -19,8 +19,8 @@ counts it. The thresholds are where a week has been worth a look, not hard limit
   - specialist (opus sub-agent) tokens over SPECIALIST_SHARE of all sub-agent tokens;
   - opus sub-agents spawned as builder/scout/researcher, or as an untyped general-purpose
     agent (which inherits the session's model: 111 of those were 70% of a week's tokens on
-    dev02 up to 2026-10-14, when the typed agents and the hook that refuses them went in);
-  - (reported, not flagged) the opus share of interactive top-level sessions: Christian keeps
+    another host up to 2026-10-14, when the typed agents and the hook that refuses them went in);
+  - (reported, not flagged) the opus share of interactive top-level sessions: the owner keeps
     Opus as his sessions' default on purpose (2026-10-18), so it is a number to watch.
 
 Nightly runs are counted apart (type "nightly", sub-agents "nightly:<type>"): from
@@ -142,7 +142,7 @@ def remote(host, days):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--days", type=float, default=7)
-    ap.add_argument("--hosts", default="x-tmc-dev02", help="comma list of other VMs, or - for none")
+    ap.add_argument("--hosts", default=os.environ.get("NIGHTLY_USAGE_HOSTS", "-"), help="comma list of other VMs, or - for none")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--check", action="store_true")
     a = ap.parse_args()

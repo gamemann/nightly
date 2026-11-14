@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
 import { api, type RouterOutputs } from '~/trpc/react'
+import { OWNER } from '~/lib/constants'
 import { ago } from './pills'
 
 type Board = RouterOutputs['agent']['board']
@@ -130,7 +131,7 @@ function Feed({ b }: { b: Board }) {
                     const d = dayOf(m.createdAt)
                     const sep = d !== prevDay ? (prevDay = d) : null
                     const sys = m.author === 'board'
-                    const me = m.author === 'christian'
+                    const me = m.author === OWNER
                     return (
                         <div key={m.id}>
                             {sep && <div className="my-2 text-center text-[10.5px] text-muted">{sep}</div>}

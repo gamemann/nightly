@@ -16,7 +16,7 @@ if [ -z "$node" ]; then
     done
 fi
 [ -n "$node" ] || { echo "nightly: node not found" >&2; exit 127; }
-# One process per call must never outlive its welcome. 2026-10-30: dev01 reached load 50-65 with
+# One process per call must never outlive its welcome. 2026-10-30: the dev VM reached load 50-65 with
 # dozens of nightly.mjs alive and had to be rebooted; a call that waits on stdin (note/add/say
 # with no text, from a session whose stdin never closes) or on a swapped-out box has no other
 # way to end. `exec` is the only long call (it waits for the runner) and is not time-capped.

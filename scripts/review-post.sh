@@ -36,7 +36,7 @@ b64 = lambda p: base64.b64encode(open(p, "rb").read()).decode()
 if cmd == "new":
     p = {"action": "new", "key": pos[0], "title": pos[1]}
 elif cmd == "verdict":
-    p = {"action": "verdict", "key": pos[0], "weapon": pos[1], "verdict": "" if pos[2] == "clear" else pos[2], "note": opt.get("note", ""), "by": opt.get("by", "christian")}
+    p = {"action": "verdict", "key": pos[0], "weapon": pos[1], "verdict": "" if pos[2] == "clear" else pos[2], "note": opt.get("note", ""), "by": opt.get("by", os.environ.get("NIGHTLY_OWNER") or "owner")}
 elif cmd == "media":
     f = pos[2]
     p = {"action": "media", "key": pos[0], "weapon": pos[1], "name": os.path.basename(f), "data": b64(f)}

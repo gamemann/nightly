@@ -13,6 +13,8 @@ const devOrigins = (process.env.NIGHTLY_DEV_ORIGINS ?? '')
     .filter(Boolean)
 
 const config: NextConfig = {
+    // The owner's name, for the browser bundle too (see src/lib/constants.ts).
+    env: { NEXT_PUBLIC_NIGHTLY_OWNER: process.env.NIGHTLY_OWNER ?? '' },
     serverExternalPackages: ['better-sqlite3', '@prisma/adapter-better-sqlite3'],
     allowedDevOrigins: devOrigins,
 }

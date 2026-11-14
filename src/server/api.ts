@@ -7,7 +7,7 @@ import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import type { Prisma, PrismaClient } from '../../generated/prisma/client'
 import { cronError, nextFires } from '../../lib/cron.mjs'
-import { CADENCES, KINDS, LIVE_MINUTES, OPEN_STATUSES, STATUSES, isDue, slugify } from '~/lib/constants'
+import { OWNER, CADENCES, KINDS, LIVE_MINUTES, OPEN_STATUSES, STATUSES, isDue, slugify } from '~/lib/constants'
 import { AUTH_KEYS, PRIVATE_SETTINGS, forgetAuth, hashPassword, newSecret } from './auth'
 import { ATTACH_DIR, MEDIA_DIR, MEDIA_EXT } from './media'
 import { gameRouter } from './gameRouter'
@@ -140,7 +140,7 @@ const itemRouter = router({
                 data: {
                     key, title: input.title, kind: input.kind, status: input.status, body: input.body,
                     repos: input.repos.split(',').map((s) => s.trim()).filter(Boolean).join(', ') || suggestRepos(key, input.title),
-                    doneWhen: input.doneWhen || null, addedBy: 'christian',
+                    doneWhen: input.doneWhen || null, addedBy: OWNER,
                     cadence: input.kind === 'check' ? (input.cadence ?? 'nightly') : null,
                     priority: 1_000_000, completedAt: closed ? new Date() : null,
                 },
@@ -192,7 +192,7 @@ const itemRouter = router({
 
     checked: procedure.input(keyInput.extend({ note: z.string().optional() })).mutation(async ({ ctx, input }) => {
         const it = await ctx.db.item.update({ where: { key: input.key }, data: { lastRunAt: new Date() } })
-        if (input.note?.trim()) await ctx.db.note.create({ data: { itemId: it.id, author: 'christian', body: input.note.trim() } })
+        if (input.note?.trim()) await ctx.db.note.create({ data: { itemId: it.id, author: OWNER, body: input.note.trim() } })
         return it
     }),
 
@@ -201,7 +201,7 @@ const itemRouter = router({
 
 const noteRouter = router({
     add: procedure
-        .input(z.object({ key: z.string(), body: z.string().trim().min(1), author: z.string().default('christian') }))
+        .input(z.object({ key: z.string(), body: z.string().trim().min(1), author: z.string().default(OWNER) }))
         .mutation(async ({ ctx, input }) => {
             const it = await ctx.db.item.findUniqueOrThrow({ where: { key: input.key } })
             const [n] = await ctx.db.$transaction([
@@ -334,7 +334,7 @@ const promptRouter = router({
             const p = cur
                 ? await tx.prompt.update({ where: { id: cur.id }, data: { body: input.body, kind: input.kind ?? cur.kind } })
                 : await tx.prompt.create({ data: { name: input.name, body: input.body, kind: input.kind ?? (input.name.endsWith('.md') ? 'prompt' : 'script') } })
-            if (!cur || cur.body !== input.body) await tx.promptVersion.create({ data: { promptId: p.id, body: input.body, author: 'christian', note: input.note } })
+            if (!cur || cur.body !== input.body) await tx.promptVersion.create({ data: { promptId: p.id, body: input.body, author: OWNER, note: input.note } })
             return p
         })),
     delete: procedure.input(z.object({ name: z.string() })).mutation(async ({ ctx, input }) => {
@@ -414,17 +414,17 @@ const agentRouter = router({
     }),
     liveCount: procedure.query(({ ctx }) => ctx.db.agent.count({ where: { endedAt: null, lastSeenAt: { gte: liveSince() } } })),
     post: procedure.input(z.object({ body: z.string().trim().min(1).max(4000), to: z.string().trim().optional() })).mutation(({ ctx, input }) =>
-        ctx.db.message.create({ data: { author: 'christian', body: input.body, to: input.to || null } })),
+        ctx.db.message.create({ data: { author: OWNER, body: input.body, to: input.to || null } })),
     release: procedure.input(z.object({ id: z.number() })).mutation(async ({ ctx, input }) => {
         const c = await ctx.db.claim.update({ where: { id: input.id }, data: { releasedAt: new Date() }, include: { agent: true } })
-        await ctx.db.message.create({ data: { author: 'board', body: `christian released ${c.agent.name}'s claim on ${c.scope}` } })
+        await ctx.db.message.create({ data: { author: 'board', body: `${OWNER} released ${c.agent.name}'s claim on ${c.scope}` } })
     }),
     /** End a session that went away without leaving (its claims go with it). */
     end: procedure.input(z.object({ id: z.number() })).mutation(async ({ ctx, input }) => {
         const t = new Date()
         const a = await ctx.db.agent.update({ where: { id: input.id }, data: { endedAt: t } })
         await ctx.db.claim.updateMany({ where: { agentId: a.id, releasedAt: null }, data: { releasedAt: t } })
-        await ctx.db.message.create({ data: { author: 'board', body: `christian ended ${a.name}` } })
+        await ctx.db.message.create({ data: { author: 'board', body: `${OWNER} ended ${a.name}` } })
     }),
 })
 

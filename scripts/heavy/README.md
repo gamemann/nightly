@@ -1,69 +1,67 @@
 # Memory guard: `heavy`, its hook, and the per-VM ceilings
 
-x-tmc-dev01 kept "shutting off" in virt-manager. Each time, parallel agents (a nightly fan-out,
-an orchestrator) were running `next build`, smoke suites and Godot suites at once. The guest
-filled its RAM, the host ran short, and the host killed the VM's qemu process. Inside the
-guest that looks like a journal that just stops: no panic and no shutdown. The old rule
-("check nothing heavy is running first") was a race that every agent won at the same moment.
-This directory replaces it with three things that do not depend on an agent remembering:
+A development VM kept dying. Each time, parallel agents (a nightly fan-out, an orchestrator)
+were running `next build`, smoke suites and game-engine suites at once. The guest filled its
+RAM, the host ran short, and the host killed the VM's qemu process. Inside the guest that
+looks like a journal that just stops: no panic and no shutdown. "Check nothing heavy is
+running first" is a race that every agent wins at the same moment. This directory replaces
+it with things that do not depend on an agent remembering:
 
 | Piece | What it does |
 | --- | --- |
-| `heavy` → `/usr/local/bin/heavy` | Per-VM queue. `build` lane: 1 slot on dev01, 2 on dev02 (next build, smoke, verify, Playwright, Godot suites and imports, cargo/docker builds). `check` lane: 2 slots (tsc, `npm run check`/lint, `npm test`, `godot --check-only`). It also waits for `HEAVY_MIN_AVAIL_GB` free before starting. `heavy --status` shows who holds the slots. |
-| per-job scope | `heavy` runs each job in its own `systemd-run --user --scope` with `MemoryMax=HEAVY_JOB_MAX_GB` and no swap. The slice's `MemoryHigh` only *throttles*: a 17.7 GB smoke-run dev server stayed under it and swapped dev01 for 15 minutes (2026-10-16). The ceiling is also held under the memory free at start less `HEAVY_JOB_HEADROOM_GB` (3): a fixed 18 GB on dev01 with 14 GB already in use let a `next build` reach 100% commit and load 31 without ever touching it (2026-10-20). The job gets `HEAVY_JOB_CPUS` (all but two) under `nice`/`ionice`, so the VM still answers. A job over its ceiling is killed and `heavy` says so (exit 137), and says when the kill came from somebody else. Skipped when the user bus is unreachable. |
-| `heavy-gate.py` → `~/.claude/hooks/` | PreToolUse hook on Bash that refuses those commands unless they are prefixed with `heavy`, and prints the exact rewrite. It covers every session and sub-agent on the VM, nightly included. `HEAVY_GATE=off` turns it off for one session. |
-| `user-1000.slice` `MemoryHigh`/`MemoryMax` | A hard ceiling on everything the `christian` user runs. A job that overshoots is OOM-killed inside the guest, and the VM survives. Postgres, ClickHouse, Redis and Docker are outside the ceiling. ClickHouse is capped separately, because its default is 90% of RAM. |
+| `heavy` → `/usr/local/bin/heavy` | Per-VM queue. `build` lane: `HEAVY_SLOTS_BUILD` slots (next build, smoke, verify, Playwright, game-engine suites and imports, cargo/docker builds). `check` lane: 2 slots (tsc, `npm run check`/lint, `npm test`, `godot --check-only`). It also waits for `HEAVY_MIN_AVAIL_GB` free before starting. `heavy --status` shows who holds the slots. |
+| per-job scope | `heavy` runs each job in its own `systemd-run --user --scope` with `MemoryMax=HEAVY_JOB_MAX_GB` and no swap. The slice's `MemoryHigh` only *throttles*, so a huge dev server can stay under it and swap the VM for minutes. The ceiling is also held under the memory free at start less `HEAVY_JOB_HEADROOM_GB` (3). |
+| `heavy-gate.py` → `~/.claude/hooks/` | PreToolUse hook on Bash that refuses those commands unless they are prefixed with `heavy`, and prints the exact rewrite. It covers every session and sub-agent on the VM. `HEAVY_GATE=off` turns it off for one session. |
+| `user-1000.slice` `MemoryHigh`/`MemoryMax` | A hard ceiling on everything the user runs. A job that overshoots is OOM-killed inside the guest, and the VM survives. Databases and Docker are outside the ceiling. ClickHouse, if present, is capped separately, because its default is 90% of RAM. |
 
-The budgets (in `install.sh`): dev01 (31 GB) High 20G / Max 22G, 18 GB per job (a cold `next build` peaks at 15.7 GB), ClickHouse 5 GB,
-5 GB free to start a job; dev02 (12 GB) High 8G / Max 9G, 7 GB per job, 3 GB free to start a job, and a second build slot that is taken only while 5 GB is free (`HEAVY_EXTRA_AVAIL_GB`). Why 5: dev02 Godot suites peak at 0.5 GB median, 2 GB p99, 3.5 GB worst over 1010 jobs, and 4 to 7 GB was free through 2026-10-18 with one slot. The check is at acquisition and the slot is let go when it fails, so a waiting job takes slot 1 the moment it frees. If a pair still overshoots, the user slice kills one job (exit 137), not the VM.
 One job needing more sets `HEAVY_JOB_MAX_GB=<n> heavy -- …` for that run: a `HEAVY_*` in the
 environment wins over `/etc/heavy.conf`, which only holds the VM's defaults.
 
-Install or update: `scripts/heavy/install.sh` on dev01, which symlinks so edits here are live,
-then `scripts/heavy/install.sh --remote x-tmc-dev02`, which copies, so rerun it after a change.
+## Install
+
+`scripts/heavy/install.sh` on the machine that holds this repository (it symlinks, so edits
+here are live); `scripts/heavy/install.sh --remote HOST [KEY]` copies to another VM (rerun
+after a change; the key defaults to `$HEAVY_SSH_KEY`, else `~/.ssh/id_ed25519`).
+
+Budgets default from the machine's RAM (High = 2/3, Max = 3/4, per-job = 1/2, 3 GB free to
+start a job, a second build slot below 24 GB that is taken only while `HEAVY_EXTRA_AVAIL_GB`
+(5) is free). Per host overrides go in `~/.config/heavy/budgets` (or `$HEAVY_BUDGETS`), one
+line per host: `hostname high max avail job clickhouse_bytes builds extra offload_script`,
+`-` for none. The file is yours and is not in this repository.
 
 The ceilings only bound what a guest touches. They do not fix a host that has promised more
-RAM to its guests than it has. That sum has to fit the host's physical RAM with a few GB to
-spare; nothing in the guests can enforce it.
+RAM to its guests than it has; nothing in the guests can enforce that.
 
-sysstat samples every minute on both VMs (`sar -r -f /var/log/sysstat/saDD`), so the next
-incident leaves a memory trace.
+## Offload
 
-## Offload: dev02's waiting suites go to the laptop
-
-dev02 has 6 vCPUs and two build slots, so Godot suites queue there while two of Christian's machines sit idle: the always-on laptop "staging" (Ryzen 7 4800H, 16 threads, ~9 GB free, GTX 1660 Ti; 3 suite slots) and the desktop "staging02" (i7-8700K, 12 threads, 31 GB, RTX 2070; 5 slots, slower WiFi, off or in use at some weekends). The box with the most free slots is tried first (the laptop on a tie); a box that does not answer is skipped for 5 minutes, and the desktop refuses suites while somebody is logged in at it. `HEAVY_OFFLOAD` in `/etc/heavy.conf` (set by `install.sh` on dev02 only) names a script that `heavy` calls from its wait loop, every `HEAVY_OFFLOAD_EVERY` seconds (15), as `<script> offer <command…>`. Exit 75 means "not taken" and the job keeps waiting; any other code is the job's own. It is offered only while waiting, never instead of a free slot, because each laptop core is slower than dev02's 13700K cores: the laptop adds throughput, not speed.
-
-**Lanes (2026-10-28).** Each box is a lane of N concurrent CPU suites (laptop 3, desktop 5, from RAM and threads; GPU and screenshot jobs still take the exclusive lock), and dev02 sets `: ${HEAVY_PREFER_OFFLOAD:=1}` in `/etc/heavy.conf`, so an eligible job goes to a box before it takes a local slot, in interactive sessions too; `HEAVY_PREFER_OFFLOAD=0` or `GPU_OFFLOAD=0` opts out, and 75 (no box has room) queues it locally as before. Eligible now: `./game.sh [--no-parse] test [suites]` and a plain `godot --headless --path . [--quit-after N] res://x.tscn [-- args]` (a leading `timeout N` is looked through; `--import`, `--script`, `--check-only` and exports stay local). A project that reads a sibling repository by a path outside itself (`res://../dot-server-deploy/...`, `$ROOT/../dot-game`) is found by grepping its tracked sources for `../<repo>` (add names to `<project>/.gpu-siblings` or `$GPU_SIBLINGS`); the sibling's tracked sources go once into a content-addressed store on the box (`~/gpu/sib/<name>/<fingerprint>`, hard-linked to the previous version, the newest three kept) and the project runs at `~/gpu/ws/<project>/<project>` with symlinks beside it, so the second run costs one ssh round trip. `heavy --status` and `gpu.sh capacity` list each box's free slots, free memory and running jobs; `tools/gpu-lanes-check.sh` (in `~/godot`) submits four small runs and shows they overlapped on the boxes. Not offloaded: Playwright/`web_check` (needs playwright-core, the local CA and dev02's tunnels; staging02 has Node and Chrome but no Playwright).
-
-dev02's script is `~/godot/gpu.sh offer`. It takes only `./game.sh [--no-parse] [--timeout N] test [suites]` run from a project directory (anything else may need dev02's tunnels or dot-server-deploy), copies the project there with its addon links resolved, runs the suite under a 6 GB scope, streams the output and copies `.godot/test-logs/` back, so the caller cannot tell where it ran except for one "the laptop (staging) took this suite" line on stderr. A lost connection mid-run is a 75, so the job runs again here rather than reporting a result nobody saw. Suites and GPU jobs (bakes, frame timings) never share the laptop; `gpu.sh` explains the locks. `GPU_OFFLOAD=0` keeps one command local; `./gpu.sh status` shows the laptop's suite slots.
+If `HEAVY_OFFLOAD` (set in `/etc/heavy.conf` from the budgets file) names a script, `heavy`
+offers a waiting job to it: `script offer <command>` may run it elsewhere (another machine
+with free slots), and `script route <command>` is asked before any slot is taken. Exit 75
+means "not taken, run it here". With `HEAVY_PREFER_OFFLOAD=1` an eligible job is offered
+before it queues locally. `HEAVY_PREFER_OFFLOAD=0` opts out. The script is your own; none
+is shipped.
 
 ## Smoke runs wait for an empty board
 
-`heavy` serialises the website smoke suite (`npm run test:smoke`, `npm run verify`, `playwright test`) but cannot make it rarer: with several agents each running it "as part of their own work", the runs went back to back and dev01 sat pegged for hours. Telling agents not to failed repeatedly, so it is enforced. A smoke-class command is refused while any other agent is live on the nightly board (not ended, seen within 60 minutes). The refusal names the active agents and tells the caller to verify with targeted tests in `heavy --lane check`, report "smoke not run (board busy)", and leave the one final pass to the orchestrator.
+`heavy` serialises the website smoke suite (`npm run test:smoke`, `npm run verify`,
+`playwright test`) but cannot make it rarer: with several agents each running it, the runs
+went back to back and the VM sat pegged for hours. So a smoke-class command is refused while
+any other agent is live on the nightly board. The rule lives in `heavy-smoke.py` and is
+enforced by `heavy-gate.py` (also for commands already prefixed with `heavy`) and by `heavy`
+itself. It reads the board read-only from `data/nightly.db`; if the board cannot be read it
+fails open with a warning.
 
-The rule lives in `heavy-smoke.py` and is enforced twice: by `heavy-gate.py` (also for commands already prefixed with `heavy`) and by `heavy` itself, so a script that skips the hook is still caught. It reads the board straight from `data/nightly.db` read-only, because the node CLI took minutes on a loaded VM. If the board cannot be read it fails open with a warning.
+Overrides, as environment variables on the command: `HEAVY_SMOKE=final heavy -- npm run
+test:smoke` is the orchestrator's last pass and proceeds only when no other agent is live;
+`HEAVY_SMOKE=force` proceeds regardless and is for the user. `HEAVY_AGENT=<board name>` says
+which live agent is the caller; without it two or more live agents block.
 
-Overrides, as environment variables on the command: `HEAVY_SMOKE=final heavy -- npm run test:smoke` is the orchestrator's last pass and proceeds only when no other agent is live; `HEAVY_SMOKE=force` proceeds regardless and is for the user. `HEAVY_AGENT=<board name>` says which live agent is the caller; without it the caller is assumed to be one of the live agents, so two or more live agents block. Rerun `install.sh --remote x-tmc-dev02` after a change (dev02 has no nightly database, so there the gate fails open).
+## Waiting never holds a slot
 
-## Frames are drawn on a GPU box, not on dev02 (2026-10-20)
-
-dev02 renders with llvmpipe, which hides distance problems and spends its memory. Before `heavy` takes any slot on dev02 it calls the offload script's `route` hook (`gpu.sh route <command>`), and exit 75 means "not taken, queue it here". Two rules:
-
-- **Screenshot tools go to a real GPU first, always.** `tools/screenshot*.sh`, `tools/shot*.sh` and `game.sh shot`, run from a project directory (a leading `timeout N` or `env K=V` is looked through), become `gpu.sh shot`: copy the project (addon links resolved) to the laptop (GTX 1660 Ti) or else the desktop (RTX 2070), run the tool under Xvfb with `godot` and `xvfb-run` shimmed to add `--rendering-method forward_plus --rendering-driver vulkan --gpu-index <the NVIDIA card, found by name>`, and copy every new or changed `*.png` back to the same path. A shot takes `~/gpu/.lock` shared (like a suite) and one of two shot slots per box; a bake or frame timing (`gpu.sh run`, exclusive) keeps it out. With no box free for `GPU_SHOT_WAIT` (90 s), down, or a person at the desktop, it prints one `gpu.sh: WARN ... llvmpipe` line and heavy queues the tool locally as before. `GPU_OFFLOAD=0` skips the hook for one run. `RENDERER=gl_compatibility` and `--headless` runs are not given Vulkan flags.
-- **A game suite goes to the boxes first** when `HEAVY_PREFER_OFFLOAD=1` or `/var/tmp/heavy/prefer-offload` is newer than 12 h. `scripts/run.sh` sets both for the nightly runner (the file on dev02, because its agents reach dev02 over ssh, which carries no environment, and removes it on exit). Otherwise a suite is offered only once it has waited, as before.
-
-The map shots (`~/stack/zees-games/scripts/map-shot/run.sh`, run on dev01) go through `gpu.sh shot --stage/--pull` on dev02, so the frames are drawn on a box (`GAME_DIR=` keeps the old dev02 path). Other jobs: `gpu.sh run` (bakes, frame timings), `gpu.sh browser-shot` (WebGL on a real GPU) and `gpu.sh blender -- -b ...` (Blender 4.3 on the desktop).
-
-**Why the 10-19 nightly suites queued for over an hour with both boxes idle:** the offer accepted only a command whose first word was `./game.sh`, and agents are told to write `heavy -- timeout 1400 ./game.sh ...`, so every one of those was "not a suite these boxes can run". `unwrap` in gpu.sh now peels `timeout` and `env`, and passes the timeout on as the remote limit. **The desktop's "somebody is using it" test** counted any `Remote=no` active user session; our ssh logins are `Remote=yes` and the manager session is `Class=manager`, so staging02 was not locked out by them (checked 2026-10-20), but the test now also needs a seat (a graphical or console login), so a stray local session of ours cannot lock it out later.
-
-Not wired, for later: Godot imports and `--check-only` (cheap on dev02, the copy costs more), lightmap bakes in `game.sh` (run them with `gpu.sh run <project> --script ...`), a nightly Blender batch (use `gpu.sh blender`), Playwright browser checks of the web client (`gpu.sh cdp` tunnels a GPU Chrome to localhost; they would need `browser-shot` extended to a script).
-
-## Waiting never holds a slot (2026-10-31)
-
-A job takes a slot only once the memory for it is free (`HEAVY_MIN_AVAIL_GB`, and `HEAVY_EXTRA_AVAIL_GB` for build slots after the first); until then it holds nothing, so `heavy --status` shows only running jobs. Before this, a job took the slot and then waited for memory while holding it, so waiters blocked every other job for hours. `--max-wait SECONDS` / `HEAVY_MAX_WAIT` (default 0 = forever) makes a waiting job print a line and exit 124. Test: `scripts/heavy/test-heavy-wait.sh [path/to/heavy]`.
-
-## Non-head waiters offer too (2026-11-02, dev02 only)
-
-`heavy` queues waiters FIFO and only the oldest ticket in the lane ran the offload offer, so one local-only job at the head (`--import`-less tool scripts, `tools/load100.sh`, `godot --script`, anything `offer_eligible` refuses) kept every suite behind it from being offered while staging had 2/3 and staging02 3/5 slots free (37 waiters, 15:00). Now a non-head waiter offers every `HEAVY_OFFLOAD_EVERY` seconds as well; an offer takes no local slot, so dev02's own slots and the 3 GB gate are unchanged. Verified: a `heavy -- timeout 600 ./game.sh --no-parse test` in mg-look-at-me was taken by the laptop within 30 s and both boxes filled. Only waiters started after the change use it. The boxes keep no checkouts: each run rsyncs the project (`--delete`) and content-addressed siblings from dev02, so there is no stale copy to sync; a `_set_penetration_cvar` failure came from an uncommitted state on dev02 at the time. Also fixed in `gpu.sh`: sibling staging passed a literal `$HOME` to `--link-dest`, so hard-linking to the previous sibling version never worked.
-
-**One script (2026-11-02).** The source in this directory is the only copy: FIFO ticket queue, 45 min job ceiling (`HEAVY_JOB_MAX_MIN`), `--import`/`--check-only` check-lane rule, non-head offload offers, cgroup-aware `avail_kb`, `--max-wait` and waiting-holds-no-slot. Change it here and install with `install.sh` (dev01) and `install.sh --remote x-tmc-dev02`; never edit /usr/local/bin/heavy on dev02.
+A job takes a slot only once the memory for it is free (`HEAVY_MIN_AVAIL_GB`, and
+`HEAVY_EXTRA_AVAIL_GB` for build slots after the first); until then it holds nothing, so
+`heavy --status` shows only running jobs. `--max-wait SECONDS` / `HEAVY_MAX_WAIT` (default 0
+= forever) makes a waiter give up. Waiters are FIFO; a non-head waiter also offers to the
+offload script every `HEAVY_OFFLOAD_EVERY` seconds. A job is stopped after
+`HEAVY_JOB_MAX_MIN` minutes (45). The source in this directory is the only copy: change it
+here and rerun `install.sh`; never edit `/usr/local/bin/heavy`.

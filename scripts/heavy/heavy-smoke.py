@@ -3,11 +3,11 @@
 
 Shared by heavy-gate.py (the PreToolUse hook) and `heavy` (the wrapper, so a script that
 skips the hook is still caught). Several agents each running the website smoke suite kept
-dev01 pegged for an hour at a time, because `heavy` only serialises them: it does not make
+the large VM pegged for an hour at a time, because `heavy` only serialises them: it does not make
 them fewer. The rule is that the suite runs once, at the end, when the board is empty.
 
 The board is read straight from nightly's SQLite file (read-only) rather than through
-`nightly agent board`: the node CLI took minutes on a loaded dev01, and a gate that is
+`nightly agent board`: the node CLI took minutes on a loaded the large VM, and a gate that is
 slower than the thing it gates gets bypassed. "Live" is the board's own definition: not
 ended and seen within 60 minutes (lib/agents.mjs LIVE_MINUTES).
 
@@ -69,7 +69,7 @@ def decide(mode="", me="", agents=None):
     names = "\n".join("  %s: %s" % (n, t[:80]) for n, t in others)
     return False, (
         "Refused: smoke, verify and Playwright runs wait until every other agent on the board is "
-        "done. Several agents each running the suite kept x-tmc-dev01 pegged for an hour at a "
+        "done. Several agents each running the suite kept the build VM pegged for an hour at a "
         "time. Active on the board now:\n%s\n"
         "Do NOT run smoke now. Verify with targeted unit tests in `heavy --lane check -- ...` "
         "(tsc, npm run check, the single test file), report \"smoke not run (board busy)\", and "

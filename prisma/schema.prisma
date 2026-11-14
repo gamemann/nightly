@@ -9,7 +9,7 @@ datasource db {
 
 /// kind: task | issue | check | study | review
 /// status: queue | in_progress | review | blocked | done | wontfix
-/// addedBy: christian | nightly | session
+/// addedBy: <owner> | nightly | session
 model Item {
   id          Int       @id @default(autoincrement())
   key         String    @unique
@@ -20,7 +20,7 @@ model Item {
   priority    Int       @default(0)
   repos       String    @default("")
   doneWhen    String?
-  addedBy     String    @default("christian")
+  addedBy     String    @default("owner")
   cadence     String?
   lastRunAt   DateTime?
   createdAt   DateTime  @default(now())
@@ -37,7 +37,7 @@ model Note {
   item      Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
   runId     Int?
   run       Run?     @relation(fields: [runId], references: [id], onDelete: SetNull)
-  author    String   @default("christian")
+  author    String   @default("owner")
   body      String
   createdAt DateTime @default(now())
 
@@ -121,7 +121,7 @@ model Claim {
   @@index([releasedAt])
 }
 
-/// to: an agent name, or null for everyone. agentId is null for Christian (the panel) and the system.
+/// to: an agent name, or null for everyone. agentId is null for the owner (the panel) and the system.
 model Message {
   id        Int      @id @default(autoincrement())
   agentId   Int?
@@ -152,13 +152,13 @@ model Prompt {
   versions  PromptVersion[]
 }
 
-/// Every saved body of a prompt, newest = current. author: christian | nightly | session | import
+/// Every saved body of a prompt, newest = current. author: <owner> | nightly | session | import
 model PromptVersion {
   id        Int      @id @default(autoincrement())
   promptId  Int
   prompt    Prompt   @relation(fields: [promptId], references: [id], onDelete: Cascade)
   body      String
-  author    String   @default("christian")
+  author    String   @default("owner")
   note      String   @default("")
   createdAt DateTime @default(now())
 
@@ -200,7 +200,7 @@ model Annotation {
   ny        Float    @default(0)
   nz        Float    @default(0)
   text      String
-  author    String   @default("christian")
+  author    String   @default("owner")
   createdAt DateTime @default(now())
 
   @@index([itemKey, target])

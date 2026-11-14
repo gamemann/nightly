@@ -6,7 +6,7 @@
 #
 # Why: parallel agents each "checked nothing heavy was running" and then all started a
 # `next build` / smoke run / Godot suite at once. The guest filled its RAM, the host ran out
-# and killed the whole VM (x-tmc-dev01, 2026-10-16). A check-then-start rule is a race;
+# and killed the whole VM (the build VM, 2026-10-16). A check-then-start rule is a race;
 # this is a lock. The Bash hook (heavy-gate.py) refuses those commands unless they go
 # through here. Smoke-class runs additionally wait for an empty agent board (heavy-smoke.py).
 # See ~/stack/nightly/scripts/heavy/README.md.
@@ -43,17 +43,17 @@ SLOTS_build=${HEAVY_SLOTS_BUILD:-1}
 SLOTS_check=${HEAVY_SLOTS_CHECK:-2}
 MIN_AVAIL_GB=${HEAVY_MIN_AVAIL_GB:-4}
 # Free memory a build slot beyond the first needs before it is taken. Higher than the first
-# slot's, because the job already running may still be growing: on dev02 (11 GB) Godot suites
+# slot's, because the job already running may still be growing: on the small VM (11 GB) Godot suites
 # peak at 0.5 GB median, 2 GB p99 and 3.5 GB worst (1010 jobs, 2026-10-18), with ~4.5 GB free
 # while one runs. Checked at acquisition, not held: a slot it cannot use goes back.
 EXTRA_AVAIL_GB=${HEAVY_EXTRA_AVAIL_GB:-$MIN_AVAIL_GB}
 # Per-job ceiling (GB) and the swap it may use: past it the job is killed, not the VM
 # thrashed. The user slice's MemoryHigh only throttles, so a 17 GB dev server under it
-# swapped dev01 for 15 minutes (2026-10-16) instead of dying.
+# swapped the large VM for 15 minutes (2026-10-16) instead of dying.
 JOB_MAX_GB=${HEAVY_JOB_MAX_GB:-12}
 JOB_SWAP_GB=${HEAVY_JOB_SWAP_GB:-0}
 # The ceiling is also held under what is free when the job starts, less this headroom: an
-# 18 GB ceiling on dev01 with 14 GB already in use (ClickHouse, editors, sessions) let a
+# 18 GB ceiling on the large VM with 14 GB already in use (ClickHouse, editors, sessions) let a
 # `next build` take the VM to 100% commit and a load of 31 without ever reaching it (2026-10-20).
 JOB_HEADROOM_GB=${HEAVY_JOB_HEADROOM_GB:-3}
 # CPUs a job may use (CPUQuota), default all but two, and it runs at low CPU/IO priority, so
@@ -63,7 +63,7 @@ DIR=${HEAVY_DIR:-/var/tmp/heavy}
 
 # Available memory (kB): the lesser of the VM's MemAvailable and the headroom of the user's
 # cgroup (min of memory.max/memory.high less memory.current, less swap in use, with
-# reclaimable file cache not counted). The cgroup caps at 20-22 GB on dev01 while the VM has
+# reclaimable file cache not counted). The cgroup caps at 20-22 GB on the large VM while the VM has
 # more, so MemAvailable alone let a build in at the cap and swap thrashed (2026-10-30).
 # HEAVY_CGROUP overrides the directory (tests); a missing or unlimited cgroup falls back.
 CGROUP=${HEAVY_CGROUP:-/sys/fs/cgroup/user.slice/user-$(id -u).slice}
@@ -89,7 +89,7 @@ avail_kb() {
   fi
   echo "$vm"
 }
-# Optional offload hook (see the wait loop); unset on dev01.
+# Optional offload hook (see the wait loop); unset on the large VM.
 OFFLOAD=${HEAVY_OFFLOAD:-}
 OFFLOAD_EVERY=${HEAVY_OFFLOAD_EVERY:-15}
 # heavy sources /etc/heavy.conf without exporting, and the hook reads this from its environment.
@@ -112,7 +112,7 @@ while [ $# -gt 0 ]; do
           echo "busy  $(basename "$f" .lock): $(cat "${f%.lock}.who" 2>/dev/null)"
         fi
       done
-      # The boxes behind the offload hook (dev02: staging, staging02): free suite slots and their jobs.
+      # The boxes behind the offload hook (the small VM: the offload boxes, the second offload box): free suite slots and their jobs.
       if [ -n "$OFFLOAD" ] && [ -x "$OFFLOAD" ] && [ "${GPU_OFFLOAD:-1}" != 0 ]; then
         echo "boxes:"; HEAVY_HELD=offload timeout 40 "$OFFLOAD" capacity 2>/dev/null | sed "s/^/  /"
       fi
@@ -148,7 +148,7 @@ if [ -n "${HEAVY_HELD:-}" ]; then
   exec "$@"
 fi
 
-# Route hook, before any slot: the offload script (dev02: gpu.sh) may take the job at once.
+# Route hook, before any slot: the offload script (your own offload script) may take the job at once.
 # Screenshot tools (tools/screenshot*.sh) always go to a real GPU on a box first, and a game
 # suite goes to the boxes first when HEAVY_PREFER_OFFLOAD=1 (the nightly runner). Exit 75
 # means "not taken": queue it here as before. GPU_OFFLOAD=0 skips the hook.
@@ -185,7 +185,7 @@ while :; do
     for i in $(seq 1 "$slots"); do
       exec {fd}>>"$DIR/$lane.$i.lock" || exit 70
       # The slot is kept only if the memory for it is free now: a job that owns a slot while it
-      # waits for memory blocks every other job behind it (dev02, 2026-10-31, 1-2 h).
+      # waits for memory blocks every other job behind it (the small VM, 2026-10-31, 1-2 h).
       if flock -n "$fd"; then
         avail=$(avail_kb)
         if [ "$avail" -ge $((MIN_AVAIL_GB * 1048576)) ] &&
@@ -197,7 +197,7 @@ while :; do
     done
   fi
   # Offload: a VM may name a script that runs a waiting build-lane job on another machine
-  # (dev02: ~/godot/gpu.sh). Offered only while waiting, never instead of a free slot here.
+  # (e.g. your own gpu.sh). Offered only while waiting, never instead of a free slot here.
   # Every waiter offers, head or not: a local-only job at the head (import, tool script) would
   # otherwise keep every suite behind it from the idle boxes (2026-11-02). Exit 75 = not taken.
   if [ "$lane" = build ] && [ -n "$OFFLOAD" ] && [ -x "$OFFLOAD" ] && [ $((now - last_offer)) -ge "$OFFLOAD_EVERY" ]; then
@@ -247,7 +247,7 @@ fi
 # The scope's OOM kills are counted in the user journal; read them to tell its ceiling
 # from a kill by somebody else.
 oom_before=$(journalctl --user -q -o cat -u "$unit.scope" 2>/dev/null | grep -c 'oom' || true)
-# Wall-clock ceiling: a 7000 s exploration run held both dev02 build slots for over an hour
+# Wall-clock ceiling: a 7000 s exploration run held both the small VM build slots for over an hour
 # (2026-11-02). Raise per job with HEAVY_JOB_MAX_MIN=N, 0 disables.
 MAX_MIN=${HEAVY_JOB_MAX_MIN:-45}
 cap=(); [ "$MAX_MIN" != 0 ] && cap=(timeout -k 15 "$(( MAX_MIN * 60 ))")

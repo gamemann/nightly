@@ -1,6 +1,6 @@
 # nightly — conventions
 
-The database the autonomous Claude runs work from (to-dos, schedules, run reports, the agent board), plus a web panel for Christian. The crontab holds one line, `bin/nightly tick` every minute; schedules, runs and their logs live in the DB.
+The database the autonomous Claude runs work from (to-dos, schedules, run reports, the agent board), plus a web panel for the owner. The crontab holds one line, `bin/nightly tick` every minute; schedules, runs and their logs live in the DB.
 
 - **Two data layers, one schema.** `prisma/schema.prisma` owns the schema (`npm run db:push`). The panel (`src/`) uses the Prisma client (better-sqlite3 adapter). The CLI (`bin/nightly` → `bin/nightly.mjs` → `lib/store.mjs`, `lib/runner.mjs`, `lib/agents.mjs`, `lib/prompts.mjs`) uses `node:sqlite` directly so it runs with no build and no server. A schema change means updating both `schema.prisma` and the `lib/` files that touch the table (and `src/server/api.ts`). `lib/cron.mjs` is shared by both sides (typed by `lib/cron.d.mts`).
 - **Runs start only through the CLI** (`tick`/`start` → detached `exec` → runner). The panel shells out to `bin/nightly start`/`run stop` and never spawns the runner itself, so restarting the panel cannot kill a run. `exec` strips `NODE_ENV`/`NEXT_*` from the runner's environment.

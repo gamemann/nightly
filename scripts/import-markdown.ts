@@ -6,6 +6,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import * as S from '../lib/store.mjs'
+import { OWNER } from '../lib/owner.mjs'
 
 const arg = (name: string, dflt: string) => {
     const i = process.argv.indexOf(`--${name}`)
@@ -84,8 +85,8 @@ function build(head: string, lines: string[], status: string): Parsed {
     const added = meta['added'] ?? ''
     const am = /^(\d{4}-\d{2}-\d{2})\s*(?:by\s+(\w+))?(.*)$/.exec(added)
     const who = (am?.[2] ?? '').toLowerCase()
-    const addedBy = who === 'christian' || who === 'session' ? who : who ? 'nightly' : 'christian'
-    if (am?.[3]?.trim() || (who && !['christian', 'session', 'nightly'].includes(who))) pre.push(`*Added ${added}*`)
+    const addedBy = who === OWNER || who === 'session' ? who : who ? 'nightly' : OWNER
+    if (am?.[3]?.trim() || (who && ![OWNER, 'session', 'nightly'].includes(who))) pre.push(`*Added ${added}*`)
     const rawRepos = meta['repos'] ?? ''
     // Repo names are the backticked words outside parentheses; paths inside
     // parentheses stay in the body via the raw line below.
@@ -128,7 +129,7 @@ S.tx(db, () => {
 const rotation = extra['Level rotation']?.join('\n').trim()
 if (rotation && S.getItem(db, 'chk-levels')) {
     const has = db.prepare("SELECT 1 FROM Note n JOIN Item i ON i.id = n.itemId WHERE i.key = 'chk-levels' AND n.body LIKE '%Imported from nightly-todo.md%'").get()
-    if (!has) S.addNote(db, 'chk-levels', `**Level rotation** (Imported from nightly-todo.md)\n\n${rotation}`, { author: 'christian' })
+    if (!has) S.addNote(db, 'chk-levels', `**Level rotation** (Imported from nightly-todo.md)\n\n${rotation}`, { author: OWNER })
 }
 if (/^Do Run:\s*true/im.test(readFileSync(TODO, 'utf8')) && S.getSetting(db, 'doRun') === null) S.setSetting(db, 'doRun', 'true')
 

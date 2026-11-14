@@ -4,6 +4,7 @@ import { gameLabel } from "~/lib/games"
 import { useMemo, useState } from "react"
 import { Metrics, Stage, Viewer, type MediaGroup, type MediaItem } from "./MediaViewer"
 import type { ReviewMedia, ReviewWeapon } from "../../lib/review.mjs"
+import { OWNER } from "~/lib/constants"
 
 type Counts = { total: number; good: number; wrong: number; todo: number }
 type Review = { key: string; title: string; body: string; createdAt: string; updatedAt: string; weapons: Record<string, ReviewWeapon>; game: string; counts: Counts }
@@ -93,7 +94,7 @@ function Weapon({ rkey, id, w }: { rkey: string; id: string; w: ReviewWeapon }) 
     async function send(verdict: string) {
         setBusy(true); setErr("")
         try {
-            const res = await fetch("/api/review", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "verdict", key: rkey, weapon: id, verdict, note, by: "christian" }) })
+            const res = await fetch("/api/review", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "verdict", key: rkey, weapon: id, verdict, note, by: OWNER }) })
             if (!res.ok) setErr(((await res.json().catch(() => ({}))) as { error?: string }).error ?? `HTTP ${res.status}`)
             else router.refresh()
         } finally { setBusy(false) }
