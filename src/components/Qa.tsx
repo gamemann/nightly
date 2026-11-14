@@ -170,13 +170,13 @@ function Docs() {
     return (
         <section className="mt-8 border-t border-line pt-4 text-[12px] text-dim">
             <span className="label">Posting results</span>
-            <p className="mt-2">From the game machine (needs only curl and python3; set <code className="font-mono">QA_URL</code>, default <code className="font-mono">http://x-tmc-dev01:3010</code>; if the panel login is on, also <code className="font-mono">QA_USER</code> and <code className="font-mono">QA_PASSWORD</code>):</p>
-            <pre className="mt-2 overflow-x-auto rounded-md bg-hover p-3 font-mono text-[11px] leading-relaxed">{`scripts/qa-post.sh fuzz game-arena .godot/fuzz/first/summary.json
-scripts/qa-post.sh visual game-arena visual.log .godot/test-logs/visual
-scripts/qa-post.sh suite game-arena result.json     # a payload in the format below
-scripts/qa-post.sh perf game-arena result.json      # tools/perf_budget.sh --post builds it; summary.metrics drives the trend charts`}</pre>
+            <p className="mt-2">From the game machine (needs only curl and python3; set <code className="font-mono">QA_URL</code>, default <code className="font-mono">$NIGHTLY_PUBLIC_URL</code>, else <code className="font-mono">http://localhost:3010</code>, so set it to this panel&apos;s address from another machine; if the panel login is on, also <code className="font-mono">QA_USER</code> and <code className="font-mono">QA_PASSWORD</code>):</p>
+            <pre className="mt-2 overflow-x-auto rounded-md bg-hover p-3 font-mono text-[11px] leading-relaxed">{`scripts/qa-post.sh fuzz my-game .godot/fuzz/first/summary.json
+scripts/qa-post.sh visual my-game visual.log .godot/test-logs/visual
+scripts/qa-post.sh suite my-game result.json     # a payload in the format below
+scripts/qa-post.sh perf my-game result.json      # tools/perf_budget.sh --post builds it; summary.metrics drives the trend charts`}</pre>
             <p className="mt-2">Ingest is <code className="font-mono">POST /api/qa</code> with JSON, which anything can call directly:</p>
-            <pre className="mt-2 overflow-x-auto rounded-md bg-hover p-3 font-mono text-[11px] leading-relaxed">{`{ "kind": "fuzz|visual|suite|perf", "game": "game-arena", "commit": "abc1234", "timestamp": "ISO-8601 (default now)",
+            <pre className="mt-2 overflow-x-auto rounded-md bg-hover p-3 font-mono text-[11px] leading-relaxed">{`{ "kind": "fuzz|visual|suite|perf", "game": "my-game", "commit": "abc1234", "timestamp": "ISO-8601 (default now)",
   "summary": { "total": 9, "failed": 0 },          // fuzz summary.json (pairs, failed) and visual (maps, ok) also accepted
   "failures": [ { "name": "dm_pit seed 2", "repro": "tools/fuzz.sh --repro dm_pit 2", "reasons": ["..."] } ],
   "attachments": [ { "name": "dm_box_eye_diff.png", "data": "<base64>", "note": "dm_box" } ] }   // png/jpg, 6 MB each, 40 max`}</pre>

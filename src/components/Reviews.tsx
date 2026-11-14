@@ -70,7 +70,7 @@ function ReviewCard({ r }: { r: Review }) {
             <header className="flex flex-wrap items-baseline gap-3 border-b border-line px-4 py-2.5">
                 <h2 className="text-[13px] font-semibold">{r.title}</h2>
                 <code className="font-mono text-[11px] text-muted">{r.key}</code>
-                <span className="ml-auto text-[11px] text-dim">{ids.length} weapons, {count("good")} good, {count("wrong")} still wrong, {ids.length - count("good") - count("wrong")} not reviewed</span>
+                <span className="ml-auto text-[11px] text-dim">{ids.length} entries, {count("good")} good, {count("wrong")} still wrong, {ids.length - count("good") - count("wrong")} not reviewed</span>
             </header>
             {r.body && <p className="border-b border-line px-4 py-2 text-[12px] text-dim">{r.body}</p>}
             <div className="divide-y divide-line">{ids.map((id) => <Weapon key={id} rkey={r.key} id={id} w={r.weapons[id]} />)}</div>
@@ -197,14 +197,14 @@ function Docs() {
     return (
         <section className="mt-8 border-t border-line pt-4 text-[12px] text-dim">
             <span className="label">Filing a review</span>
-            <p className="mt-2">One review item per piece of work (a reload pass, a sound pass), one entry per weapon under it. From any machine with curl and python3 (<code className="font-mono">QA_URL</code>, <code className="font-mono">QA_USER</code>, <code className="font-mono">QA_PASSWORD</code> as for <code className="font-mono">qa-post.sh</code>):</p>
+            <p className="mt-2">One review item per piece of work (a reload pass, a sound pass), one entry per weapon under it. From any machine with curl and python3 (<code className="font-mono">QA_URL</code> is this panel&apos;s address, default <code className="font-mono">http://localhost:3010</code>; <code className="font-mono">QA_USER</code>, <code className="font-mono">QA_PASSWORD</code> as for <code className="font-mono">qa-post.sh</code>):</p>
             <pre className="mt-2 overflow-x-auto rounded-md bg-hover p-3 font-mono text-[11px] leading-relaxed">{`scripts/review-post.sh new reload-pass "Reload animations"
 scripts/review-post.sh media reload-pass smg before.png --slot filmstrip --variant before --title "SMG"
 scripts/review-post.sh media reload-pass smg after.png --slot filmstrip --variant after
 scripts/review-post.sh media reload-pass smg reload.webm --slot clip --variant after       # mp4, webm or gif, loops
 scripts/review-post.sh media reload-pass smg fire.wav --slot audio --licence "CC0" --source https://...   # waveform drawn for you
 scripts/review-post.sh open reload-pass                    # builders: weapons not yet good, with the notes`}</pre>
-            <p className="mt-2">On dev01 the same thing is <code className="font-mono">nightly review new|media|verdict|show|open|list</code>. Posting a file again with the same slot, variant and label replaces it. Verdicts are kept in <code className="font-mono">review.json</code> with their history.</p>
+            <p className="mt-2">On the machine that runs the panel the same thing is <code className="font-mono">nightly review new|media|verdict|show|open|list</code>. Posting a file again with the same slot, variant and label replaces it. Verdicts are kept in <code className="font-mono">review.json</code> with their history.</p>
         </section>
     )
 }

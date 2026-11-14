@@ -50,13 +50,16 @@ read -r -a EXTRA_ARGS <<< "${NIGHTLY_CLAUDE_ARGS:-}"
 # suite, still finite so a hung task cannot hold the machine all day.
 export CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS="${CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS:-3600000}"
 
-# Suites started during a run go to the GPU boxes before dev02 (heavy, HEAVY_PREFER_OFFLOAD): on
-# 10-19 dev02 queued them for over an hour while the boxes sat idle. The env var covers this VM;
-# dev02 sees the agents only over ssh, so it also gets a sentinel file (gpu.sh route reads it,
+# Suites started during a run go to the GPU boxes before the build machine (heavy, HEAVY_PREFER_OFFLOAD): on
+# 10-19 the build machine queued them for over an hour while the boxes sat idle. The env var covers this VM;
+# a second machine sees the agents only over ssh, so it also gets a sentinel file (gpu.sh route reads it,
 # ignoring one older than 12 h in case this run is killed without its trap).
 export HEAVY_PREFER_OFFLOAD=1
 PREFER_SENTINEL=/var/tmp/heavy/prefer-offload
-ssh -i "$HOME/.ssh/dev02" -o BatchMode=yes -o ConnectTimeout=10 x-tmc-dev02 "touch $PREFER_SENTINEL" >/dev/null 2>&1 || true
+# Optional: NIGHTLY_OFFLOAD_HOST is a second machine to tell (ssh, key NIGHTLY_OFFLOAD_KEY); unset skips it.
+OFFLOAD_HOST="${NIGHTLY_OFFLOAD_HOST:-}"
+offload_ssh() { [ -n "$OFFLOAD_HOST" ] && ssh ${NIGHTLY_OFFLOAD_KEY:+-i "$NIGHTLY_OFFLOAD_KEY"} -o BatchMode=yes -o ConnectTimeout=10 "$OFFLOAD_HOST" "$1" >/dev/null 2>&1 || true; }
+offload_ssh "touch $PREFER_SENTINEL"
 
 missing=()
 for t in "${REQUIRED_TOOLS[@]}"; do command -v "$t" >/dev/null 2>&1 || missing+=("$t"); done
@@ -140,7 +143,7 @@ if [ -n "${NIGHTLY_INSTRUCTIONS:-}" ]; then
 fi
 
 RESULT_FILE=$(mktemp -t "nightly-run-$RUN_ID.XXXXXX.json")
-trap 'rm -f "$RESULT_FILE"; ssh -i "$HOME/.ssh/dev02" -o BatchMode=yes -o ConnectTimeout=10 x-tmc-dev02 "rm -f $PREFER_SENTINEL" >/dev/null 2>&1 || true' EXIT
+trap 'rm -f "$RESULT_FILE"; offload_ssh "rm -f $PREFER_SENTINEL"' EXIT
 echo "Starting $CLAUDE_BIN (prompt $PROMPT_NAME, max $MAX_TURNS turns)"
 status=0
 "$CLAUDE_BIN" -p "$PROMPT_TEXT$scope" \

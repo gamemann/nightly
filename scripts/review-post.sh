@@ -7,10 +7,10 @@
 #   review-post.sh verdict KEY WEAPON good|wrong|clear [--note N]
 #   review-post.sh open    KEY        (weapons not yet good, as JSON, with the notes)
 #   review-post.sh show    KEY        (every weapon with verdict, note and media)
-# Env: QA_URL (default http://x-tmc-dev01:3010), QA_USER / QA_PASSWORD if the panel login is on.
+# Env: QA_URL (default $NIGHTLY_PUBLIC_URL, else http://localhost:3010), QA_USER / QA_PASSWORD if the panel login is on.
 set -euo pipefail
 [ $# -ge 2 ] || { sed -n 2,11p "$0"; exit 2; }
-url=${QA_URL:-http://x-tmc-dev01:3010}
+url=${QA_URL:-${NIGHTLY_PUBLIC_URL:-http://localhost:3010}}
 jar=$(mktemp); body=$(mktemp); trap 'rm -f "$jar" "$body"' EXIT
 auth=()
 if [ -n "${QA_USER:-}${QA_PASSWORD:-}" ]; then

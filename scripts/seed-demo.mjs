@@ -7,9 +7,11 @@
 //   npm run db:push && node --no-warnings scripts/seed-demo.mjs
 //   NIGHTLY_SCHEDULER=off npm run dev -- -p 3999
 //
-// It refuses to run without those variables (never seed data/nightly.db) and needs ImageMagick (`convert`).
+// It refuses to run without those variables (never seed data/nightly.db) and needs ImageMagick (`convert`) and
+// ffmpeg (the review demo clips, filmstrips and sounds are drawn by ffmpeg's expression filters, no files from anywhere).
 import { deflateSync } from 'node:zlib'
 import { mkdirSync, writeFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
 import path from 'node:path'
 import * as S from '../lib/store.mjs'
 import * as A from '../lib/agents.mjs'
@@ -232,4 +234,47 @@ for (const [id, title, hue] of [['welcome', 'Welcome screen', [60, 140, 220]], [
 }
 R.setVerdict('review-onboarding', 'welcome', 'good', { note: 'Reads well on a phone.', by: me })
 R.setVerdict('review-onboarding', 'invite', 'wrong', { note: 'The invite button is below the fold on small screens.', by: me })
+
+// ---- review items with generated clips, filmstrips and sounds (all drawn here with ffmpeg) ----
+const ff = (...args) => { const r = spawnSync('ffmpeg', ['-v', 'error', '-y', ...args], { encoding: 'utf8' }); if (r.status !== 0) throw new Error('ffmpeg failed: ' + r.stderr) }
+const media = path.join(tmp, 'review-media')
+mkdirSync(media, { recursive: true })
+// A shaded sphere that bounces or orbits, on a soft floor; `fps` low and `sat` low make the "before" version.
+function sphere(name, motion, { fps = 30, dark = false, secs = 3 } = {}) {
+    const cx = motion === 'orbit' ? '(W/2+sin(T*3)*140)' : '(W/2)'
+    const cy = motion === 'orbit' ? '(H*0.55+cos(T*3)*30)' : '(H*0.72-abs(sin(T*5))*H*0.42)'
+    const d = `hypot(X-${cx},Y-${cy})`, hl = `clip(1-hypot(X-${cx}+22,Y-${cy}+24)/70,0,1)`
+    const sh = `clip(1-hypot((X-${cx})/1.6,(Y-H*0.86)*4)/(70-abs(sin(T*5))*30),0,1)`
+    const body = (a, b, c) => `if(lt(${d},64),${a}+${b}*${hl}+40*(1-${d}/64),${c})`
+    const col = dark ? [[140, 120, 30], [135, 120, 30]] : [[60, 170, 30], [110, 120, 41]]
+    const f = `geq=r='${body(col[0][0], col[0][1], '30+20*(Y/H)-25*' + sh)}':g='${body(col[1][0], col[1][1], '41+22*(Y/H)-30*' + sh)}':b='${body(dark ? 150 : 230, dark ? 100 : 25, '59+30*(Y/H)-35*' + sh)}'`
+    const out = path.join(media, `${name}.webm`)
+    ff('-f', 'lavfi', '-i', `color=c=black:s=480x480:r=30:d=${secs},format=gbrp`, '-vf', `${f},fps=${fps},format=yuv420p`, '-c:v', 'libvpx-vp9', '-b:v', '0', '-crf', '38', out)
+    return out
+}
+function strip(name, clip) { // eight frames side by side, as a still PNG
+    const out = path.join(media, `${name}.png`)
+    ff('-i', clip, '-vf', 'fps=2.6,scale=200:-2,tile=8x1', '-frames:v', '1', out)
+    return out
+}
+function tone(name, expr, secs) {
+    const out = path.join(media, `${name}.wav`)
+    ff('-f', 'lavfi', '-i', `aevalsrc='${expr}':d=${secs}:s=44100`, out)
+    return out
+}
+it({ key: 'motion-pass', title: 'Character motion pass: bounce and orbit', kind: 'review', status: 'review', repos: 'web-app', body: 'Second pass after the timing notes. Every entry has the old clip as before and the new one as after: drag the slider, or flip between the two and step through frames.' })
+const bounceAfter = sphere('bounce-after', 'bounce'), orbitAfter = sphere('orbit-after', 'orbit')
+R.addMedia('motion-pass', 'bounce', sphere('bounce-before', 'bounce', { fps: 8, dark: true }), { slot: 'clip', variant: 'before', label: 'side view', title: 'Bounce', look: 'Smooth arc, a short hang at the top, the shadow shrinking with height.', metrics: { fps: 8, frames: 24 }, by: 'nightly' })
+R.addMedia('motion-pass', 'bounce', bounceAfter, { slot: 'clip', variant: 'after', label: 'side view', metrics: { fps: 30, frames: 90 }, by: 'nightly' })
+R.addMedia('motion-pass', 'bounce', strip('bounce-strip', bounceAfter), { slot: 'filmstrip', variant: 'after', label: 'timing strip', by: 'nightly' })
+R.addMedia('motion-pass', 'orbit', orbitAfter, { slot: 'clip', variant: 'after', label: 'top view', title: 'Orbit', look: 'Constant speed, no pop at the loop point.', metrics: { fps: 30, frames: 90 }, by: 'nightly' })
+R.addMedia('motion-pass', 'orbit', sphere('orbit-before', 'orbit', { fps: 10, dark: true }), { slot: 'clip', variant: 'before', label: 'top view', metrics: { fps: 10, frames: 30 }, by: 'nightly' })
+R.setVerdict('motion-pass', 'bounce', 'good', { note: 'Timing reads well now; the squash can wait for the next pass.', by: me })
+R.setVerdict('motion-pass', 'orbit', 'wrong', { note: 'There is a visible hitch where the loop restarts.', by: me })
+it({ key: 'ui-sounds', title: 'Interface sound pass', kind: 'review', status: 'review', repos: 'web-app', body: 'Generated placeholder sounds. Listen, read the waveform, check the licence line.' })
+R.addMedia('ui-sounds', 'click', tone('click', 'sin(2*PI*t*900)*exp(-40*t)*0.7', 0.15), { slot: 'audio', label: 'button click', title: 'Click', licence: 'CC0 (generated)', source: 'generated with ffmpeg aevalsrc', by: 'nightly' })
+R.addMedia('ui-sounds', 'confirm', tone('confirm', 'sin(2*PI*t*(520+260*gt(t,0.12)))*exp(-5*t)*0.6', 0.45), { slot: 'audio', label: 'confirm chime', title: 'Confirm', licence: 'CC0 (generated)', source: 'generated with ffmpeg aevalsrc', by: 'nightly' })
+R.addMedia('ui-sounds', 'error', tone('error', 'sin(2*PI*t*(170+40*sin(2*PI*t*9)))*exp(-3*t)*0.6', 0.5), { slot: 'audio', label: 'error buzz', title: 'Error', licence: 'CC0 (generated)', source: 'generated with ffmpeg aevalsrc', by: 'nightly' })
+R.setVerdict('ui-sounds', 'click', 'good', { note: '', by: me })
+R.setVerdict('ui-sounds', 'error', 'wrong', { note: 'Too long and too harsh next to the others; trim to 0.3 s.', by: me })
 console.log('seeded', S.DB_PATH)
