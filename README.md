@@ -1,4 +1,4 @@
-This started out as a small project I had [Claude Code](https://claude.com/product/claude-code) create for my internal development with my gaming and modding project, [TMC](https://moddingcommunity.com).
+This started out as a small project I had [Claude Code](https://claude.com/product/claude-code) create for my internal development with my gaming and modding project, [Gamespice](https://gamespice.net).
 
 Initially, one simple cron job ran *every night* to manage tasks and track the progress of Claude Code agents and workers. Over time, I've been adding more and more features to the project. Given these additions, I've been impressed with how much functionality has been getting integrated into the project and I decided I'd make it open source so that others can benefit from it if they want to use it for their development.
 
@@ -395,7 +395,7 @@ Yes and no. I still use it regularly, but I don't intend on actively developing 
 
 > What is your dev environment like?
 
-I dedicate one of my homeservers from my [home lab](https://github.com/gamemann/my-home-lab) for development work on my personal projects including [TMC](https://moddingcommunity.com), [TekWorks](https://tekworks.net), and my other general open source projects. I run a bunch of virtual machines that Claude Code has access to, which gives them full control to actively manage and interact with the development environment without restrictions. I've cut off the homeserver from crucial parts of my network in the very small chance that Claude Code agents do go rogue and try to nuke my home network 😅
+I dedicate one of my homeservers from my [home lab](https://github.com/gamemann/my-home-lab) for development work on my personal projects including [Gamespice](https://gamespice.net), [TekWorks](https://tekworks.net), and my other general open source projects. I run a bunch of virtual machines that Claude Code has access to, which gives them full control to actively manage and interact with the development environment without restrictions. I've cut off the homeserver from crucial parts of my network in the very small chance that Claude Code agents do go rogue and try to nuke my home network 😅
 
 ## License
 
