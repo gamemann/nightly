@@ -90,8 +90,12 @@ const HELP = `nightly -- the nightly run's to-do database (${S.DB_PATH})
   start <schedule-id|name>                      fire one schedule now (ignores doRun); prints the run id
 
   agent join <name> [--task T] [--repos a,b] [--kind session|nightly] [--run ID]
-  agent claim <name> <scope...> [--note N] [--force]   exit 3 if a live agent holds an overlapping scope.
+  agent claim <name> <scope...> [--note N] [--force] [--item KEY] [--why W]
+      exit 3 if a live agent holds an overlapping scope.
       scope = path, or <repo-claim>:<path-or-glob> (myhost:org/repo:scripts/**); a bare repo = whole repo
+      Relaunch guard, on an agent's first claim: its item (--item, or an item key in its task) must not have another
+      live agent, and the last agent on it must have left a commit sha (messages, leave note or item notes); else exit 4
+      with that agent's stop note, unless --why says what changed (posted to the board).
   agent release <name> [<scope...>]              (no path = all of them)
   agent say <name> [--to AGENT] <text | stdin>
   agent inbox <name> [--peek]                   messages for you since you last looked
@@ -421,9 +425,22 @@ function cmdAgent() {
     const a = A.must(db, name)
     if (sub === 'claim') {
         if (!pos.length) die('agent claim <name> <path...>')
-        const r = A.claim(db, a, pos, { note: opt.note ? String(opt.note) : '', force: !!opt.force })
+        const r = A.claim(db, a, pos, { note: opt.note ? String(opt.note) : '', force: !!opt.force,
+            item: opt.item ? String(opt.item) : '', why: opt.why ? String(opt.why) : '' })
         const who = (c) => `${c.scope} is held by ${c.name} (${c.kind}, seen ${S.local(c.lastSeenAt).slice(11)})${c.note ? ` -- ${c.note}` : ''}`
+        const prev = (x) => x.why === 'live'
+            ? `${x.key}: ${x.agent.name} is live on it (seen ${S.local(x.agent.lastSeenAt).slice(11)}, task: ${clip(x.agent.task, 60)})`
+            : `${x.key}: the last agent, ${x.agent.name} (${S.local(x.agent.startedAt).slice(5, 16)}..${S.local(x.agent.endedAt).slice(11, 16)}), ` +
+              `left no commit. Its stop note: ${x.agent.stopNote || '(none)'}`
+        if (r.relaunch.length && !r.ok) {
+            out(r, () => ['NOT claimed: relaunch guard', ...r.relaunch.map(prev),
+                `Read \`nightly show ${r.relaunch[0].key}\` and the board, change the brief, then claim again with ` +
+                `--why "<what is different this time>" (posted to the board). Or pick another item.`].join('\n'))
+            process.exitCode = 4
+            return
+        }
         out(r, () => [
+            ...(r.relaunch.length ? ['relaunch guard overridden (--why):', ...r.relaunch.map(prev)] : []),
             ...(r.ok ? [r.claimed.length ? `claimed ${r.claimed.join(', ')}` : 'already yours'] : ['NOT claimed:', ...r.blocking.map(who),
                 `Coordinate first: nightly agent say ${a.name} --to ${r.blocking[0].name} "..."  (or work elsewhere; --force overrides)`]),
             ...(r.ok && r.blocking.length ? ['forced over:', ...r.blocking.map(who)] : []),

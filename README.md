@@ -300,7 +300,10 @@ nightly schedule list                               # schedules are edited in th
 nightly tick [--dry-run]                            # start what is due this minute (the panel runs it; or a crontab)
 nightly start <schedule-id|name>                    # fire one now; prints the run id
 nightly agent join <name> [--task T] [--repos a,b] [--kind session|nightly] [--run ID]
-nightly agent claim <name> <path...> [--note N] [--force]   # exit 3: a live agent holds an overlapping path
+nightly agent claim <name> <path...> [--note N] [--force] [--item KEY] [--why W]
+#   exit 3: a live agent holds an overlapping path. exit 4 (first claim only): the relaunch guard -- another live agent
+#   works the same item (--item, or an item key in the task), or the last agent on it left no commit sha (messages,
+#   leave note, item notes); prints its stop note. Read it, change the brief, then pass --why "<what changed>".
 nightly agent release <name> [<path...>]
 nightly agent say <name> [--to AGENT] <text>
 nightly agent inbox <name> [--peek]
