@@ -1,11 +1,13 @@
 import { execFile } from 'node:child_process'
-import { readFile } from 'node:fs/promises'
+import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { OPEN_STATUSES } from '~/lib/constants'
 import { type Budget, compareFunctions, compareMetrics, evaluateBudgets, regressionMarkers } from '../../lib/perf.mjs'
+import { bestFolded, diffFlameSvg, diffRows, flameSvg, hitchSvg, hitchesFromReport, sparklineSvg } from '../../lib/perf-viz.mjs'
 import { procedure, router } from './trpc'
 
 // Reads go through Prisma. Every write is `bin/nightly perf ...`: one writer, one place for the rules (budget breaches, dedupe, size limits).
@@ -23,6 +25,42 @@ async function cli(args: string[], input?: string, env?: Record<string, string>)
 /** `token` travels in the environment (never argv: ps and logs would show it). */
 export const perfIngest = (args: string[], text: string, token = '') => cli(['perf', 'ingest', '-', '--json', ...args], text, token ? { NIGHTLY_PERF_TOKEN: token } : undefined)
 
+const nightlyBin = () => path.join(process.cwd(), 'bin', 'nightly')
+const tokenEnv = (token: string) => ({ ...process.env, ...(token ? { NIGHTLY_PERF_TOKEN: token } : {}) })
+/** The CI gate. Exit 1 (fail) still carries the JSON verdict on stdout. 0 pass -> 200, 1 fail -> 422, 2 no run -> 404. */
+export async function perfGate(args: string[], token = ''): Promise<{ status: number; body: unknown }> {
+    try {
+        const p = await execp(nightlyBin(), ['perf', 'gate', '--json', ...args], { timeout: 60_000, env: tokenEnv(token), maxBuffer: 8 << 20 })
+        return { status: 200, body: JSON.parse(p.stdout) }
+    } catch (e) {
+        const err = e as { code?: number; stdout?: string; stderr?: string; message: string }
+        if (err.code === 1 && err.stdout) return { status: 422, body: JSON.parse(err.stdout) }
+        return { status: err.code === 2 ? 404 : 400, body: { error: (err.stderr || err.message).replace(/^nightly: /, '').trim() } }
+    }
+}
+/** Attach a png to a run: the bytes travel on stdin. */
+export async function perfShot(args: string[], png: Buffer, token = ''): Promise<string> {
+    const p = execp(nightlyBin(), ['perf', 'shot', 'add', '-', '--json', ...args], { timeout: 60_000, env: tokenEnv(token), maxBuffer: 8 << 20 })
+    p.child.stdin?.end(png)
+    try { return (await p).stdout.trim() } catch (e) { const err = e as { stderr?: string; message: string }; throw new Error((err.stderr || err.message).replace(/^nightly: /, '').trim()) }
+}
+/** The per-run report file (md, svg or png) produced by `perf report`. */
+export async function perfReport(id: number, format: 'md' | 'svg' | 'png'): Promise<Buffer> {
+    const dir = await mkdtemp(path.join(tmpdir(), 'perf-report-'))
+    try {
+        await cli(['perf', 'report', String(id), '--out', dir, '--json', ...(format === 'png' ? ['--png'] : [])])
+        const f = (await readdir(dir)).find((n) => n.endsWith('.' + format))
+        if (!f) throw new Error('report not produced')
+        return await readFile(path.join(dir, f))
+    } finally { await rm(dir, { recursive: true, force: true }) }
+}
+
+type FoldRun = { artefact: string; funcs: { name: string; path: string; per: string; selfMs: number }[] }
+async function storedFolded(r: FoldRun) {
+    const rd = (f: string) => (r.artefact ? readFile(path.join(PERF_DIR(), r.artefact, f), 'utf8').catch(() => '') : Promise.resolve(''))
+    const [stacks, report] = await Promise.all([rd('stacks.folded'), rd('report.json')])
+    return { folded: bestFolded({ stacks, report, funcs: r.funcs }) as string, report }
+}
 const json = <T,>(s: string, d: T): T => { try { return JSON.parse(s) as T } catch { return d } }
 const PERF_DIR = () => process.env.NIGHTLY_PERF_DIR || path.join(path.dirname(process.env.NIGHTLY_DB || path.join(process.cwd(), 'data', 'nightly.db')), 'perf')
 const OPEN = new Set<string>(OPEN_STATUSES)
@@ -87,6 +125,35 @@ export const perfRouter = router({
         const game = await ctx.db.perfGame.findUnique({ where: { slug: input.game } })
         const budgets = json<Budget[]>(game?.budgets ?? '[]', []).filter((b) => b.metric === input.metric && (!b.platform || !input.platform || b.platform === input.platform) && (!b.role || !input.role || b.role === input.role) && (!b.map || b.map === input.map) && (b.bots === undefined || b.bots === input.bots))
         return { points, budgets, markers: regressionMarkers(points, input.metric) }
+    }),
+
+    /** Visuals of one run: flame graph, hitch timeline, screenshots. The SVG strings come from lib/perf-viz (all text escaped). */
+    viz: procedure.input(z.object({ id: z.number().int() })).query(async ({ ctx, input }) => {
+        const r = await ctx.db.perfRun.findUnique({ where: { id: input.id }, include: { funcs: true } })
+        if (!r) throw new TRPCError({ code: 'NOT_FOUND', message: `no run #${input.id}` })
+        const { folded, report } = await storedFolded(r)
+        const hitches = hitchesFromReport(json(report || '{}', {}))
+        const game = await ctx.db.perfGame.findUnique({ where: { slug: r.game } })
+        const frameBudget = json<Budget[]>(game?.budgets ?? '[]', []).find((b) => b.metric === 'frame_ms_p95' && b.max !== undefined)?.max
+        const shots = await ctx.db.perfShot.findMany({ where: { runId: r.id }, orderBy: { id: 'asc' } })
+        return { flame: folded ? flameSvg(folded, { title: `run #${r.id} flame graph (width = self time per frame)` }) : '', hitch: hitches.length ? hitchSvg(hitches, { budgetMs: frameBudget }) : '', hitches: hitches.length, shots }
+    }),
+
+    /** Differential flame graph between any two runs (red = slower in B, green = faster) and the biggest self-time changes. */
+    diff: procedure.input(z.object({ a: z.number().int(), b: z.number().int(), noisePct: z.number().default(5) })).query(async ({ ctx, input }) => {
+        const [a, b] = await Promise.all([input.a, input.b].map((id) => ctx.db.perfRun.findUnique({ where: { id }, include: { funcs: true } })))
+        if (!a || !b) throw new TRPCError({ code: 'NOT_FOUND', message: 'run not found' })
+        const [fa, fb] = await Promise.all([storedFolded(a), storedFolded(b)])
+        const rows = diffRows(fa.folded, fb.folded, { top: 15 }).map((x: { path: string; a: number; b: number; delta: number }) => ({ path: x.path, a: x.a / 1000, b: x.b / 1000, delta: x.delta / 1000 }))
+        const hasStacks = !!(fa.folded && fb.folded)
+        return { svg: hasStacks ? diffFlameSvg(fa.folded, fb.folded, { noisePct: input.noisePct, title: `${a.game}: run #${a.id} -> run #${b.id} (red = slower, green = faster)` }) : '', rows, hasStacks, game: a.game }
+    }),
+
+    /** One function's self ms per frame over the newest runs of a scope: the per-function history sparkline. */
+    funcHistory: procedure.input(scope.extend({ name: z.string(), limit: z.number().int().min(2).max(500).default(60) })).query(async ({ ctx, input }) => {
+        const rows = await ctx.db.perfRun.findMany({ where: { ...runWhere(input), funcs: { some: { name: input.name } } }, orderBy: [{ ranAt: 'desc' }, { id: 'desc' }], take: input.limit, select: { id: true, ranAt: true, commit: true, funcs: { where: { name: input.name, per: 'frame' }, select: { selfMs: true } } } })
+        const points = rows.reverse().map((r) => ({ id: r.id, ranAt: r.ranAt, commit: r.commit, value: r.funcs.reduce((x, f) => x + f.selfMs, 0) }))
+        return { points, svg: sparklineSvg(points.map((p) => p.value), { width: 160, height: 30 }) }
     }),
 
     /** A vs B: metric deltas and per-function deltas. */

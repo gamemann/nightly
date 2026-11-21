@@ -2,7 +2,7 @@
 import '../lib/env.mjs'   // first: the other modules read process.env when they load
 import { OWNER } from '../lib/owner.mjs'
 import { spawnSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import path from 'node:path'
 import * as A from '../lib/agents.mjs'
 import * as Att from '../lib/attach.mjs'
@@ -14,9 +14,11 @@ import * as S from '../lib/store.mjs'
 import * as P_ from '../lib/perf.mjs'
 import * as PS from '../lib/perf-store.mjs'
 import * as PR from '../lib/perf-run.mjs'
+import * as PG from '../lib/perf-gate.mjs'
+import * as PV from '../lib/perf-viz.mjs'
 
 const argv = process.argv.slice(2)
-const BOOL = new Set(['json', 'all', 'top', 'due', 'help', 'h', 'dryRun', 'force', 'peek', 'strict', 'register', 'noFindings', 'disable', 'enable'])
+const BOOL = new Set(['json', 'all', 'top', 'due', 'help', 'h', 'dryRun', 'force', 'peek', 'strict', 'register', 'noFindings', 'noBudgets', 'noBaseline', 'requireToken', 'tokenOnly', 'png', 'disable', 'enable'])
 
 const multi = {}
 function parse(args) {
@@ -35,6 +37,7 @@ function parse(args) {
             }
             opt[k] = v
             if (k === 'budget') (multi.budget ??= []).push(v)
+            if (k === 'metric') (multi.metric ??= []).push(v)
         } else if (a === '-h') opt.help = true
         else pos.push(a)
     }
@@ -94,6 +97,10 @@ const HELP = `nightly -- the nightly run's to-do database (${S.DB_PATH})
   perf migrate                                  create/upgrade the perf tables (backs up the database to data/backup/ first)
   perf token add --name N [--game G]            ingest token for one runner/game; the secret is printed once, only its hash is kept
   perf token list | perf token revoke NAME      (HTTP ingest needs "Authorization: Bearer <token>" once a token exists)
+  perf gate --game X [--run ID|latest|COMMIT] [--no-budgets] [--no-baseline] [--noise-pct N]   pass/fail vs budgets and the noise-aware baseline; exit 0 pass, 1 fail, 2 no run
+  perf report <runId> [--out DIR] [--png]       per-run perf report: markdown + svg (+ png via headless chromium) for READMEs/PRs
+  perf diff <runA> <runB> [--out DIR] [--png]   differential flame graph (red = slower in B, green = faster) + the biggest changes
+  perf shot add --run ID FILE.png [--name N] | perf shot list --run ID    screenshots attached to a run
   perf rsi [--game X]                           findings with state found -> fixed -> remeasured and the before/after delta
   perf game add --id X --name N [--repo R] [--repo-path DIR] [--engine godot] [--platforms native,web] [--owner O]
       [--budget "frame_ms_p95<=33@platform=native,role=client,map=arena,bots=4"]... [--routing JSON] [--addons JSON]
@@ -583,6 +590,9 @@ function cmdPerf() {
         return out(ts, () => ts.map((t) => `${t.name.padEnd(20)} ${t.prefix}...  ${(t.game || 'any game').padEnd(12)} ${t.revokedAt ? 'revoked ' + t.revokedAt.slice(0, 10) : 'active'}  used ${t.lastUsedAt?.slice(0, 16) ?? 'never'}`).join('\n') || '(no tokens: ingest is open)')
     }
     if (sub === 'rsi') {
+        PS.ready(db)
+        // Sync first: an item closed since the last ingest must show as fixed/dismissed without waiting for the next run (perf-rsi-cli-run-1).
+        for (const g of PS.listGames(db)) if (!opt.game || g.slug === opt.game) PS.syncRsi(db, g)
         const rows = PS.listRsi(db, { game: opt.game ? String(opt.game) : undefined })
         return out(rows, () => rows.map((r) => `${r.game.padEnd(12)} ${r.state.padEnd(10)} ${(r.fn ? 'fn:' + r.fn : r.metric).padEnd(28)} ${r.itemKey || '-'} (${r.itemStatus || '-'})` +
             (r.delta != null ? `  ${+r.before.toFixed(3)} -> ${+r.after.toFixed(3)} (${r.delta > 0 ? '+' : ''}${+r.delta.toFixed(3)}${r.pct != null ? `, ${r.pct > 0 ? '+' : ''}${r.pct.toFixed(1)}%` : ''})` : '')).join('\n') || '(no findings)')
@@ -634,6 +644,45 @@ function cmdPerf() {
         const [a, b] = [pos[0], pos[1]].map((x) => Number(x ?? die('perf compare <runA> <runB>')))
         const rows = P_.compareMetrics(PS.runMetrics(db, a), PS.runMetrics(db, b), { noisePct: num(opt.noise) ?? 5 })
         return out(rows, () => rows.map((r) => `${r.metric.padEnd(22)} ${String(r.a ?? '-').padStart(10)} ${String(r.b ?? '-').padStart(10)} ${r.pct === undefined || r.pct === null ? '' : (r.pct > 0 ? '+' : '') + r.pct.toFixed(1) + '%'} ${r.verdict}`).join('\n'))
+    }
+    if (sub === 'gate') {
+        const game = String(opt.game ?? die('perf gate --game X [--run ID|latest|COMMIT] [--platform P --role R --map M --bots N] [--no-budgets] [--no-baseline] [--noise-pct N] [--sigma N] [--min-runs N] [--runs N] [--metric M]...   exit 0 pass, 1 fail, 2 no such run'))
+        if (opt.requireToken || opt.tokenOnly) PS.authorizeIngest(db, process.env.NIGHTLY_PERF_TOKEN, game, { strict: !!opt.tokenOnly })
+        const run = PG.findRun(db, game, String(opt.run ?? pos[0] ?? 'latest'), { platform: opt.platform, role: opt.role, map: opt.map, bots: opt.bots })
+        if (!run) { process.stderr.write(`nightly: perf gate: no run of ${game} matches ${opt.run ?? 'latest'}\n`); process.exit(PG.EXIT.error) }
+        const g = PG.gate(db, game, run.id, { budgets: !opt.noBudgets, baseline: !opt.noBaseline, noisePct: num(opt.noisePct), sigma: num(opt.sigma), minRuns: num(opt.minRuns), runs: num(opt.runs), metrics: [].concat(multi.metric ?? []) })
+        out(g, () => PG.gateText(g))
+        process.exit(g.exit)
+    }
+    if (sub === 'report' || sub === 'diff') {
+        const dir = opt.out ? String(opt.out) : ''
+        const save = (name, text) => { if (!dir) return ''; mkdirSync(dir, { recursive: true }); const f = path.join(dir, name); writeFileSync(f, text); return f }
+        const png = (name, svg) => { if (!opt.png) return ''; if (!dir) die('--png needs --out DIR'); return PG.svgToPng(svg, path.join(dir, name)) }
+        if (sub === 'report') {
+            const id = Number(pos[0] ?? opt.run ?? die('perf report <runId> [--out DIR] [--png] [--image-url URL]'))
+            const r = PG.runReport(db, id, { links: opt.imageUrl ? { image: String(opt.imageUrl) } : {} })
+            const files = [save(`perf-run-${id}.md`, r.markdown), save(`perf-run-${id}.svg`, r.svg), png(`perf-run-${id}.png`, r.svg)].filter(Boolean)
+            return out({ run: id, files, markdown: r.markdown }, () => (files.length ? files.map((f) => 'wrote ' + f).join('\n') : r.markdown))
+        }
+        const [ia, ib] = [pos[0], pos[1]].map((x) => Number(x ?? die('perf diff <runA> <runB> [--out DIR] [--png]   (red = B slower than A, green = faster)')))
+        const [ra, rb] = [ia, ib].map((i) => db.prepare('SELECT * FROM PerfRun WHERE id = ?').get(i) ?? die(`no run ${i}`))
+        const [fa, fb] = [PG.runFolded(db, ra), PG.runFolded(db, rb)]
+        const svg = PV.diffFlameSvg(fa, fb, { title: `${ra.game}: run ${ia} -> run ${ib} (red = slower, green = faster)`, noisePct: num(opt.noise) ?? 5 })
+        const rows = PV.diffRows(fa, fb, { top: Number(opt.top ?? 12) })
+        const files = [save(`perf-diff-${ia}-${ib}.svg`, svg), png(`perf-diff-${ia}-${ib}.png`, svg)].filter(Boolean)
+        return out({ a: ia, b: ib, rows, files }, () => [...files.map((f) => 'wrote ' + f), ...rows.map((r) => `${(r.delta >= 0 ? '+' : '') + (r.delta / 1000).toFixed(3).padStart(9)} ms  ${(r.a / 1000).toFixed(3)} -> ${(r.b / 1000).toFixed(3)}  ${r.path}`)].join('\n'))
+    }
+    if (sub === 'shot') {
+        const a = pos.shift() ?? 'list'
+        if (a === 'add') {
+            const id = Number(opt.run ?? die('perf shot add --run ID FILE.png [--name N] [--note T]'))
+            const f = pos[0] ?? die('perf shot add --run ID FILE.png|-')
+            if (opt.requireToken || opt.tokenOnly) PS.authorizeIngest(db, process.env.NIGHTLY_PERF_TOKEN, db.prepare('SELECT game FROM PerfRun WHERE id = ?').get(id)?.game ?? '', { strict: !!opt.tokenOnly })
+            const s = PS.addShot(db, id, readFileSync(f === '-' ? 0 : f), { name: opt.name ? String(opt.name) : f === '-' ? 'screenshot' : path.basename(f), note: opt.note ? String(opt.note) : '' })
+            return out(s, () => `screenshot ${s.id} attached to run ${id} (${s.bytes} bytes)`)
+        }
+        const rows = PS.listShots(db, Number(opt.run ?? pos[0] ?? die('perf shot list --run ID')))
+        return out(rows, () => rows.map((s) => `${String(s.id).padStart(4)} ${s.name.padEnd(30)} ${String(s.bytes).padStart(9)}  ${s.note}`).join('\n'))
     }
     if (sub === 'findings') {
         PS.ready(db)

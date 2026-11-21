@@ -336,3 +336,16 @@ model PerfToken {
   @@unique([name])
   @@unique([hash])
 }
+
+/// A screenshot (png) attached to a perf run, e.g. the frame at the worst hitch. The file is <perf dir>/shots/<runId>/<file>.
+model PerfShot {
+  id        Int      @id @default(autoincrement())
+  runId     Int
+  name      String   @default("")
+  note      String   @default("")
+  file      String
+  bytes     Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([runId])
+}

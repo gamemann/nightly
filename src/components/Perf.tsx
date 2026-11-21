@@ -8,14 +8,14 @@ import { ago } from "./pills"
 type Game = RouterOutputs["perf"]["games"][number]
 type Func = RouterOutputs["perf"]["run"]["funcs"][number]
 const f2 = (n: number | undefined | null, d = 2) => (n === undefined || n === null ? "-" : Number.isInteger(n) ? String(n) : n.toFixed(d))
-const HEAD = ["fps", "frame_ms_p95", "tick_ms", "memory_mb", "draw_calls"]
+const HEAD = ["fps", "frame_ms_p50", "frame_ms_p95", "frame_ms_p99", "tick_ms", "draw_calls", "memory_mb", "net_in_kbps", "net_out_kbps"]
 const VERDICT: Record<string, string> = { better: "text-emerald-300", worse: "text-red-300", same: "text-muted", new: "text-sky-300", gone: "text-amber-300" }
 const input = "rounded border border-line bg-panel px-2 py-1 text-[12px] outline-none focus:border-sky-400/60"
 const btn = "rounded border border-line px-2 py-1 text-[12px] hover:bg-hover disabled:opacity-40"
 const scopeLabel = (r: { platform: string; role: string; map: string; bots: number }) => `${r.platform}/${r.role}${r.map ? " " + r.map : ""}${r.bots ? ` ${r.bots}b` : ""}`
 
 export function Perf({ slug }: { slug: string[] }) {
-    if (slug[0] === "compare" && slug[1] && slug[2]) return <Shell crumbs={[["Compare", ""]]}><Compare a={Number(slug[1])} b={Number(slug[2])} /></Shell>
+    if ((slug[0] === "compare" || slug[0] === "diff") && slug[1] && slug[2]) return <Shell crumbs={[["Compare", ""]]}><Compare a={Number(slug[1])} b={Number(slug[2])} /></Shell>
     if (slug[0] && slug[1] === "run" && slug[2]) return <Shell crumbs={[[slug[0], `/perf/${slug[0]}`], [`run #${slug[2]}`, ""]]}><RunView id={Number(slug[2])} /></Shell>
     if (slug[0]) return <Shell crumbs={[[slug[0], ""]]}><GameView slug={slug[0]} /></Shell>
     return <Shell crumbs={[]}><Overview /></Shell>
@@ -139,7 +139,7 @@ function Rsi({ game }: { game?: string }) {
                             <td><span className={`rounded px-1.5 ${STATE[f.state] ?? ""}`}>{f.state}</span></td>
                             <td>{f.itemKey ? <><Link className="font-mono hover:text-sky-300" href={`/item/${f.itemKey}`}>{f.itemKey}</Link><span className="ml-1 text-muted">({f.itemStatus || "-"})</span></> : "-"}</td>
                             <td className="text-right tabular-nums">{f.before != null ? `${f2(f.before, 3)}${m}` : f.state === "found" ? `${f2(f.value, 3)}${m}` : "-"}</td>
-                            <td className="text-right tabular-nums">{f.after != null ? <>{f2(f.after, 3)}{m} {f.remeasuredRunId && <Link className="text-muted hover:text-sky-300" href={`/perf/${f.game}/run/${f.remeasuredRunId}`}>#{f.remeasuredRunId}</Link>}</> : "-"}</td>
+                            <td className="text-right tabular-nums">{f.after != null ? <>{f2(f.after, 3)}{m} {f.remeasuredRunId && <Link className="text-muted hover:text-sky-300" href={`/perf/${f.game}/run/${f.remeasuredRunId}`}>#{f.remeasuredRunId}</Link>}{f.remeasuredRunId && f.runId && <Link className="ml-1 text-sky-300" title="differential flame graph: the run that found it vs the run after the fix" href={`/perf/diff/${f.runId}/${f.remeasuredRunId}`}>diff</Link>}</> : "-"}</td>
                             <td className={`text-right tabular-nums ${f.delta == null ? "text-muted" : f.metric.includes("fps") ? (f.delta >= 0 ? "text-emerald-300" : "text-red-300") : f.delta <= 0 ? "text-emerald-300" : "text-red-300"}`}>{f.delta == null ? "-" : `${f.delta > 0 ? "+" : ""}${f2(f.delta, 3)}${f.pct != null ? ` (${f.pct > 0 ? "+" : ""}${f.pct.toFixed(0)}%)` : ""}`}</td>
                         </tr>
                     )
@@ -347,13 +347,14 @@ function Offenders({ game, scope }: { game: string; scope: Scope }) {
         <>
             <p className="mb-2 text-[12px] text-muted">Self time, averaged over the newest {q.data?.runs ?? 0} runs in this scope.</p>
             <table className="w-full text-[12px]">
-                <thead className="text-left text-muted"><tr><th className="py-1">#</th><th>Function</th><th>Group</th><th>Addon</th><th className="text-right">self ms</th><th className="w-40">share</th><th>Queue item</th></tr></thead>
+                <thead className="text-left text-muted"><tr><th className="py-1">#</th><th>Function</th><th>Group</th><th>Addon</th><th className="text-right">self ms</th><th className="w-40">share</th><th>history</th><th>Queue item</th></tr></thead>
                 <tbody>
                     {rows.map((r, i) => (
                         <tr key={r.name} className="border-t border-line">
                             <td className="py-1 text-muted">{i + 1}</td><td className="font-mono">{r.name}</td><td>{r.grp}</td><td className="text-muted">{r.addon || "-"}</td>
                             <td className="text-right tabular-nums">{f2(r.selfMs, 3)}</td>
                             <td><div className="h-2 rounded bg-sky-400/60" style={{ width: `${(r.selfMs / max) * 100}%` }} title={`${(r.share * 100).toFixed(1)}% of listed time`} /></td>
+                            <td><FuncSpark game={game} scope={scope} name={r.name} /></td>
                             <td>{r.itemKey ? <><Link className="font-mono hover:text-sky-300" href={`/item/${r.itemKey}`}>{r.itemKey}</Link>{r.rsi && <span className="ml-1 text-muted">({r.rsi})</span>}</> : <span className="text-muted">-</span>}</td>
                         </tr>
                     ))}
@@ -388,8 +389,47 @@ function RunView({ id }: { id: number }) {
                     )
                 })}
             </div>
+            <Visuals id={id} />
             <Profiler funcs={d.funcs} folded={d.folded} />
         </>
+    )
+}
+
+/** SVG strings come from lib/perf-viz, which escapes every label. */
+function Svg({ svg, label }: { svg: string; label: string }) {
+    return <div role="img" aria-label={label} className="overflow-x-auto rounded border border-line bg-panel p-1" dangerouslySetInnerHTML={{ __html: svg }} />
+}
+
+function FuncSpark({ game, scope, name }: { game: string; scope: Scope; name: string }) {
+    const q = api.perf.funcHistory.useQuery({ game, ...scope, name, limit: 40 }, { staleTime: 60_000 })
+    return q.data && q.data.points.length > 1 ? <span title={`${name}: self ms per frame over the last ${q.data.points.length} runs`} dangerouslySetInnerHTML={{ __html: q.data.svg }} /> : <span className="text-muted">-</span>
+}
+
+function Visuals({ id }: { id: number }) {
+    const q = api.perf.viz.useQuery({ id })
+    const d = q.data
+    if (!d) return null
+    return (
+        <section className="mb-5">
+            <h2 className="mb-1 text-[13px] font-medium">Call trace and hitches</h2>
+            <p className="mb-2 text-[12px] text-muted">Report for READMEs and PRs: <a className="text-sky-300" href={`/api/perf/report/${id}?format=md`}>markdown</a> · <a className="text-sky-300" href={`/api/perf/report/${id}?format=svg`}>svg</a> · <a className="text-sky-300" href={`/api/perf/report/${id}?format=png`}>png</a></p>
+            {d.flame ? <Svg svg={d.flame} label="flame graph" /> : <div className="rounded border border-line px-3 py-3 text-[12px] text-muted">No call stacks in this run (ingest a dot-profiler v2 report or a .folded file).</div>}
+            {d.hitch && <div className="mt-2"><Svg svg={d.hitch} label="hitch timeline" /></div>}
+            {d.shots.length > 0 && (
+                <div className="mt-3">
+                    <h3 className="mb-1 text-[12px] text-muted">Screenshots ({d.shots.length})</h3>
+                    <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+                        {d.shots.map((s) => (
+                            <a key={s.id} href={`/api/perf/shot/${id}/${s.file}`} target="_blank" rel="noreferrer" className="block rounded border border-line p-1 hover:border-sky-400/60">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img src={`/api/perf/shot/${id}/${s.file}`} alt={s.name} loading="lazy" className="w-full rounded" />
+                                <div className="truncate text-[11px] text-muted" title={s.note}>{s.name}{s.note ? ` · ${s.note}` : ""}</div>
+                            </a>
+                        ))}
+                    </div>
+                </div>
+            )}
+        </section>
     )
 }
 
@@ -520,6 +560,7 @@ function Compare({ a, b }: { a: number; b: number }) {
     return (
         <>
             <p className="mt-0.5 mb-3 text-[12px] text-muted">A <Link className="font-mono hover:text-sky-300" href={`/perf/${d.a.game}/run/${d.a.id}`}>#{d.a.id}</Link> ({scopeLabel(d.a)}, {d.a.commit.slice(0, 9) || "no commit"}) vs B <Link className="font-mono hover:text-sky-300" href={`/perf/${d.b.game}/run/${d.b.id}`}>#{d.b.id}</Link> ({scopeLabel(d.b)}, {d.b.commit.slice(0, 9) || "no commit"}) · noise band <input className={`${input} w-14`} type="number" value={noise} onChange={(e) => setNoise(Number(e.target.value))} />%</p>
+            <DiffFlame a={a} b={b} noise={noise} />
             <table className="mb-6 w-full text-[12px]">
                 <thead className="text-left text-muted"><tr><th className="py-1">Metric</th><th className="text-right">A</th><th className="text-right">B</th><th className="text-right">Δ</th><th className="text-right">Δ %</th><th /></tr></thead>
                 <tbody>{d.metrics.map((m) => (
@@ -536,5 +577,23 @@ function Compare({ a, b }: { a: number; b: number }) {
                 ))}</tbody>
             </table>
         </>
+    )
+}
+
+/** Differential flame graph: red = slower in B, green = faster, grey = inside the noise band. */
+function DiffFlame({ a, b, noise }: { a: number; b: number; noise: number }) {
+    const q = api.perf.diff.useQuery({ a, b, noisePct: noise })
+    const d = q.data
+    if (!d) return null
+    if (!d.hasStacks) return <div className="mb-4 rounded border border-line px-3 py-3 text-[12px] text-muted">No call stacks stored for one of these runs, so no differential flame graph.</div>
+    return (
+        <section className="mb-5">
+            <h2 className="mb-1 text-[13px] font-medium">Differential flame graph</h2>
+            <Svg svg={d.svg} label="differential flame graph" />
+            <table className="mt-2 w-full text-[12px]">
+                <thead className="text-left text-muted"><tr><th className="py-1">Biggest self-time changes</th><th className="text-right">A ms</th><th className="text-right">B ms</th><th className="text-right">Delta ms</th></tr></thead>
+                <tbody>{d.rows.map((r) => <tr key={r.path} className="border-t border-line"><td className="max-w-[34rem] truncate py-1 font-mono" title={r.path}>{r.path.split(";").slice(-2).join(" > ")}</td><td className="text-right tabular-nums">{f2(r.a, 3)}</td><td className="text-right tabular-nums">{f2(r.b, 3)}</td><td className={`text-right tabular-nums ${r.delta > 0 ? "text-red-300" : "text-emerald-300"}`}>{r.delta > 0 ? "+" : ""}{f2(r.delta, 3)}</td></tr>)}</tbody>
+            </table>
+        </section>
     )
 }
