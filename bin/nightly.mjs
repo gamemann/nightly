@@ -11,10 +11,14 @@ import * as P from '../lib/prompts.mjs'
 import * as Rv from '../lib/review.mjs'
 import * as R from '../lib/runner.mjs'
 import * as S from '../lib/store.mjs'
+import * as P_ from '../lib/perf.mjs'
+import * as PS from '../lib/perf-store.mjs'
+import * as PR from '../lib/perf-run.mjs'
 
 const argv = process.argv.slice(2)
-const BOOL = new Set(['json', 'all', 'top', 'due', 'help', 'h', 'dryRun', 'force', 'peek', 'strict'])
+const BOOL = new Set(['json', 'all', 'top', 'due', 'help', 'h', 'dryRun', 'force', 'peek', 'strict', 'register', 'noFindings', 'disable', 'enable'])
 
+const multi = {}
 function parse(args) {
     const pos = []
     const opt = {}
@@ -30,6 +34,7 @@ function parse(args) {
                 else die(`--${k} needs a value`)
             }
             opt[k] = v
+            if (k === 'budget') (multi.budget ??= []).push(v)
         } else if (a === '-h') opt.help = true
         else pos.push(a)
     }
@@ -86,6 +91,16 @@ const HELP = `nightly -- the nightly run's to-do database (${S.DB_PATH})
   prompt set <name> [--file F | stdin] [--note N] [--by B] [--kind prompt|script]
 
   schedule list                                 when the runner starts (edit in the panel)
+  perf migrate                                  create the perf tables (back up data/nightly.db first)
+  perf game add --id X --name N [--repo R] [--repo-path DIR] [--engine godot] [--platforms native,web] [--owner O]
+      [--budget "frame_ms_p95<=33@platform=native,role=client,map=arena,bots=4"]... [--routing JSON] [--addons JSON]
+  perf game set --id X [same flags; --budgets JSON replaces the list] | perf game list | perf game show X
+  perf ingest <report.json|.folded|.txt|-> --game X [--platform native|web] [--role client|server] [--map M] [--bots N]
+      [--commit SHA] [--gpu S] [--resolution WxH] [--label L] [--register] [--no-findings]
+  perf run --game X [--platform native|web] [--role client|server] [--map M] [--bots N] [--dry-run]   runs tools/perf.sh, ingests
+  perf nightly [--game X] [--dry-run]            the scheduled run: every routing entry of every enabled game
+  perf runs [--game X] [--limit N] | perf compare <runA> <runB> | perf findings [--game X]
+  perf finding add --game X --metric M [--item KEY | --title T]   link a perf finding to a queue item
   tick [--dry-run]                              crontab, every minute: fire the schedules due now
   start <schedule-id|name>                      fire one schedule now (ignores doRun); prints the run id
 
@@ -375,6 +390,7 @@ function cmdSchedule() {
 
 function cmdTick() {
     const lines = R.tick(db, new Date(), { dryRun: !!opt.dryRun })
+    if (!opt.dryRun) { try { const m = PR.maybeSchedule(db); if (m) lines.push(m) } catch (e) { lines.push(`perf schedule: ${e.message}`) } }
     if (J) return out(lines, () => '')
     if (lines.length) process.stdout.write(lines.join('\n') + '\n')
 }
@@ -537,6 +553,77 @@ function cmdBrief() {
     process.stdout.write(L.join('\n') + '\n')
 }
 
+function cmdPerf() {
+    const sub = pos.shift() ?? die('perf migrate|game|ingest|run|nightly|runs|compare|findings|finding')
+    const num = (v) => (v === undefined || v === true ? undefined : Number(v))
+    const budgetsFrom = () => {
+        const list = []
+        if (opt.budgets) list.push(...JSON.parse(String(opt.budgets)))
+        for (const b of [].concat(multi.budget ?? [])) list.push(b)
+        return list.length ? list : undefined
+    }
+    const json = (v) => (v === undefined ? undefined : JSON.parse(String(v)))
+    const gameFields = () => ({
+        slug: opt.id, name: opt.name, repo: opt.repo, repoPath: opt.repoPath, engine: opt.engine, owner: opt.owner,
+        platforms: opt.platforms, budgets: budgetsFrom(), routing: json(opt.routing), addons: json(opt.addons), perfScript: opt.script,
+        enabled: opt.disable ? false : opt.enable ? true : undefined,
+    })
+    if (sub === 'migrate') { PS.migrate(db); return out({ ok: true }, () => 'perf tables ready') }
+    if (sub === 'game') {
+        const a = pos.shift() ?? 'list'
+        if (a === 'add' || a === 'set') {
+            const g = PS.saveGame(db, gameFields(), { update: a === 'set' })
+            return out(g, () => `${a === 'add' ? 'added' : 'updated'} game ${g.slug} (${g.budgets.length} budgets)`)
+        }
+        if (a === 'show') { const g = PS.getGame(db, pos[0] ?? die('perf game show <id>')) ?? die('no such game'); return out(g, () => JSON.stringify(g, null, 2)) }
+        PS.ready(db)
+        const gs = PS.listGames(db)
+        return out(gs, () => gs.map((g) => `${g.slug.padEnd(14)} ${g.engine.padEnd(6)} ${g.platforms.join(',').padEnd(11)} ${String(g.budgets.length).padStart(2)} budgets  ${g.enabled ? '' : '(disabled) '}${g.name}`).join('\n') || '(no games: nightly perf game add --id ...)')
+    }
+    if (sub === 'ingest') {
+        const file = pos[0] ?? die('perf ingest <file|-> --game X')
+        const text = readText(file)
+        if (!text.trim()) die('empty input')
+        const parsed = P_.parseAny(text, file === '-' ? String(opt.name ?? '') : file, { addons: PS.getGame(db, String(opt.game ?? ''))?.addons })
+        const r = PS.ingest(db, parsed, {
+            game: opt.game, platform: opt.platform, role: opt.role, map: opt.map, bots: opt.bots, commit: opt.commit, gpu: opt.gpu, resolution: opt.resolution,
+            label: opt.label, build: opt.build, branch: opt.branch, ranAt: opt.at, duration: opt.duration, register: !!opt.register, noFindings: !!opt.noFindings, raw: parsed.kind === 'folded' ? undefined : text,
+            source: opt.source ?? `ingest ${path.basename(file)}`,
+        })
+        return out(r, () => `run #${r.run.id} ${r.run.game} ${r.run.platform}/${r.run.role}: ${Object.keys(r.metrics).length} metrics, ${r.functions} functions` +
+            r.breaches.map((b) => `\n  BREACH ${b.metric}=${+b.value.toFixed(3)} limit ${b.limit}`).join('') + r.findings.map((f) => `\n  finding -> ${f.itemKey || '(no item)'}${f.created ? ' (new)' : ''}`).join(''))
+    }
+    if (sub === 'run' || sub === 'nightly') {
+        if (sub === 'run') {
+            const g = PS.getGame(db, String(opt.game ?? die('--game is required'))) ?? die(`no game "${opt.game}"`)
+            const r = PR.runGame(db, g, { platform: opt.platform, role: opt.role, map: opt.map, bots: opt.bots, duration: opt.duration, dryRun: !!opt.dryRun })
+            return out(r, () => (r.dryRun ? r.command : `run #${r.run.id}: ${r.breaches.length} breaches`))
+        }
+        const rows = PR.runAll(db, { dryRun: !!opt.dryRun, only: opt.game })
+        return out(rows, () => rows.map((r) => `${r.game} ${r.combo ?? ''} ${r.status}${r.runId ? ' #' + r.runId : ''}${r.breaches ? ` ${r.breaches} breaches` : ''}${r.note ? ' ' + r.note : ''}${r.command ? ' ' + r.command : ''}`).join('\n') || '(no games)')
+    }
+    if (sub === 'runs') {
+        const rs = PS.listRuns(db, { game: opt.game, limit: num(opt.limit) ?? 20 })
+        return out(rs, () => rs.map((r) => `#${String(r.id).padEnd(5)} ${r.ranAt.slice(0, 16)} ${r.game.padEnd(12)} ${r.platform}/${r.role} ${r.map || '-'} bots=${r.bots} ${r.commit.slice(0, 9)} ${r.label}`).join('\n'))
+    }
+    if (sub === 'compare') {
+        const [a, b] = [pos[0], pos[1]].map((x) => Number(x ?? die('perf compare <runA> <runB>')))
+        const rows = P_.compareMetrics(PS.runMetrics(db, a), PS.runMetrics(db, b), { noisePct: num(opt.noise) ?? 5 })
+        return out(rows, () => rows.map((r) => `${r.metric.padEnd(22)} ${String(r.a ?? '-').padStart(10)} ${String(r.b ?? '-').padStart(10)} ${r.pct === undefined || r.pct === null ? '' : (r.pct > 0 ? '+' : '') + r.pct.toFixed(1) + '%'} ${r.verdict}`).join('\n'))
+    }
+    if (sub === 'findings') {
+        PS.ready(db)
+        const rows = db.prepare(`SELECT f.*, i.status AS itemStatus FROM PerfFinding f LEFT JOIN Item i ON i.key = f.itemKey ${opt.game ? 'WHERE f.game = ?' : ''} ORDER BY f.updatedAt DESC`).all(...(opt.game ? [opt.game] : []))
+        return out(rows, () => rows.map((f) => `${f.game.padEnd(12)} ${f.metric.padEnd(20)} ${f.status.padEnd(9)} ${f.itemKey || '-'} (${f.itemStatus ?? '-'})`).join('\n'))
+    }
+    if (sub === 'finding') {
+        if (pos.shift() !== 'add') die('perf finding add --game X --metric M [--item KEY | --title T]')
+        const f = PS.addFinding(db, { game: opt.game, metric: opt.metric, item: opt.item, title: opt.title, body: opt.body })
+        return out(f, () => `${f.game}/${f.metric} -> ${f.itemKey}`)
+    }
+    die(`unknown perf command "${sub}"`)
+}
+
 if (!cmd || opt.help || cmd === 'help') {
     process.stdout.write(HELP + '\n')
     process.exit(cmd || opt.help ? 0 : 1)
@@ -547,7 +634,7 @@ try {
     db = S.open()
     const table = { list: cmdList, ls: cmdList, show: cmdShow, add: cmdAdd, set: cmdSet, note: cmdNote, attach: cmdAttach, attachments: cmdAttachments, review: cmdReview, reviews: cmdReview, checks: cmdChecks,
         checked: cmdChecked, run: cmdRun, get: cmdGet, 'set-setting': cmdSetSetting, brief: cmdBrief,
-        prompt: cmdPrompt, prompts: cmdPrompt, schedule: cmdSchedule, schedules: cmdSchedule, tick: cmdTick, start: cmdStart, exec: cmdExec, agent: cmdAgent, account: cmdAccount, accounts: cmdAccount }
+        prompt: cmdPrompt, prompts: cmdPrompt, schedule: cmdSchedule, schedules: cmdSchedule, tick: cmdTick, start: cmdStart, exec: cmdExec, agent: cmdAgent, account: cmdAccount, accounts: cmdAccount, perf: cmdPerf }
     const fn = table[cmd] ?? die(`unknown command "${cmd}" (try: nightly help)`)
     await fn()
 } catch (e) {

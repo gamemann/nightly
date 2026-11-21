@@ -205,3 +205,105 @@ model Annotation {
 
   @@index([itemKey, target])
 }
+
+/// PERFORMANCE tab. A registered game (data-driven, added with `nightly perf game add`, the panel or
+/// POST /api/perf/game). budgets: JSON [{metric, max?|min?, platform?, role?, map?, bots?}].
+/// routing: JSON {"<platform>:<role>": "<box>"}; addons: JSON {"<span prefix>": "<addon>"}.
+/// The perf tables are written by lib/perf-store.mjs (CLI, node:sqlite); the panel only reads them.
+/// DDL for an existing database: prisma/migrations/20261120000000_perf/migration.sql (`nightly perf migrate`).
+model PerfGame {
+  id         Int      @id @default(autoincrement())
+  slug       String   @unique
+  name       String
+  repo       String   @default("")
+  repoPath   String   @default("")
+  engine     String   @default("godot")
+  platforms  String   @default("native,web")
+  owner      String   @default("")
+  budgets    String   @default("[]")
+  routing    String   @default("{}")
+  addons     String   @default("{}")
+  perfScript String   @default("tools/perf.sh")
+  enabled    Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+/// One benchmark: a named run with its config. Numbers are in PerfMetric, per-function rows in PerfFunc,
+/// raw artefacts (report.json, stacks.folded, report.txt) on disk under <data>/perf/<artefact>.
+model PerfRun {
+  id            Int          @id @default(autoincrement())
+  game          String
+  name          String       @default("")
+  commit        String       @default("")
+  build         String       @default("")
+  branch        String       @default("")
+  platform      String       @default("native")
+  role          String       @default("client")
+  map           String       @default("")
+  bots          Int          @default(0)
+  resolution    String       @default("")
+  gpu           String       @default("")
+  durationS     Float        @default(0)
+  frames        Int          @default(0)
+  ranAt         DateTime
+  source        String       @default("")
+  label         String       @default("")
+  reportVersion Int          @default(0)
+  artefact      String       @default("")
+  createdAt     DateTime     @default(now())
+  metrics       PerfMetric[]
+  funcs         PerfFunc[]
+
+  @@index([game, ranAt])
+  @@index([game, platform, role, map, ranAt])
+  @@index([commit])
+}
+
+model PerfMetric {
+  id    Int     @id @default(autoincrement())
+  runId Int
+  run   PerfRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  name  String
+  value Float
+
+  @@index([runId])
+  @@index([name, runId])
+}
+
+/// A function/span row of a run's profiler table. grp is the budget group (physics | process | render | wait | other),
+/// addon the attribution from the game's addons map (else the span's prefix).
+model PerfFunc {
+  id      Int     @id @default(autoincrement())
+  runId   Int
+  run     PerfRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  name    String
+  path    String  @default("")
+  per     String  @default("frame")
+  grp     String  @default("other")
+  addon   String  @default("")
+  selfMs  Float   @default(0)
+  totalMs Float   @default(0)
+  calls   Float   @default(0)
+
+  @@index([runId])
+  @@index([name])
+}
+
+/// A budget breach and the queue item filed for it (itemKey is an Item.key; its status is read live).
+/// One row per game + metric (the dedupe). status: open | resolved.
+model PerfFinding {
+  id        Int      @id @default(autoincrement())
+  game      String
+  metric    String
+  runId     Int?
+  itemKey   String   @default("")
+  status    String   @default("open")
+  value     Float    @default(0)
+  limit     Float    @default(0)
+  note      String   @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([game, metric])
+}

@@ -276,6 +276,19 @@ systemctl --user daemon-reload && systemctl --user enable --now nightly-panel
 loginctl enable-linger $USER
 ```
 
+## Performance tab
+
+`/perf` keeps benchmark runs and profiler reports per game: trend charts with budget lines and regression markers, a sortable profiler table (per function, budget group, addon), an icicle view of folded stacks, an A vs B comparison with a coloured delta table, top offenders, and findings linked to queue items.
+
+![Performance tab](docs/perf-tab.png)
+
+- **Add a game** (no code change): `nightly perf game add --id fc --name "Fatal Contact" --repo fc-game --engine godot --platforms native,web --budget 'fps>=60@platform=native,role=client' --budget 'frame_ms_p95<=33@platform=web' --routing '{"native/client":{"host":"gpu-box","map":"arena","bots":4}}'`, or "Register a game" on `/perf`, or the `perf.addGame` tRPC mutation. `nightly perf game set|list|show` edit and inspect.
+- **Ingest** a dot-profiler perf-report v1 (`gamespice.perf-report`), a legacy `profile-*.json`, a `.folded` stack file or a `.txt` report: `nightly perf ingest report.json --game fc [--platform web --role client --map arena --bots 4 --commit SHA]`. Over HTTP (same auth as the panel): `curl -X POST --data-binary @report.json 'http://panel/api/perf/ingest?game=fc&commit=SHA'`. The raw files are kept under `data/perf/<game>/<stamp>/`.
+- **Budgets** are evaluated on every ingest. A breach files a finding and one queue item keyed `perf-<game>-<metric>` (deduped; a still-open breach adds a note, a pass resolves the finding, a closed item gets a fresh one). `--no-findings` or setting `perfBreachItems=0` turns it off.
+- **Runner**: `nightly perf run --game fc [--dry-run]` runs each routing key (`native/client`, `web/client`, ...) through the game repo's `tools/perf.sh --platform P --role R [--map M] [--bots N] [--duration S] --out report.json` and ingests the result. A routing entry with a `host` runs over ssh; without one it runs locally. `nightly perf nightly` does this for every enabled game; `tick` starts it once a day after `perfNightlyAt` (default `03:40`, empty = off). Host names live in each game's routing JSON in the database, never in this repository.
+- **Settings** (0 = unlimited, bad values fail loudly): `perfMaxArtifactBytes` (50000000), `perfRetentionDays`, `perfRetentionRuns`, `perfMaxFunctions` (300), `perfBreachItems`, `perfNightlyAt`.
+- **Setup and seed**: `nightly perf migrate` (idempotent; back up `data/nightly.db` first), then optionally `node scripts/seed-perf.mjs <dir-of-profile-json>` to register games and import old profiles. Other commands: `perf runs|compare|findings|finding add`.
+
 ## CLI
 
 `~/stack/nightly/bin/nightly` — works from any directory and under cron's bare `PATH` (it finds `/usr/local/bin/node` itself). Every command takes `--json`. `NIGHTLY_DB=/path/to.db` points it at another file (tests, scratch copies).

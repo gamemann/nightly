@@ -11,6 +11,7 @@ import { OWNER, CADENCES, KINDS, LIVE_MINUTES, OPEN_STATUSES, STATUSES, isDue, s
 import { AUTH_KEYS, PRIVATE_SETTINGS, forgetAuth, hashPassword, newSecret } from './auth'
 import { ATTACH_DIR, MEDIA_DIR, MEDIA_EXT } from './media'
 import { gameRouter } from './gameRouter'
+import { perfRouter } from './perfRouter'
 import { modelSibling } from './models'
 import { procedure, router } from './trpc'
 
@@ -466,5 +467,5 @@ const authRouter = router({
         })),
 })
 
-export const appRouter = router({ item: itemRouter, note: noteRouter, run: runRouter, schedule: scheduleRouter, prompt: promptRouter, attachment: attachmentRouter, qa: qaRouter, agent: agentRouter, setting: settingRouter, auth: authRouter, game: gameRouter })
+export const appRouter = router({ perf: perfRouter, item: itemRouter, note: noteRouter, run: runRouter, schedule: scheduleRouter, prompt: promptRouter, attachment: attachmentRouter, qa: qaRouter, agent: agentRouter, setting: settingRouter, auth: authRouter, game: gameRouter })
 export type AppRouter = typeof appRouter
