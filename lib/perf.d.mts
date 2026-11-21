@@ -12,3 +12,4 @@ export function evaluateBudgets(budgets: Budget[], run: { platform: string; role
 export function compareMetrics(a: Record<string, number>, b: Record<string, number>, o?: { noisePct?: number }): MetricRow[]
 export function compareFunctions(a: FuncRow[], b: FuncRow[], o?: { noisePct?: number; minAbs?: number }): { name: string; a?: number; b?: number; delta: number; pct: number; verdict: string; addon: string; grp: string }[]
 export function regressionMarkers(series: { value: number }[], metric: string, o?: { window?: number; noisePct?: number }): number[]
+export function unitLabel(metric: string): string

@@ -2,7 +2,7 @@
 import Link from "next/link"
 import { useMemo, useState } from "react"
 import { api, type RouterOutputs } from "~/trpc/react"
-import { unitOf } from "../../lib/perf.mjs"
+import { unitLabel, unitOf } from "../../lib/perf.mjs"
 import { ago } from "./pills"
 
 type Game = RouterOutputs["perf"]["games"][number]
@@ -61,8 +61,10 @@ function Overview() {
                 <button className={btn} onClick={() => setAdding(!adding)}>{adding ? "Cancel" : "Register a game"}</button>
                 {adding && <AddGame done={() => { setAdding(false); void games.refetch() }} />}
             </div>
-            <h2 className="mt-6 mb-2 text-[13px] font-medium">Findings</h2>
-            <Findings />
+            <h2 className="mt-6 mb-2 text-[13px] font-medium">Findings and fixes</h2>
+            <Rsi />
+            <h2 className="mt-6 mb-2 text-[13px] font-medium">Ingest tokens</h2>
+            <Tokens games={games.data?.map((g) => g.slug) ?? []} />
         </>
     )
 }
@@ -105,13 +107,83 @@ function Findings({ game }: { game?: string }) {
                         <td className="py-1"><Link className="hover:text-sky-300" href={`/perf/${f.game}`}>{f.game}</Link></td>
                         <td className="font-mono">{f.metric}</td>
                         <td><span className={`rounded px-1.5 ${f.status === "open" ? "bg-red-400/15 text-red-300" : "bg-emerald-400/15 text-emerald-300"}`}>{f.status}</span></td>
-                        <td className="tabular-nums">{f2(f.value)} / {f2(f.limit)} {f.runId ? <Link className="text-muted hover:text-sky-300" href={`/perf/${f.game}/run/${f.runId}`}>#{f.runId}</Link> : null}</td>
+                        <td className="tabular-nums">{f2(f.value)}{unitLabel(f.metric)} / {f2(f.limit)} {f.runId ? <Link className="text-muted hover:text-sky-300" href={`/perf/${f.game}/run/${f.runId}`}>#{f.runId}</Link> : null}</td>
                         <td>{f.item ? <><Link className="font-mono hover:text-sky-300" href={`/item/${f.item.key}`}>{f.item.key}</Link><span className="ml-1 text-muted">({f.item.status})</span></> : "-"}</td>
                         <td className="text-muted">{ago(f.updatedAt)}</td>
                     </tr>
                 ))}
             </tbody>
         </table>
+    )
+}
+
+const STATE: Record<string, string> = { found: "bg-red-400/15 text-red-300", fixed: "bg-amber-400/15 text-amber-300", remeasured: "bg-emerald-400/15 text-emerald-300", dismissed: "bg-hover text-muted" }
+const what = (f: { kind: string; metric: string; fn: string }) => (f.kind === "offender" ? `fn ${f.fn}` : f.metric)
+
+/** The RSI loop: found -> fixed (its queue item closed) -> remeasured (a later run in the same scope), with the before/after delta. */
+function Rsi({ game }: { game?: string }) {
+    const q = api.perf.rsi.useQuery({ game }, { refetchInterval: 30_000 })
+    const rows = q.data ?? []
+    if (!rows.length) return <div className="rounded-lg border border-line px-3 py-4 text-center text-[12px] text-muted">Nothing found yet. A breached budget, a regression against the previous runs or a top offender files a finding and a queue item; closing the item and running again remeasures it here.</div>
+    return (
+        <table className="w-full text-[12px]">
+            <thead className="text-left text-muted"><tr>{!game && <th className="py-1">Game</th>}<th className="py-1">Finding</th><th>Kind</th><th>State</th><th>Queue item</th><th className="text-right">Before</th><th className="text-right">After</th><th className="text-right">Delta</th></tr></thead>
+            <tbody>
+                {rows.map((f) => {
+                    const m = f.kind === "offender" ? "ms" : unitLabel(f.metric.replace(/^regress:/, "").replace(/@.*$/, ""))
+                    return (
+                        <tr key={f.id} className="border-t border-line">
+                            {!game && <td className="py-1"><Link className="hover:text-sky-300" href={`/perf/${f.game}`}>{f.game}</Link></td>}
+                            <td className="max-w-[18rem] truncate py-1 font-mono" title={f.note}>{what(f)}</td>
+                            <td className="text-muted">{f.kind}{f.cycles > 0 && <span title="completed fix cycles before this one"> x{f.cycles + 1}</span>}</td>
+                            <td><span className={`rounded px-1.5 ${STATE[f.state] ?? ""}`}>{f.state}</span></td>
+                            <td>{f.itemKey ? <><Link className="font-mono hover:text-sky-300" href={`/item/${f.itemKey}`}>{f.itemKey}</Link><span className="ml-1 text-muted">({f.itemStatus || "-"})</span></> : "-"}</td>
+                            <td className="text-right tabular-nums">{f.before != null ? `${f2(f.before, 3)}${m}` : f.state === "found" ? `${f2(f.value, 3)}${m}` : "-"}</td>
+                            <td className="text-right tabular-nums">{f.after != null ? <>{f2(f.after, 3)}{m} {f.remeasuredRunId && <Link className="text-muted hover:text-sky-300" href={`/perf/${f.game}/run/${f.remeasuredRunId}`}>#{f.remeasuredRunId}</Link>}</> : "-"}</td>
+                            <td className={`text-right tabular-nums ${f.delta == null ? "text-muted" : f.metric.includes("fps") ? (f.delta >= 0 ? "text-emerald-300" : "text-red-300") : f.delta <= 0 ? "text-emerald-300" : "text-red-300"}`}>{f.delta == null ? "-" : `${f.delta > 0 ? "+" : ""}${f2(f.delta, 3)}${f.pct != null ? ` (${f.pct > 0 ? "+" : ""}${f.pct.toFixed(0)}%)` : ""}`}</td>
+                        </tr>
+                    )
+                })}
+            </tbody>
+        </table>
+    )
+}
+
+/** Ingest tokens: per runner and/or per game. The secret is shown once; only its hash is stored. */
+function Tokens({ games }: { games: string[] }) {
+    const utils = api.useUtils()
+    const list = api.perf.tokens.useQuery()
+    const [name, setName] = useState("")
+    const [game, setGame] = useState("")
+    const [fresh, setFresh] = useState<{ name: string; token: string } | null>(null)
+    const add = api.perf.tokenAdd.useMutation({ onSuccess: (t) => { setFresh({ name: t.name, token: t.token }); setName(""); void utils.perf.tokens.invalidate() } })
+    const revoke = api.perf.tokenRevoke.useMutation({ onSuccess: () => void utils.perf.tokens.invalidate() })
+    const rows = list.data ?? []
+    return (
+        <div className="text-[12px]">
+            <p className="mb-2 text-muted">{rows.some((t) => !t.revokedAt) ? "HTTP ingest needs a token: Authorization: Bearer <token>." : "No token yet: HTTP ingest is open. Making the first one closes it to runners without a token."}</p>
+            {rows.length > 0 && (
+                <table className="mb-2 w-full">
+                    <thead className="text-left text-muted"><tr><th className="py-1">Name</th><th>Token</th><th>Game</th><th>Last used</th><th /></tr></thead>
+                    <tbody>
+                        {rows.map((t) => (
+                            <tr key={t.id} className="border-t border-line">
+                                <td className="py-1 font-mono">{t.name}</td><td className="font-mono text-muted">{t.prefix}...</td><td>{t.game || "any game"}</td>
+                                <td className="text-muted">{t.revokedAt ? "revoked" : t.lastUsedAt ? ago(t.lastUsedAt) : "never"}</td>
+                                <td className="text-right">{!t.revokedAt && <button className={btn} disabled={revoke.isPending} onClick={() => revoke.mutate({ name: t.name })}>Revoke</button>}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            )}
+            <div className="flex flex-wrap items-center gap-2">
+                <input className={input} placeholder="runner or game name" value={name} onChange={(e) => setName(e.target.value)} />
+                <select className={input} value={game} onChange={(e) => setGame(e.target.value)}><option value="">any game</option>{games.map((g) => <option key={g} value={g}>{g}</option>)}</select>
+                <button className={btn} disabled={!name || add.isPending} onClick={() => add.mutate({ name, game })}>Create token</button>
+                {(add.error || revoke.error) && <span className="text-red-300">{(add.error ?? revoke.error)?.message}</span>}
+            </div>
+            {fresh && <div className="mt-2 rounded border border-amber-400/40 p-2">Token for <b>{fresh.name}</b>, shown once, copy it now: <code className="select-all break-all">{fresh.token}</code> <button className="ml-2 text-muted hover:text-sky-300" onClick={() => setFresh(null)}>dismiss</button></div>}
+        </div>
     )
 }
 
@@ -126,7 +198,7 @@ const budgetText = (b: Game["budgets"][number]) => {
 function GameView({ slug }: { slug: string }) {
     const games = api.perf.games.useQuery()
     const facets = api.perf.facets.useQuery({ game: slug })
-    const [tab, setTab] = useState<"trends" | "runs" | "offenders" | "findings" | "budgets">("trends")
+    const [tab, setTab] = useState<"trends" | "runs" | "offenders" | "findings" | "rsi" | "budgets">("trends")
     const [scope, setScope] = useState<Scope>({})
     const game = games.data?.find((g) => g.slug === slug)
     const combos = facets.data?.combos ?? []
@@ -144,7 +216,7 @@ function GameView({ slug }: { slug: string }) {
         <>
             <p className="mt-0.5 mb-3 text-[12px] text-muted">{game?.name} · {game?.engine} · {game?.runs ?? 0} runs{game?.owner && <> · owner {game.owner}</>}{game?.repo && <> · {game.repo}</>}</p>
             <div className="mb-3 flex flex-wrap items-center gap-2">
-                {(["trends", "runs", "offenders", "findings", "budgets"] as const).map((t) => (
+                {(["trends", "runs", "offenders", "findings", "rsi", "budgets"] as const).map((t) => (
                     <button key={t} className={`${btn} ${tab === t ? "bg-hover" : "text-muted"}`} onClick={() => setTab(t)}>{t === "offenders" ? "top offenders" : t}</button>
                 ))}
                 <span className="ml-auto flex flex-wrap gap-2">{sel("platform", "platform")}{sel("role", "role")}{sel("map", "map")}{sel("bots", "bots")}</span>
@@ -153,6 +225,7 @@ function GameView({ slug }: { slug: string }) {
             {tab === "runs" && <Runs game={slug} scope={scope} />}
             {tab === "offenders" && <Offenders game={slug} scope={scope} />}
             {tab === "findings" && <Findings game={slug} />}
+            {tab === "rsi" && <Rsi game={slug} />}
             {tab === "budgets" && game && <Budgets game={game} />}
         </>
     )
@@ -205,7 +278,7 @@ function TrendChart({ game, metric, scope }: { game: string; metric: string; sco
     return (
         <section className="rounded-lg border border-line bg-panel/40 p-3">
             <div className="flex items-baseline gap-2 text-[12px]">
-                <span className="font-mono text-[13px]">{metric}</span><span className="text-muted">{u}</span>
+                <span className="font-mono text-[13px]">{metric}</span><span className="text-muted">{unitLabel(metric)}</span>
                 {d && d.points.length > 0 && <span className="ml-auto tabular-nums">{f2(d.points[d.points.length - 1].value)} <span className="text-muted">latest of {d.points.length}</span></span>}
             </div>
             {q.isLoading && <div className="h-[150px] p-6 text-center text-muted">Loading…</div>}
@@ -274,13 +347,14 @@ function Offenders({ game, scope }: { game: string; scope: Scope }) {
         <>
             <p className="mb-2 text-[12px] text-muted">Self time, averaged over the newest {q.data?.runs ?? 0} runs in this scope.</p>
             <table className="w-full text-[12px]">
-                <thead className="text-left text-muted"><tr><th className="py-1">#</th><th>Function</th><th>Group</th><th>Addon</th><th className="text-right">self ms</th><th className="w-48">share</th></tr></thead>
+                <thead className="text-left text-muted"><tr><th className="py-1">#</th><th>Function</th><th>Group</th><th>Addon</th><th className="text-right">self ms</th><th className="w-40">share</th><th>Queue item</th></tr></thead>
                 <tbody>
                     {rows.map((r, i) => (
                         <tr key={r.name} className="border-t border-line">
                             <td className="py-1 text-muted">{i + 1}</td><td className="font-mono">{r.name}</td><td>{r.grp}</td><td className="text-muted">{r.addon || "-"}</td>
                             <td className="text-right tabular-nums">{f2(r.selfMs, 3)}</td>
                             <td><div className="h-2 rounded bg-sky-400/60" style={{ width: `${(r.selfMs / max) * 100}%` }} title={`${(r.share * 100).toFixed(1)}% of listed time`} /></td>
+                            <td>{r.itemKey ? <><Link className="font-mono hover:text-sky-300" href={`/item/${r.itemKey}`}>{r.itemKey}</Link>{r.rsi && <span className="ml-1 text-muted">({r.rsi})</span>}</> : <span className="text-muted">-</span>}</td>
                         </tr>
                     ))}
                 </tbody>

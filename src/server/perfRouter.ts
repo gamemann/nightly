@@ -10,9 +10,9 @@ import { procedure, router } from './trpc'
 
 // Reads go through Prisma. Every write is `bin/nightly perf ...`: one writer, one place for the rules (budget breaches, dedupe, size limits).
 const execp = promisify(execFile)
-async function cli(args: string[], input?: string) {
+async function cli(args: string[], input?: string, env?: Record<string, string>) {
     try {
-        const p = execp(path.join(process.cwd(), 'bin', 'nightly'), args, { timeout: 60_000, env: { ...process.env }, maxBuffer: 64 << 20 })
+        const p = execp(path.join(process.cwd(), 'bin', 'nightly'), args, { timeout: 60_000, env: { ...process.env, ...env }, maxBuffer: 64 << 20 })
         if (input !== undefined) p.child.stdin?.end(input)
         return (await p).stdout.trim()
     } catch (e) {
@@ -20,7 +20,8 @@ async function cli(args: string[], input?: string) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: (err.stderr || err.message).replace(/^nightly: /, '').trim() })
     }
 }
-export const perfIngest = (args: string[], text: string) => cli(['perf', 'ingest', '-', '--json', ...args], text)
+/** `token` travels in the environment (never argv: ps and logs would show it). */
+export const perfIngest = (args: string[], text: string, token = '') => cli(['perf', 'ingest', '-', '--json', ...args], text, token ? { NIGHTLY_PERF_TOKEN: token } : undefined)
 
 const json = <T,>(s: string, d: T): T => { try { return JSON.parse(s) as T } catch { return d } }
 const PERF_DIR = () => process.env.NIGHTLY_PERF_DIR || path.join(path.dirname(process.env.NIGHTLY_DB || path.join(process.cwd(), 'data', 'nightly.db')), 'perf')
@@ -104,7 +105,10 @@ export const perfRouter = router({
         const ids = latest.map((r) => r.id)
         const rows = ids.length ? await ctx.db.perfFunc.groupBy({ by: ['name', 'grp', 'addon'], where: { runId: { in: ids } }, _avg: { selfMs: true, totalMs: true }, _sum: { calls: true }, _count: { _all: true }, orderBy: { _avg: { selfMs: 'desc' } }, take: 50 }) : []
         const total = rows.reduce((s, r) => s + (r._avg.selfMs ?? 0), 0)
-        return { runs: ids.length, rows: rows.map((r) => ({ name: r.name, grp: r.grp, addon: r.addon, selfMs: r._avg.selfMs ?? 0, totalMs: r._avg.totalMs ?? 0, seen: r._count._all, share: total ? (r._avg.selfMs ?? 0) / total : 0 })) }
+        // The queue item each function was auto-filed under (one per game + function, see fileOffenders).
+        const fins = await ctx.db.perfFinding.findMany({ where: { game: input.game, kind: 'offender' }, select: { fn: true, itemKey: true, state: true } })
+        const itemOf = (n: string) => fins.find((f) => f.fn === n && f.itemKey) ?? null
+        return { runs: ids.length, rows: rows.map((r) => ({ name: r.name, grp: r.grp, addon: r.addon, selfMs: r._avg.selfMs ?? 0, totalMs: r._avg.totalMs ?? 0, seen: r._count._all, share: total ? (r._avg.selfMs ?? 0) / total : 0, itemKey: itemOf(r.name)?.itemKey ?? '', rsi: itemOf(r.name)?.state ?? '' })) }
     }),
 
     /** Findings with the status of the queue item each is linked to. */
@@ -114,7 +118,30 @@ export const perfRouter = router({
         return f.map((x) => ({ ...x, item: items.find((i) => i.key === x.itemKey) ?? null, itemOpen: OPEN.has(items.find((i) => i.key === x.itemKey)?.status ?? '') }))
     }),
 
+    /** The RSI loop per game: every finding with its state (found, fixed, remeasured, dismissed) and the before/after delta. */
+    rsi: procedure.input(z.object({ game: z.string().optional() })).query(async ({ ctx, input }) => {
+        const f = await ctx.db.perfFinding.findMany({ where: input.game ? { game: input.game } : {}, orderBy: [{ game: 'asc' }, { updatedAt: 'desc' }], take: 500 })
+        const items = await ctx.db.item.findMany({ where: { key: { in: f.map((x) => x.itemKey).filter(Boolean) } }, select: { key: true, status: true, title: true } })
+        return f.map((x) => {
+            const it = items.find((i) => i.key === x.itemKey)
+            const delta = x.beforeValue != null && x.afterValue != null ? x.afterValue - x.beforeValue : null
+            return { id: x.id, game: x.game, kind: x.kind, metric: x.metric, fn: x.fn, state: x.state, value: x.value, limit: x.limit, note: x.note, itemKey: x.itemKey, itemStatus: it?.status ?? '', itemTitle: it?.title ?? '',
+                before: x.beforeValue, after: x.afterValue, delta, pct: delta != null && x.beforeValue ? (delta / Math.abs(x.beforeValue)) * 100 : null, runId: x.runId, remeasuredRunId: x.remeasuredRunId,
+                updatedAt: x.updatedAt, cycles: json<unknown[]>(x.history, []).length }
+        })
+    }),
+
+    /** Ingest tokens (hash and secret never leave the database). */
+    tokens: procedure.query(({ ctx }) => ctx.db.perfToken.findMany({ orderBy: { name: 'asc' }, select: { id: true, name: true, prefix: true, game: true, createdAt: true, lastUsedAt: true, revokedAt: true } })),
+
     // ---- writes (via the CLI) ----
+    /** Returns {token} once: it is the only time the secret exists in clear. */
+    tokenAdd: procedure.input(z.object({ name: z.string().min(1).max(40), game: z.string().default('') })).mutation(async ({ input }) => {
+        const args = ['perf', 'token', 'add', '--name', input.name, '--json']
+        if (input.game) args.push('--game', input.game)
+        return json<{ name: string; game: string; prefix: string; token: string }>(await cli(args), { name: input.name, game: input.game, prefix: '', token: '' })
+    }),
+    tokenRevoke: procedure.input(z.object({ name: z.string() })).mutation(({ input }) => cli(['perf', 'token', 'revoke', input.name])),
     addGame: procedure.input(z.object({ id: z.string(), name: z.string(), repo: z.string().default(''), repoPath: z.string().default(''), engine: z.string().default('godot'), platforms: z.string().default('native,web'), owner: z.string().default(''), budgets: z.array(z.string()).default([]), routing: z.string().default('{}') })).mutation(async ({ input }) => {
         const args = ['perf', 'game', 'add', '--id', input.id, '--name', input.name, '--engine', input.engine, '--platforms', input.platforms, '--routing', input.routing]
         for (const [k, v] of [['--repo', input.repo], ['--repo-path', input.repoPath], ['--owner', input.owner]] as const) if (v) args.push(k, v)

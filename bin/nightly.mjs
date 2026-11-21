@@ -91,12 +91,15 @@ const HELP = `nightly -- the nightly run's to-do database (${S.DB_PATH})
   prompt set <name> [--file F | stdin] [--note N] [--by B] [--kind prompt|script]
 
   schedule list                                 when the runner starts (edit in the panel)
-  perf migrate                                  create the perf tables (back up data/nightly.db first)
+  perf migrate                                  create/upgrade the perf tables (backs up the database to data/backup/ first)
+  perf token add --name N [--game G]            ingest token for one runner/game; the secret is printed once, only its hash is kept
+  perf token list | perf token revoke NAME      (HTTP ingest needs "Authorization: Bearer <token>" once a token exists)
+  perf rsi [--game X]                           findings with state found -> fixed -> remeasured and the before/after delta
   perf game add --id X --name N [--repo R] [--repo-path DIR] [--engine godot] [--platforms native,web] [--owner O]
       [--budget "frame_ms_p95<=33@platform=native,role=client,map=arena,bots=4"]... [--routing JSON] [--addons JSON]
   perf game set --id X [same flags; --budgets JSON replaces the list] | perf game list | perf game show X
   perf ingest <report.json|.folded|.txt|-> --game X [--platform native|web] [--role client|server] [--map M] [--bots N]
-      [--commit SHA] [--gpu S] [--resolution WxH] [--label L] [--register] [--no-findings]
+      [--commit SHA] [--gpu S] [--resolution WxH] [--label L] [--register] [--no-findings] [--folded FILE]   (a v1 report plus its .folded gives the icicle view)
   perf run --game X [--platform native|web] [--role client|server] [--map M] [--bots N] [--dry-run]   runs tools/perf.sh, ingests
   perf nightly [--game X] [--dry-run]            the scheduled run: every routing entry of every enabled game
   perf runs [--game X] [--limit N] | perf compare <runA> <runB> | perf findings [--game X]
@@ -568,7 +571,22 @@ function cmdPerf() {
         platforms: opt.platforms, budgets: budgetsFrom(), routing: json(opt.routing), addons: json(opt.addons), perfScript: opt.script,
         enabled: opt.disable ? false : opt.enable ? true : undefined,
     })
-    if (sub === 'migrate') { PS.migrate(db); return out({ ok: true }, () => 'perf tables ready') }
+    if (sub === 'migrate') { const bak = PS.migrate(db, { backup: true }); return out({ ok: true, backup: bak }, () => `perf tables ready${bak ? `; database backed up to ${bak}` : ''}`) }
+    if (sub === 'token') {
+        const a = pos.shift() ?? 'list'
+        if (a === 'add') {
+            const t = PS.addToken(db, { name: opt.name, game: opt.game ? String(opt.game) : '' })
+            return out(t, () => `token "${t.name}"${t.game ? ` (game ${t.game})` : ' (any game)'}: ${t.token}\nshown once; only its hash is stored. Use: Authorization: Bearer <token>`)
+        }
+        if (a === 'revoke') { const r = PS.revokeToken(db, pos[0] ?? die('perf token revoke NAME')); return out(r, () => `revoked ${r.name}`) }
+        const ts = PS.listTokens(db)
+        return out(ts, () => ts.map((t) => `${t.name.padEnd(20)} ${t.prefix}...  ${(t.game || 'any game').padEnd(12)} ${t.revokedAt ? 'revoked ' + t.revokedAt.slice(0, 10) : 'active'}  used ${t.lastUsedAt?.slice(0, 16) ?? 'never'}`).join('\n') || '(no tokens: ingest is open)')
+    }
+    if (sub === 'rsi') {
+        const rows = PS.listRsi(db, { game: opt.game ? String(opt.game) : undefined })
+        return out(rows, () => rows.map((r) => `${r.game.padEnd(12)} ${r.state.padEnd(10)} ${(r.fn ? 'fn:' + r.fn : r.metric).padEnd(28)} ${r.itemKey || '-'} (${r.itemStatus || '-'})` +
+            (r.delta != null ? `  ${+r.before.toFixed(3)} -> ${+r.after.toFixed(3)} (${r.delta > 0 ? '+' : ''}${+r.delta.toFixed(3)}${r.pct != null ? `, ${r.pct > 0 ? '+' : ''}${r.pct.toFixed(1)}%` : ''})` : '')).join('\n') || '(no findings)')
+    }
     if (sub === 'game') {
         const a = pos.shift() ?? 'list'
         if (a === 'add' || a === 'set') {
@@ -582,16 +600,22 @@ function cmdPerf() {
     }
     if (sub === 'ingest') {
         const file = pos[0] ?? die('perf ingest <file|-> --game X')
-        const text = readText(file)
-        if (!text.trim()) die('empty input')
+        const rawText = readText(file)
+        if (!rawText.trim()) die('empty input')
+        if (opt.requireToken || opt.tokenOnly) PS.authorizeIngest(db, process.env.NIGHTLY_PERF_TOKEN, opt.game ? String(opt.game) : '', { strict: !!opt.tokenOnly })
+        const env = P_.splitEnvelope(rawText)
+        const text = env.text
+        const foldedText = env.folded || (opt.folded ? readText(String(opt.folded)) : '')
         const parsed = P_.parseAny(text, file === '-' ? String(opt.name ?? '') : file, { addons: PS.getGame(db, String(opt.game ?? ''))?.addons })
         const r = PS.ingest(db, parsed, {
+            folded: foldedText || undefined,
             game: opt.game, platform: opt.platform, role: opt.role, map: opt.map, bots: opt.bots, commit: opt.commit, gpu: opt.gpu, resolution: opt.resolution,
             label: opt.label, build: opt.build, branch: opt.branch, ranAt: opt.at, duration: opt.duration, register: !!opt.register, noFindings: !!opt.noFindings, raw: parsed.kind === 'folded' ? undefined : text,
             source: opt.source ?? `ingest ${path.basename(file)}`,
         })
         return out(r, () => `run #${r.run.id} ${r.run.game} ${r.run.platform}/${r.run.role}: ${Object.keys(r.metrics).length} metrics, ${r.functions} functions` +
-            r.breaches.map((b) => `\n  BREACH ${b.metric}=${+b.value.toFixed(3)} limit ${b.limit}`).join('') + r.findings.map((f) => `\n  finding -> ${f.itemKey || '(no item)'}${f.created ? ' (new)' : ''}`).join(''))
+            r.breaches.map((b) => `\n  BREACH ${b.metric}=${+b.value.toFixed(3)} limit ${b.limit}`).join('') + r.findings.map((f) => `\n  finding -> ${f.itemKey || '(no item)'}${f.created ? ' (new)' : ''}`).join('') +
+            r.regressions.map((f) => `\n  REGRESSION ${f.regressionOf} ${f.pct > 0 ? '+' : ''}${f.pct.toFixed(1)}% -> ${f.itemKey || '(no item)'}${f.created ? ' (new)' : ''}`).join('') + r.offenders.map((f) => `\n  offender ${f.fn} -> ${f.itemKey || '(no item)'}${f.created ? ' (new)' : ''}`).join(''))
     }
     if (sub === 'run' || sub === 'nightly') {
         if (sub === 'run') {

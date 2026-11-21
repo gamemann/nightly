@@ -290,20 +290,49 @@ model PerfFunc {
   @@index([name])
 }
 
-/// A budget breach and the queue item filed for it (itemKey is an Item.key; its status is read live).
-/// One row per game + metric (the dedupe). status: open | resolved.
+/// A perf finding and the queue item filed for it (itemKey is an Item.key; its status is read live).
+/// One row per game + metric (the dedupe). kind: budget | regression | offender. metric is the budget metric,
+/// "regress:<metric>@<scope>" or "fn:<function>". status: open | resolved (is the problem still measured).
+/// state is the RSI loop: found -> fixed (item closed done) -> remeasured (a later run in scope), with
+/// beforeValue/afterValue the delta; dismissed = item closed wontfix. history keeps earlier completed cycles (JSON list).
 model PerfFinding {
-  id        Int      @id @default(autoincrement())
-  game      String
-  metric    String
-  runId     Int?
-  itemKey   String   @default("")
-  status    String   @default("open")
-  value     Float    @default(0)
-  limit     Float    @default(0)
-  note      String   @default("")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id              Int       @id @default(autoincrement())
+  game            String
+  metric          String
+  runId           Int?
+  itemKey         String    @default("")
+  status          String    @default("open")
+  value           Float     @default(0)
+  limit           Float     @default(0)
+  note            String    @default("")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  kind            String    @default("budget")
+  state           String    @default("found")
+  fn              String    @default("")
+  scope           String    @default("")
+  beforeValue     Float?
+  afterValue      Float?
+  fixedAt         DateTime?
+  remeasuredRunId Int?
+  remeasuredAt    DateTime?
+  history         String    @default("[]")
 
   @@unique([game, metric])
+}
+
+/// An ingest token: one per runner and/or game. Only the sha256 of the secret is stored (the secret is shown once, at creation).
+/// game "" = any game. Revoked tokens stay as rows.
+model PerfToken {
+  id         Int       @id @default(autoincrement())
+  name       String
+  hash       String
+  prefix     String    @default("")
+  game       String    @default("")
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+
+  @@unique([name])
+  @@unique([hash])
 }
