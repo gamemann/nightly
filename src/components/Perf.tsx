@@ -483,7 +483,7 @@ function Icicle({ stacks }: { stacks: [string, number][] }) {
             <svg viewBox={`0 0 ${W} ${depth * RH}`} className="w-full rounded border border-line">
                 {rects.map((r, i) => (
                     <g key={i} onClick={() => r.n.kids.size > 0 && setPath(r.trail)} className="cursor-pointer">
-                        <rect x={r.x} y={r.d * RH} width={Math.max(r.w - 0.5, 0.5)} height={RH - 1} fill={`hsl(${hue(r.n.name)} 55% 42%)`}><title>{r.n.name}: {f2(r.n.value, 3)} ({((r.n.value / (focus.value || 1)) * 100).toFixed(1)}%)</title></rect>
+                        <rect x={r.x} y={r.d * RH} width={Math.max(r.w - 0.5, 0.5)} height={RH - 1} fill={`hsl(${hue(r.n.name)} 55% 42%)`}><title>{`${r.n.name}: ${f2(r.n.value, 3)} (${((r.n.value / (focus.value || 1)) * 100).toFixed(1)}%)`}</title></rect>
                         {r.w > 40 && <text x={r.x + 3} y={r.d * RH + 12} fontSize={10} fill="#fff" style={{ pointerEvents: "none" }}>{r.n.name.slice(0, Math.floor(r.w / 6))}</text>}
                     </g>
                 ))}
