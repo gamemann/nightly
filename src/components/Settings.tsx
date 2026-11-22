@@ -2,6 +2,7 @@
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { api } from '~/trpc/react'
+import { OverviewStats } from './OverviewStats'
 
 // The fallbacks are the runner's own defaults (the run.sh prompt), so an unset key shows what it uses.
 const USAGE_LIMITS = [
@@ -23,8 +24,9 @@ export function Settings() {
     const set = api.setting.set.useMutation({ onSuccess: () => utils.setting.all.invalidate() })
     const on = s.data?.doRun === 'true'
     return (
-        <div className="mx-auto max-w-3xl px-6 py-5 max-md:px-3">
+        <div className="mx-auto max-w-4xl px-6 py-5 max-md:px-3">
             <h1 className="mb-4 text-[15px] font-semibold tracking-tight">Settings</h1>
+            <OverviewStats />
             <div className="flex items-center justify-between gap-6 rounded-lg border border-line bg-panel/60 p-4">
                 <div>
                     <div className="font-medium">Nightly run</div>

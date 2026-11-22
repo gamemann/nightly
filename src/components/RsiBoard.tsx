@@ -1,5 +1,6 @@
 import Link from "next/link"
 import { BarList, Donut } from "./PerfChart"
+import { OverviewStats } from "./OverviewStats"
 import type { Board, DomainStat, Finding } from "~/server/rsiBoard"
 import { TIERS } from "~/server/rsiBoard"
 
@@ -65,6 +66,7 @@ function DomainSection({ d }: { d: DomainStat }) {
 export function RsiBoard({ b }: { b: Board }) {
     return (
         <div className="mx-auto max-w-6xl px-6 py-6">
+            <OverviewStats />
             <div className="mb-4 flex flex-wrap items-baseline justify-between gap-3">
                 <div>
                     <h1 className="text-[18px] font-semibold tracking-tight">RSI board</h1>
