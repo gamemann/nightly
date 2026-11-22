@@ -375,3 +375,31 @@ model AssetWeapon {
   @@unique([pack, weaponId])
   @@index([game])
 }
+
+/// RSI board (the Nightly home page): one finding per subject + code + tier. domain: weapons | textures | animations | sounds |
+/// maps | process. Asset findings are created and closed by the audit refresh (lib/rsi.mjs); process findings flag stale,
+/// duplicate and blocked items. state: found -> fixed (its item is done, awaiting the audit) -> remeasured (the audit
+/// no longer flags it; beforeScore/afterScore are the asset's score then and now). status: open | resolved.
+model RsiFinding {
+  id          Int       @id @default(autoincrement())
+  domain      String
+  subject     String
+  assetId     Int?
+  code        String
+  tier        String    @default("")
+  severity    String    @default("warn")
+  msg         String    @default("")
+  nextAction  String    @default("")
+  state       String    @default("found")
+  status      String    @default("open")
+  beforeScore Float?
+  afterScore  Float?
+  itemKey     String    @default("")
+  firstSeenAt DateTime
+  lastSeenAt  DateTime
+  fixedAt     DateTime?
+  history     String    @default("[]")
+
+  @@unique([subject, code, tier])
+  @@index([domain, status])
+}

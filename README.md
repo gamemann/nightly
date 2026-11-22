@@ -297,6 +297,14 @@ loginctl enable-linger $USER
 - **Screenshots**: `nightly perf shot add --run ID frame.png [--name N --note T]` (or `-` for stdin, or `POST /api/perf/shot?run=ID` with a png body and the same Bearer token) attaches a png to a run, for example the frame at the worst hitch. Limits: `perfMaxShotBytes` (5000000) and `perfMaxShotsPerRun` (30), 0 = unlimited.
 - **Reports**: `nightly perf report ID [--out DIR] [--png] [--image-url URL]` writes `perf-run-ID.md` and `.svg` (and `.png`) for READMEs and PRs; the panel serves them at `/api/perf/report/ID?format=md|svg|png`. `nightly perf diff A B [--out DIR] [--png]` does the same for two runs.
 
+## RSI board
+
+The home page (`/`) is the RSI board: one card per domain (perf, weapons, textures, animations, sounds, maps) with found, fixed and remeasured counts and the average before/after change, a list of the worst-scoring assets first (each links to `/assets/<id>`), a blockers panel, and the findings per domain. Every finding shows its next action.
+
+- **Auto audit and ingest**: the tick runs `nightly rsi refresh` on a schedule (`rsiRefreshHours`, default 6; `rsiAuditScript` overrides the audit script path). It runs the asset audit once per video-settings tier, ingests the result (no manual `nightly assets ingest`), creates or updates one finding per failing flag, closes it as remeasured when the flag clears (keeping the before and after scores) and opens a fix item per pack. `nightly rsi board` prints the counts, `nightly rsi sync` re-runs only the finding and blocker pass.
+- **Video-settings tiers**: texture findings are judged against the low, medium and high tiers (`rsiTiers`); the board has a tier switch (`/?tier=low|medium|high`). Bolt-action cycle-clip flags show under Animations when the audit emits them.
+- **Blocker minimization**: the blocker pass flags duplicate, stale (`rsiStaleDays`, default 30) and blocked items and any item parked "waiting on owner", with the reason and the next action. Stale and duplicate agent items are closed automatically with a note; only the production website deploy may wait on the owner.
+
 ## Assets tab
 
 `/assets` is the asset-quality side of RSI: tabs Models, Textures, Animations and Sounds list every weapon of every pack and game, sortable and filterable by pack, game, score and flag. `/assets/<id>` is the weapon page: a three.js viewer (orbit, pan, zoom, wireframe, lit/unlit, lighting presets, bounding box, grid), its textures (resolution, size, format, preview), animations, sounds (length, rate, waveform, player, flags, score, last audited, review verdicts) and linked review items.

@@ -17,6 +17,8 @@ import * as PR from '../lib/perf-run.mjs'
 import * as PG from '../lib/perf-gate.mjs'
 import * as PV from '../lib/perf-viz.mjs'
 import * as AS from '../lib/assets.mjs'
+import * as RSI from '../lib/rsi.mjs'
+import { syncBlockers } from '../lib/rsi-blockers.mjs'
 
 const argv = process.argv.slice(2)
 const BOOL = new Set(['json', 'all', 'top', 'due', 'help', 'h', 'dryRun', 'force', 'peek', 'strict', 'register', 'noFindings', 'noBudgets', 'noBaseline', 'requireToken', 'tokenOnly', 'png', 'disable', 'enable'])
@@ -100,6 +102,8 @@ const HELP = `nightly -- the nightly run's to-do database (${S.DB_PATH})
   assets ingest <audit.json|-> [--require-token|--token-only]   load rsi_asset_audit.py output (schema rsi-assets/1); token = NIGHTLY_PERF_TOKEN
   assets list [--pack P] [--game G] [--flag CODE] [--min-score N] [--max-score N] [--q TEXT] [--json]
   assets show <id|pack/weapon_id|weapon_id> [--json]     model, textures, animations, sounds, flags, score
+  assets refresh                                run rsi_asset_audit.py for every texture tier (setting rsiTiers), ingest and sync findings (tick does this every rsiRefreshHours)
+  rsi board|sync|refresh                        the RSI board: findings per domain; sync = stale/duplicate/blocked pass (auto-closes non-owner stale items)
   assets summary                                per-pack counts and average score
   perf migrate                                  create/upgrade the perf tables (backs up the database to data/backup/ first)
   perf token add --name N [--game G]            ingest token for one runner/game; the secret is printed once, only its hash is kept
@@ -407,7 +411,8 @@ function cmdSchedule() {
 
 function cmdTick() {
     const lines = R.tick(db, new Date(), { dryRun: !!opt.dryRun })
-    if (!opt.dryRun) { try { const m = PR.maybeSchedule(db); if (m) lines.push(m) } catch (e) { lines.push(`perf schedule: ${e.message}`) } }
+    if (!opt.dryRun) { try { const m = PR.maybeSchedule(db); if (m) lines.push(m) } catch (e) { lines.push(`perf schedule: ${e.message}`) }
+        try { lines.push(...RSI.tickHook(db)) } catch (e) { lines.push(`rsi: ${e.message}`) } }
     if (J) return out(lines, () => '')
     if (lines.length) process.stdout.write(lines.join('\n') + '\n')
 }
@@ -570,9 +575,21 @@ function cmdBrief() {
     process.stdout.write(L.join('\n') + '\n')
 }
 
+function cmdRsi(forced) {
+    const sub = forced ?? pos.shift() ?? 'board'
+    if (sub === 'refresh') {
+        const r = RSI.refresh(db, { onLog: (m) => process.stderr.write(`rsi: ${m}\n`) })
+        return out(r, () => `refreshed: ingested ${JSON.stringify(r.ingested)}; findings ${JSON.stringify(r.tiers)}; fix items ${r.made.join(', ') || 'none new'}; blockers ${r.blockers.found} (${r.blockers.closed} closed)`)
+    }
+    if (sub === 'sync') { RSI.ensure(db); const r = syncBlockers(db); return out(r, () => `blockers: ${r.found} found, ${r.closed} auto-closed`) }
+    if (sub === 'board') { const b = RSI.board(db); return out(b, () => b.map((d) => `${d.domain.padEnd(11)} ${String(d.open).padStart(4)} open  ${String(d.resolved).padStart(4)} resolved`).join('\n') || '(no findings: nightly assets refresh)') }
+    die('rsi board|sync|refresh')
+}
+
 function cmdAssets() {
     const sub = pos.shift() ?? die('assets migrate|scan|ingest|list|show|summary')
     if (sub === 'migrate') { const bak = AS.migrate(db, { backup: true, dbPath: S.DB_PATH }); return out({ ok: true, backup: bak }, () => `assets table ready${bak ? `; database backed up to ${bak}` : ''}`) }
+    if (sub === 'refresh') return cmdRsi('refresh')
     if (sub === 'scan') {
         const r = AS.scanInto(db, { packs: opt.packs ? String(opt.packs).split(',') : undefined, onLog: (m) => process.stderr.write(`scan: ${m}\n`) })
         return out(r, () => `scanned: ${r.added} added, ${r.updated} updated, ${r.kept} audited rows kept`)
@@ -754,7 +771,7 @@ try {
     db = S.open()
     const table = { list: cmdList, ls: cmdList, show: cmdShow, add: cmdAdd, set: cmdSet, note: cmdNote, attach: cmdAttach, attachments: cmdAttachments, review: cmdReview, reviews: cmdReview, checks: cmdChecks,
         checked: cmdChecked, run: cmdRun, get: cmdGet, 'set-setting': cmdSetSetting, brief: cmdBrief,
-        prompt: cmdPrompt, prompts: cmdPrompt, schedule: cmdSchedule, schedules: cmdSchedule, tick: cmdTick, start: cmdStart, exec: cmdExec, agent: cmdAgent, account: cmdAccount, accounts: cmdAccount, perf: cmdPerf, assets: cmdAssets }
+        prompt: cmdPrompt, prompts: cmdPrompt, schedule: cmdSchedule, schedules: cmdSchedule, tick: cmdTick, start: cmdStart, exec: cmdExec, agent: cmdAgent, account: cmdAccount, accounts: cmdAccount, perf: cmdPerf, assets: cmdAssets, rsi: cmdRsi }
     const fn = table[cmd] ?? die(`unknown command "${cmd}" (try: nightly help)`)
     await fn()
 } catch (e) {

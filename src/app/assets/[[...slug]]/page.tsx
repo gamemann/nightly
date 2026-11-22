@@ -16,9 +16,9 @@ type Rec = {
     _files?: { glb?: string }
 }
 /** Which tab a flag belongs to. */
-export function flagTab(code: string): "models" | "textures" | "animations" | "sounds" {
+function flagTab(code: string): "models" | "textures" | "animations" | "sounds" {
     if (/TEX|NORMAL|ORM/.test(code) && !/^NO_MODEL/.test(code)) return "textures"
-    if (/CLIP|MAG|ANIM|ARMS/.test(code)) return "animations"
+    if (/CLIP|MAG|ANIM|ARMS|BOLT|CYCLE/.test(code)) return "animations"
     if (/SOUND/.test(code)) return "sounds"
     return "models"
 }
