@@ -5,6 +5,9 @@ import { useMemo, useState } from "react"
 import { Metrics, Stage, Viewer, type MediaGroup, type MediaItem } from "./MediaViewer"
 import type { ReviewMedia, ReviewWeapon } from "../../lib/review.mjs"
 import { OWNER } from "~/lib/constants"
+import { BarList, Donut } from "./PerfChart"
+import { Legend, Panel, StackedBars } from "./Charts"
+import { COLOR, reviewProgress, verdictParts, verdictsByDay } from "../../lib/charts.mjs"
 
 type Counts = { total: number; good: number; wrong: number; todo: number }
 type Review = { key: string; title: string; body: string; createdAt: string; updatedAt: string; weapons: Record<string, ReviewWeapon>; game: string; counts: Counts }
@@ -13,6 +16,35 @@ const VERDICT: Record<string, { label: string; cls: string }> = {
     good: { label: "good", cls: "bg-emerald-400/15 text-emerald-300" },
     wrong: { label: "still wrong", cls: "bg-red-400/15 text-red-300" },
     "": { label: "not reviewed", cls: "bg-hover text-dim" },
+}
+
+const VERDICT_COLOR: Record<string, string> = { good: COLOR.good, wrong: COLOR.bad, todo: COLOR.none }
+const DAYS = 30
+
+/** Verdict split, progress per review and verdicts given per day. Clicks filter the list or open the review. */
+function ReviewCharts({ reviews, onState, onOpen }: { reviews: Review[]; onState: (s: "" | "todo" | "wrong" | "good") => void; onOpen: (key: string) => void }) {
+    const parts = verdictParts(reviews)
+    const total = parts.reduce((n, p) => n + p.value, 0)
+    const progress = reviewProgress(reviews)
+    const days = verdictsByDay(reviews, { days: DAYS })
+    const given = days.reduce((n, d) => n + d.good + d.wrong, 0)
+    return (
+        <div className="mb-4 grid gap-3 lg:grid-cols-3">
+            <Panel title="Verdicts" subtitle="Every entry across all reviews. Click a verdict to filter the list." empty={total === 0 && "No entries yet."}
+                legend={<ul className="flex flex-wrap gap-1">{parts.map((p) => <li key={p.key}><button type="button" onClick={() => onState(p.key as "good" | "wrong" | "todo")} className="flex items-center gap-1.5 rounded px-1.5 py-0.5 text-[11px] text-dim hover:bg-hover"><span className="inline-block h-2 w-2 rounded-[2px]" style={{ background: VERDICT_COLOR[p.key] }} />{p.label} <span className="tabular-nums text-muted">{p.value}</span></button></li>)}</ul>}>
+                <div className="flex justify-center"><Donut size={120} centre={<span className="text-[15px] font-semibold tabular-nums">{total ? Math.round(((parts[0].value + parts[1].value) / total) * 100) : 0}%<span className="block text-[10px] font-normal text-muted">reviewed</span></span>}
+                    parts={parts.map((p) => ({ ...p, color: VERDICT_COLOR[p.key] }))} /></div>
+            </Panel>
+            <Panel title="Progress per review" subtitle="Share of entries with a verdict (good or still wrong), least reviewed first. Click to open." empty={progress.length === 0 && "No review has entries."}>
+                <BarList unit="%" max={100} onClick={onOpen} rows={progress.slice(0, 8).map((p) => ({ key: p.key, label: p.title, value: Math.round(p.judged * 100), color: p.judged >= 1 ? COLOR.good : COLOR.info, note: `${p.good} good, ${p.wrong} wrong, ${p.todo} open of ${p.total}` }))} />
+            </Panel>
+            <Panel title="Verdicts given" subtitle={`Good and still-wrong verdicts recorded per day (UTC), last ${DAYS} days.`} empty={given === 0 && `No verdict in the last ${DAYS} days.`}
+                legend={<Legend items={[{ label: "good", color: COLOR.good }, { label: "still wrong", color: COLOR.bad }]} />}>
+                <StackedBars ariaLabel="Review verdicts per day" unit="verdicts" height={90}
+                    bars={days.map((d) => ({ key: d.key, label: d.key.slice(5), segments: [{ key: "good", label: "good", value: d.good, color: COLOR.good }, { key: "wrong", label: "still wrong", value: d.wrong, color: COLOR.bad }] }))} />
+            </Panel>
+        </div>
+    )
 }
 
 export function Reviews({ reviews }: { reviews: Review[] }) {
@@ -28,6 +60,7 @@ export function Reviews({ reviews }: { reviews: Review[] }) {
         <div className="mx-auto max-w-6xl px-6 py-5 max-md:px-3">
             <h1 className="text-[15px] font-semibold tracking-tight">Reviews</h1>
             <p className="mt-0.5 mb-3 text-[12px] text-muted">Animation clips, filmstrips and sounds waiting for a look. Verdict good / still wrong with a note that builders read back with <code className="font-mono">nightly review open KEY</code>. Task tickets in review status are under Review in the sidebar.</p>
+            {reviews.length > 0 && <ReviewCharts reviews={reviews} onState={setState} onOpen={(k) => { setOpen((o) => new Set(o).add(k)); setTimeout(() => document.getElementById(`review-${k}`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 0) }} />}
             <div className="mb-3 flex flex-wrap items-center gap-1.5">
                 <button className={chip(state === "")} onClick={() => setState("")}>All {sum((r) => r.counts.total)}</button>
                 <button className={chip(state === "todo")} onClick={() => setState("todo")}>Not reviewed <span className="text-dim">{sum((r) => r.counts.todo)}</span></button>
@@ -41,7 +74,7 @@ export function Reviews({ reviews }: { reviews: Review[] }) {
             {shown.length === 0 && <div className="mb-6 rounded-lg border border-line px-3 py-6 text-center text-muted">{reviews.length ? "No reviews match." : "No reviews yet. File one (see below)."}</div>}
             <div className="space-y-2">
                 {shown.map((r) => (
-                    <div key={r.key}>
+                    <div key={r.key} id={`review-${r.key}`} className="scroll-mt-4">
                         <button onClick={() => toggle(r.key)} className="flex w-full flex-wrap items-baseline gap-3 rounded-lg border border-line px-4 py-2.5 text-left hover:bg-hover/40">
                             <span className="w-3 text-[11px] text-muted">{open.has(r.key) ? "▾" : "▸"}</span>
                             <span className="text-[13px] font-semibold">{r.title}</span>
