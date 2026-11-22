@@ -21,7 +21,7 @@ export function Agents() {
             </h1>
             <p className="mt-0.5 mb-4 text-[12px] text-muted">
                 Claude sessions working in the workspace right now: what each is on, which paths it holds, and what they tell each other.
-                Agents use <code className="font-mono">nightly agent join · claim · say · inbox · leave</code>; a claim on a path another live agent holds is refused.
+                Agents use <code className="font-mono">nightly agent join · heartbeat · claim · say · inbox · leave</code> (or POST <code className="font-mono">/api/agents/heartbeat</code>); a claim on a path another live agent holds is refused.
             </p>
             {board.isLoading && <div className="p-6 text-center text-muted">Loading…</div>}
             {b && (
@@ -35,10 +35,11 @@ export function Agents() {
                                 {b.live.map((a) => <AgentCard key={a.id} a={a} claims={b.claims.filter((c) => c.agentId === a.id)} />)}
                             </div>
                         </section>
+                        <Unregistered />
                         {b.quiet.length > 0 && (
                             <section>
                                 <span className="label">Gone quiet · {b.quiet.length}</span>
-                                <p className="mt-1 text-[11px] text-muted">Silent for over an hour without leaving. Their claims no longer block; they are ended after 6 h.</p>
+                                <p className="mt-1 text-[11px] text-muted">Silent for over an hour without leaving (stale). Their claims no longer block; they leave the board after {b.leftHours} h without a heartbeat.</p>
                                 <div className="mt-2 space-y-2">
                                     {b.quiet.map((a) => <AgentCard key={a.id} a={a} claims={b.claims.filter((c) => c.agentId === a.id)} quiet />)}
                                 </div>
@@ -165,6 +166,23 @@ function Feed({ b }: { b: Board }) {
                 <button className="btn-primary" disabled={!body.trim() || post.isPending} onClick={send}>Send</button>
             </div>
             {post.error && <p className="px-3 pb-2 text-[12px] text-red-300">{post.error.message}</p>}
+        </section>
+    )
+}
+
+/** Agents the configured source (settings agentSourceCmd / agentSourceFile) says are running but that never joined the board. */
+function Unregistered() {
+    const q = api.feed.unregistered.useQuery(undefined, { refetchInterval: 15_000 })
+    const d = q.data
+    if (!d) return null
+    return (
+        <section>
+            <span className="label">Running (unregistered) · {d.agents.length}</span>
+            {!d.configured && <p className="mt-1 text-[11px] text-muted">No source configured. Set <code className="font-mono">agentSourceCmd</code> (a command printing a JSON array or <code className="font-mono">name task</code> lines) or <code className="font-mono">agentSourceFile</code> in the settings to list agents that never call <code className="font-mono">nightly agent join</code>.</p>}
+            {d.error && <p className="mt-1 text-[11px] text-red-300">Source failed: {d.error}</p>}
+            <ul className="mt-2 space-y-1 text-[12px]">
+                {d.agents.map((a) => <li key={a.name} className="rounded-lg border border-line px-3 py-1.5"><span className="font-mono">{a.name}</span><span className="ml-2 text-muted">{a.task}</span></li>)}
+            </ul>
         </section>
     )
 }

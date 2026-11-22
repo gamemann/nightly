@@ -21,6 +21,9 @@ async function cli(args: string[], input?: string, token = '') {
 /** HTTP ingest of one record or an array. `token` (Bearer) goes through the environment, never argv. */
 export const feedIngest = (kind: string, body: string, token: string, viaCookie: boolean) =>
     cli(['feed', 'add', kind, '-', '--json', viaCookie ? '--require-token' : '--token-only'], body, token)
+export const agentHeartbeat = (args: string[], token: string) => cli(args, undefined, token)
+/** Agents a configured source says are running but that never registered (settings agentSourceCmd / agentSourceFile). */
+export const runningUnregistered = async () => JSON.parse(await cli(['agent', 'running', '--json'])) as { configured: boolean; error?: string; agents: { name: string; task: string; since?: string }[] }
 /** Open/close the per-check RSI findings of a gate result. */
 export async function gateSync(kind: string, game: string, failures: unknown[], infra: boolean) {
     try { return JSON.parse(await cli(['gates', 'sync', '--kind', kind, '--game', game, '--file', '-', '--json', ...(infra ? ['--infra'] : [])], JSON.stringify({ failures }))) } catch { return null }
@@ -39,5 +42,6 @@ export const feedRouter = router({
         cli(['web', 'budget', '--game', input.game, '--metric', input.metric, '--max', String(input.max), '--unit', input.unit, '--json'])),
     setCrash: procedure.input(z.object({ game: z.string(), signature: z.string(), status: z.enum(['open', 'fixed', 'ignored']) })).mutation(({ input }) =>
         cli(['crash', 'set', '--game', input.game, '--signature', input.signature, '--status', input.status, '--json'])),
+    unregistered: procedure.query(() => runningUnregistered()),
     kinds: procedure.query(() => [...FEED_KINDS]),
 })

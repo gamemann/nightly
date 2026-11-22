@@ -19,10 +19,11 @@ import * as PV from '../lib/perf-viz.mjs'
 import * as AS from '../lib/assets.mjs'
 import * as RSI from '../lib/rsi.mjs'
 import { syncBlockers } from '../lib/rsi-blockers.mjs'
+import { agentLive } from '../lib/cli-agents.mjs'
 import { FEED_COMMANDS, FEED_HELP, runFeedCommand } from '../lib/cli-feeds.mjs'
 
 const argv = process.argv.slice(2)
-const BOOL = new Set(['json', 'all', 'top', 'due', 'help', 'h', 'dryRun', 'force', 'peek', 'strict', 'register', 'noFindings', 'noBudgets', 'noBaseline', 'requireToken', 'tokenOnly', 'png', 'disable', 'enable', 'infra'])
+const BOOL = new Set(['json', 'all', 'top', 'due', 'help', 'h', 'dryRun', 'force', 'peek', 'strict', 'register', 'noFindings', 'noBudgets', 'noBaseline', 'requireToken', 'tokenOnly', 'png', 'disable', 'enable', 'infra', 'leave'])
 
 const multi = {}
 function parse(args) {
@@ -139,6 +140,9 @@ ${FEED_HELP}
   agent inbox <name> [--peek]                   messages for you since you last looked
   agent board                                   who is live, what they hold, recent messages
   agent leave <name> [--note N]                 releases everything
+  agent heartbeat <name> [--task T] [--kind K] [--repos a,b] [--leave]   register-or-refresh from any runner (HTTP: POST /api/agents/heartbeat)
+  agent sweep | running                         retire agents silent past the agentLeftHours setting (12h) | list running agents that never registered
+                                                (settings agentSourceCmd = a command, or agentSourceFile = a file; JSON array or "name task" lines)
 
   account status | pick | env | add <name>      which Claude account a run or session uses (scripts/claude-acct); set up in .env
       [--strict] [--exclude a,b]                pick/env only: exit 1 if no account is under its limits / leave these out
@@ -452,6 +456,7 @@ function cmdAgent() {
             '', 'RECENT MESSAGES', ...(b.messages.length ? b.messages.map(msgLine) : ['(none)']),
         ].join('\n'))
     }
+    if (agentLive(sub, { db, pos, opt, out, die })) return
     const name = pos.shift() ?? die(`agent ${sub} <name> ...`)
     if (sub === 'join') {
         const a = A.join(db, name, { kind: opt.kind ?? 'session', task: opt.task, repos: csv(opt.repos)?.join(', '), runId: opt.run ? int(opt.run, '--run') : undefined })

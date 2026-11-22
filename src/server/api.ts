@@ -406,9 +406,13 @@ const agentRouter = router({
             ctx.db.message.findMany({ orderBy: { id: 'desc' }, take: 200 }),
         ])
         const since = liveSince()
+        // Silent past agentLeftHours (default 12) counts as left even before `nightly agent sweep` retires the row.
+        const leftHrs = Number((await ctx.db.setting.findUnique({ where: { key: 'agentLeftHours' } }))?.value) || 12
+        const gone = new Date(Date.now() - leftHrs * 3600_000)
         return {
+            leftHours: leftHrs,
             live: agents.filter((a) => a.lastSeenAt >= since),
-            quiet: agents.filter((a) => a.lastSeenAt < since),
+            quiet: agents.filter((a) => a.lastSeenAt < since && a.lastSeenAt >= gone),
             ended: recent,
             claims: claims.map((c) => ({ ...c, stale: !!c.agent.endedAt || c.agent.lastSeenAt < since })),
             messages: messages.reverse(),
