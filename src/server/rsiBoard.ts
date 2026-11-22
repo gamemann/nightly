@@ -1,6 +1,6 @@
 import { db } from "~/server/db"
 
-export const DOMAINS = ["perf", "weapons", "textures", "animations", "sounds", "maps"] as const
+export const DOMAINS = ["perf", "models", "textures", "animations", "sounds", "maps"] as const
 export type Domain = (typeof DOMAINS)[number]
 export const TIERS = ["low", "medium", "high"] as const
 const SEV = { error: 0, warn: 1, info: 2 } as Record<string, number>

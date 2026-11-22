@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation"
 import { AssetDetail, type DetailData, type ReviewHit } from "~/components/AssetDetail"
+import { AssetSources } from "~/components/AssetSources"
 import { Assets, type AssetRow } from "~/components/Assets"
 import { db } from "~/server/db"
 import { load } from "../../../../lib/review.mjs"
@@ -25,6 +26,7 @@ function flagTab(code: string): "models" | "textures" | "animations" | "sounds" 
 
 export default async function AssetsPage({ params }: { params: Promise<{ slug?: string[] }> }) {
     const { slug = [] } = await params
+    if (slug[0] === "sources") return <AssetSources />
     if (!slug[0]) {
         const rows = await db.assetWeapon.findMany({ orderBy: [{ pack: "asc" }, { weaponId: "asc" }] })
         const out: AssetRow[] = rows.map((r) => {
@@ -40,7 +42,8 @@ export default async function AssetsPage({ params }: { params: Promise<{ slug?: 
                 flags: flags.map((f) => ({ code: f.code, severity: f.severity, tab: flagTab(f.code) })),
             }
         })
-        return <Assets rows={out} />
+        const [kinds, sources] = await Promise.all([db.assetKind.findMany({ orderBy: [{ sort: "asc" }, { key: "asc" }], select: { key: true, label: true } }), db.assetSource.count()])
+        return <Assets rows={out} kinds={kinds} sources={sources} />
     }
     const id = Number(slug[0])
     const row = Number.isInteger(id) ? await db.assetWeapon.findUnique({ where: { id } }) : null
@@ -54,7 +57,7 @@ export default async function AssetsPage({ params }: { params: Promise<{ slug?: 
     }
     const files = _files as { glb?: string; textures?: unknown[]; sounds?: unknown[] } | undefined
     const d: DetailData = {
-        id: row.id, pack: row.pack, game: row.game, weaponId: row.weaponId, source: row.source, score: row.score, pass: row.pass === 1, auditedAt: row.auditedAt,
+        id: row.id, pack: row.pack, game: row.game, weaponId: row.weaponId, kind: row.kind, source: row.source, score: row.score, pass: row.pass === 1, auditedAt: row.auditedAt,
         hasModel: !!files?.glb, data: data as DetailData["data"],
     }
     return <AssetDetail d={d} reviews={reviews} />

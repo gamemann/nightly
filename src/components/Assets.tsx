@@ -18,7 +18,7 @@ export const sevCls = (s: string) => (s === "error" ? "bg-red-400/15 text-red-30
 
 type Col = { key: string; label: string; get: (r: AssetRow) => number | string; show?: (r: AssetRow) => React.ReactNode }
 const COMMON_HEAD: Col[] = [
-    { key: "weapon", label: "Weapon", get: (r) => r.weaponId },
+    { key: "asset", label: "Asset", get: (r) => r.weaponId },
     { key: "pack", label: "Pack", get: (r) => r.pack },
     { key: "game", label: "Games", get: (r) => r.game },
 ]
@@ -45,26 +45,29 @@ const TAB_COLS: Record<Tab, Col[]> = {
     ],
 }
 
-export function Assets({ rows }: { rows: AssetRow[] }) {
+export type KindInfo = { key: string; label: string }
+
+export function Assets({ rows, kinds, sources }: { rows: AssetRow[]; kinds: KindInfo[]; sources: number }) {
     const router = useRouter()
     const path = usePathname()
     const sp = useSearchParams()
     const tab = (TABS.find(([t]) => t === sp.get("tab"))?.[0] ?? "models") as Tab
-    const pack = sp.get("pack") ?? "", game = sp.get("game") ?? "", flag = sp.get("flag") ?? "", q = sp.get("q") ?? "", maxScore = sp.get("max") ?? "", minScore = sp.get("min") ?? ""
+    const kind = sp.get("kind") ?? "", pack = sp.get("pack") ?? "", game = sp.get("game") ?? "", flag = sp.get("flag") ?? "", q = sp.get("q") ?? "", maxScore = sp.get("max") ?? "", minScore = sp.get("min") ?? ""
     const sort = sp.get("sort") ?? "score", dir = sp.get("dir") === "desc" ? -1 : 1
     const set = (o: Record<string, string>) => { const n = new URLSearchParams(sp.toString()); for (const [k, v] of Object.entries(o)) v ? n.set(k, v) : n.delete(k); router.replace(`${path}?${n}`, { scroll: false }) }
     const packs = [...new Set(rows.map((r) => r.pack))].sort()
     const games = [...new Set(rows.flatMap((r) => r.game.split(",").filter(Boolean)))].sort()
-    const flagCodes = [...new Set(rows.flatMap((r) => r.flags.filter((f) => f.tab === tab).map((f) => f.code)))].sort()
+    const inKind = rows.filter((r) => !kind || r.kind === kind)
+    const flagCodes = [...new Set(inKind.flatMap((r) => r.flags.filter((f) => f.tab === tab).map((f) => f.code)))].sort()
     const cols = [...COMMON_HEAD, ...TAB_COLS[tab]]
     const shown = useMemo(() => {
         const c = [...cols, { key: "score", label: "Score", get: (r: AssetRow) => r.score }].find((x) => x.key === sort)
         const f = rows.filter((r) =>
-            (!pack || r.pack === pack) && (!game || r.game.split(",").includes(game)) && (!flag || r.flags.some((x) => x.code === flag)) &&
+            (!kind || r.kind === kind) && (!pack || r.pack === pack) && (!game || r.game.split(",").includes(game)) && (!flag || r.flags.some((x) => x.code === flag)) &&
             (!q || r.weaponId.toLowerCase().includes(q.toLowerCase())) && (!minScore || r.score >= Number(minScore)) && (!maxScore || r.score <= Number(maxScore)))
         return f.sort((a, b) => { const x = c?.get(a) ?? 0, y = c?.get(b) ?? 0; return (typeof x === "number" && typeof y === "number" ? x - y : String(x).localeCompare(String(y))) * dir || a.weaponId.localeCompare(b.weaponId) })
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [rows, tab, pack, game, flag, q, minScore, maxScore, sort, dir])
+    }, [rows, tab, kind, pack, game, flag, q, minScore, maxScore, sort, dir])
     const sel = "rounded-md border border-line bg-panel px-2 py-1 text-[12px]"
     const th = (key: string, label: string) => (
         <th key={key} className="cursor-pointer select-none px-2 py-1 text-left font-medium text-dim hover:text-fg" onClick={() => set({ sort: key, dir: sort === key && dir === 1 ? "desc" : "asc" })}>
@@ -72,13 +75,21 @@ export function Assets({ rows }: { rows: AssetRow[] }) {
         </th>
     )
     const audited = rows.filter((r) => r.source === "audit").length
+    if (!rows.length && !sources) return <FirstRun />
     return (
         <div className="mx-auto max-w-6xl px-6 py-5 max-md:px-3">
             <h1 className="text-[15px] font-semibold tracking-tight">Assets <span className="text-muted">(RSI)</span></h1>
             <p className="mt-0.5 mb-3 text-[12px] text-muted">
-                Every gun of every weapon pack and game: model, textures, animations and sounds with quality flags and a score. {rows.length} weapons, {audited} audited, the rest listed from a directory scan
-                (<code className="font-mono">nightly assets scan</code>; audits arrive with <code className="font-mono">nightly assets ingest audit.json</code> or POST /api/assets/ingest).
+                Every model of every source (packs and games): model, textures, animations and sounds with quality flags and a score, judged against the budget of its kind. {rows.length} assets, {audited} audited, the rest listed from a directory scan
+                (<code className="font-mono">nightly assets scan</code>; audits arrive with <code className="font-mono">nightly assets ingest audit.json</code> or POST /api/assets/ingest). <Link className="text-sky-300 hover:underline" href="/assets/sources">Sources and kinds</Link>
             </p>
+            <div className="mb-2 flex flex-wrap gap-1.5">
+                {[{ key: "", label: "All" }, ...kinds.filter((k) => rows.some((r) => r.kind === k.key)), ...[...new Set(rows.map((r) => r.kind))].filter((k) => !kinds.some((x) => x.key === k)).map((k) => ({ key: k, label: k }))].map((k) => (
+                    <button key={k.key} onClick={() => set({ kind: k.key, flag: "" })} className={`rounded-full border px-2.5 py-0.5 text-[12px] ${k.key === kind ? "border-sky-400 text-fg" : "border-line text-dim hover:text-fg"}`}>
+                        {k.label} <span className="text-[11px] text-muted">{k.key ? rows.filter((r) => r.kind === k.key).length : rows.length}</span>
+                    </button>
+                ))}
+            </div>
             <div className="mb-3 flex gap-1 border-b border-line">
                 {TABS.map(([t, l]) => (
                     <button key={t} onClick={() => set({ tab: t === "models" ? "" : t, flag: "", sort: "", dir: "" })} className={`-mb-px border-b-2 px-3 py-1.5 text-[13px] ${t === tab ? "border-sky-400 text-fg" : "border-transparent text-dim hover:text-fg"}`}>
@@ -87,7 +98,7 @@ export function Assets({ rows }: { rows: AssetRow[] }) {
                 ))}
             </div>
             <div className="mb-3 flex flex-wrap items-center gap-2">
-                <input className={sel} placeholder="search weapon" value={q} onChange={(e) => set({ q: e.target.value })} />
+                <input className={sel} placeholder="search asset" value={q} onChange={(e) => set({ q: e.target.value })} />
                 <select className={sel} value={pack} onChange={(e) => set({ pack: e.target.value })}><option value="">all packs</option>{packs.map((p) => <option key={p}>{p}</option>)}</select>
                 <select className={sel} value={game} onChange={(e) => set({ game: e.target.value })}><option value="">all games</option>{games.map((p) => <option key={p}>{p}</option>)}</select>
                 <select className={sel} value={flag} onChange={(e) => set({ flag: e.target.value })}><option value="">any flag</option>{flagCodes.map((p) => <option key={p}>{p}</option>)}</select>
@@ -108,9 +119,27 @@ export function Assets({ rows }: { rows: AssetRow[] }) {
                                 <td className="px-2 py-1">{r.flags.filter((f) => f.tab === tab).map((f) => <span key={f.code} className={`mr-1 rounded px-1 text-[10.5px] ${sevCls(f.severity)}`}>{f.code}</span>)}</td>
                             </tr>
                         ))}
-                        {!shown.length && <tr><td colSpan={cols.length + 2} className="px-2 py-6 text-center text-muted">Nothing matches. Run <code>nightly assets scan</code> to list the weapons.</td></tr>}
+                        {!shown.length && <tr><td colSpan={cols.length + 2} className="px-2 py-6 text-center text-muted">Nothing matches the filters.</td></tr>}
                     </tbody>
                 </table>
+            </div>
+        </div>
+    )
+}
+
+function FirstRun() {
+    return (
+        <div className="mx-auto max-w-2xl px-6 py-10 max-md:px-3">
+            <h1 className="text-[15px] font-semibold tracking-tight">Assets <span className="text-muted">(RSI)</span></h1>
+            <div className="mt-4 rounded-lg border border-line bg-panel/60 p-5">
+                <div className="text-[14px] font-medium">Add your first source</div>
+                <p className="mt-1 text-[12.5px] text-dim">A source is a directory with the models, textures and sounds of one asset pack or game. Nightly scans it, lists every model by kind (prop, avatar, weapon, vehicle and so on), checks it against the budget of its kind and puts the findings on the RSI board.</p>
+                <ol className="mt-3 list-decimal space-y-1 pl-5 text-[12.5px] text-dim">
+                    <li>Add a source with its root directory, here or with <code className="font-mono">nightly assets source add my-game --type game --root /path/to/game</code>.</li>
+                    <li>Scan it: <code className="font-mono">nightly assets scan</code>.</li>
+                    <li>Adjust kinds and budgets if your game needs different limits.</li>
+                </ol>
+                <Link href="/assets/sources" className="mt-4 inline-block rounded-md border border-sky-400 px-3 py-1.5 text-[13px] text-sky-300 hover:bg-hover">Add a source</Link>
             </div>
         </div>
     )
