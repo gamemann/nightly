@@ -85,8 +85,11 @@ export function Sidebar() {
                 <Link href="/schedules" className={link('/schedules', path === '/schedules')} title="Schedules">
                     <span className="w-2 text-center text-[11px] text-muted">◷</span><span className="max-md:hidden">Schedules</span>
                 </Link>
-                <Link href="/prompts" className={link('/prompts', path.startsWith('/prompts'))} title="Prompts and jobs">
+                <Link href="/prompts" className={link('/prompts', path.startsWith('/prompts'))} title="Prompts">
                     <span className="w-2 text-center text-[11px] text-muted">¶</span><span className="max-md:hidden">Prompts</span>
+                </Link>
+                <Link href="/jobs" className={link('/jobs', path.startsWith('/jobs'))} title="Jobs and scripts">
+                    <span className="w-2 text-center text-[11px] text-muted">▶</span><span className="max-md:hidden">Jobs / Scripts</span>
                 </Link>
                 <Link href="/settings" className={link('/settings', path === '/settings')} title="Settings">
                     <span className="w-2 text-center text-[11px] text-muted">⚙</span><span className="max-md:hidden">Settings</span>

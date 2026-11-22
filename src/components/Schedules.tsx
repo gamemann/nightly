@@ -83,6 +83,7 @@ function ScheduleCard({ s, paused, onStarted }: { s: Schedule; paused: boolean; 
         onSuccess: async (r) => { await invalidate(); if (r.status === 'skipped') alert(`Run #${r.id} was skipped: another run is still going and this schedule does not allow overlap.`); else onStarted(r.id) },
     })
     const prompts = api.schedule.prompts.useQuery()
+    const isJob = api.prompt.list.useQuery().data?.find((p) => p.name === s.prompt)?.kind === 'script'
     const [open, setOpen] = useState(false)
     const [cron, setCron] = useState(s.cron)
     useEffect(() => setCron(s.cron), [s.cron])
@@ -102,6 +103,8 @@ function ScheduleCard({ s, paused, onStarted }: { s: Schedule; paused: boolean; 
                 <input defaultValue={s.name} key={s.name} onBlur={(e) => e.target.value.trim() && e.target.value !== s.name && save({ name: e.target.value })}
                     onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
                     className="min-w-0 flex-1 rounded bg-transparent px-1 py-0.5 text-[14px] font-medium outline-none hover:bg-hover focus:bg-panel-2" />
+                <span data-testid="job-type" className={`rounded px-1.5 py-0.5 text-[11px] ${isJob ? 'bg-violet-400/15 text-violet-300' : 'bg-accent/15 text-accent'}`}
+                    title={isJob ? 'Runs a script, no agent' : 'Runs an agent with a prompt'}>{isJob ? 'job' : 'agent'}</span>
                 <code className="rounded border border-line bg-panel-2 px-1.5 py-0.5 font-mono text-[11.5px] text-dim">{s.cron}</code>
                 <span className="w-44 shrink-0 text-right text-[11.5px] text-muted max-md:w-auto">
                     {s.error ? <span className="text-red-300">invalid</span>

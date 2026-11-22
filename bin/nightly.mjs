@@ -97,6 +97,7 @@ const HELP = `nightly -- the nightly run's to-do database (${S.DB_PATH})
 
   prompt list | show <name> | history <name>    the agent's prompts and the runner script (show prints the body)
   prompt set <name> [--file F | stdin] [--note N] [--by B] [--kind prompt|script]
+  prompt rename <old> <new> [--kind script]     keep history and schedule links; a script is a job (no agent)
 
   schedule list                                 when the runner starts (edit in the panel)
   assets migrate                                create the assets (RSI) table (backs up the database to data/backup/ first)
@@ -397,11 +398,16 @@ function cmdPrompt() {
         const r = P.set(db, name, body, { kind: opt.kind, author: opt.by ?? 'session', note: opt.note ? String(opt.note) : '' })
         return out(r, () => (r.changed ? `saved ${name}` : `${name} unchanged`))
     }
+    if (sub === 'rename') {
+        const to = pos.shift() ?? die('prompt rename <old> <new> [--kind script|prompt]')
+        const r = P.rename(db, name, to, { kind: opt.kind })
+        return out(r, () => `renamed ${name} -> ${to} (${r.kind}, ${r.schedules} schedule(s) updated)`)
+    }
     if (sub === 'history') {
         const rows = P.history(db, name)
         return out(rows, () => rows.map((v) => `#${String(v.id).padEnd(5)} ${S.local(v.createdAt)}  ${v.author.padEnd(9)} ${String(v.size).padStart(6)} B  ${v.note}`).join('\n'))
     }
-    die('prompt list | show <name> | set <name> | history <name>')
+    die('prompt list | show <name> | set <name> | rename <old> <new> | history <name>')
 }
 
 function cmdSchedule() {
