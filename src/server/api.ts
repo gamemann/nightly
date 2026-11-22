@@ -15,6 +15,7 @@ import { ATTACH_DIR, MEDIA_DIR, MEDIA_EXT } from './media'
 import { assetsRouter } from './assetsRouter'
 import { gameRouter } from './gameRouter'
 import { perfRouter } from './perfRouter'
+import { usageRouter } from './usageRouter'
 import { modelSibling } from './models'
 import { procedure, router } from './trpc'
 
@@ -550,5 +551,5 @@ const authRouter = router({
         })),
 })
 
-export const appRouter = router({ perf: perfRouter, item: itemRouter, note: noteRouter, run: runRouter, schedule: scheduleRouter, prompt: promptRouter, attachment: attachmentRouter, qa: qaRouter, agent: agentRouter, setting: settingRouter, auth: authRouter, game: gameRouter, feed: feedRouter, assets: assetsRouter })
+export const appRouter = router({ perf: perfRouter, usage: usageRouter, item: itemRouter, note: noteRouter, run: runRouter, schedule: scheduleRouter, prompt: promptRouter, attachment: attachmentRouter, qa: qaRouter, agent: agentRouter, setting: settingRouter, auth: authRouter, game: gameRouter, feed: feedRouter, assets: assetsRouter })
 export type AppRouter = typeof appRouter
