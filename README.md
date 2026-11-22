@@ -28,7 +28,6 @@ The screenshots below are the live panel at 1280px with real numbers; host names
 ![Performance: games with budgets and findings](./docs/panel-perf.png)
 *Performance: per-game budgets, regressions and the findings table.*
 
-![Usage: tokens over time and where they go](./docs/panel-usage.png)
 *Usage: tokens over time and where the spend goes.*
 
 ![Queue](./images/preview01.png)
