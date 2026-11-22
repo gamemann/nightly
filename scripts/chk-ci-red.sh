@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # chk-ci-red.sh: is the latest completed CI run on every default branch green? (nightly check, report only)
-# Wraps dot-bootstrap tools/ci-red.sh, the shared tool: for each repo in projects.tsv it asks GitHub for the default
-# branch and the newest completed run that is not the Images workflow. That tool asks gh here, or ssh's to the box
+# Wraps dot-bootstrap tools/ci-red.sh, the shared tool: for each repo in projects.tsv it reads the default branch's newest
+# completed run (not the Images workflow) from the internal Forgejo first (zero GitHub API calls, docs/forgejo-ci.md in
+# dot-bootstrap), and asks GitHub only for repos Forgejo has no run for, cached 15 min (CI_RED_GITHUB=0: never). That tool asks gh here, or ssh's to the box
 # where gh is logged in when gh is logged out here, so this script does not duplicate that logic.
 # Every red default branch prints a FLAG line (failing job, run URL). Cancelled runs are listed once as a note:
 # they need a re-run, not a fix. Nothing is re-run and no repo is edited.
