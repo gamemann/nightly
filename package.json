@@ -11,6 +11,7 @@
         "build": "next build",
         "start": "next start -H 0.0.0.0 -p 3010",
         "typecheck": "tsc --noEmit",
+        "test": "node --no-warnings --test lib/*.test.mjs",
         "postinstall": "prisma generate",
         "db:push": "prisma db push",
         "db:import": "node --no-warnings scripts/import-markdown.ts",

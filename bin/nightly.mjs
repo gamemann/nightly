@@ -579,7 +579,7 @@ function cmdRsi(forced) {
     const sub = forced ?? pos.shift() ?? 'board'
     if (sub === 'refresh') {
         const r = RSI.refresh(db, { onLog: (m) => process.stderr.write(`rsi: ${m}\n`) })
-        return out(r, () => `refreshed: ingested ${JSON.stringify(r.ingested)}; findings ${JSON.stringify(r.tiers)}; fix items ${r.made.join(', ') || 'none new'}; blockers ${r.blockers.found} (${r.blockers.closed} closed)`)
+        return out(r, () => `refreshed: maps ${JSON.stringify(r.maps)}; ingested ${JSON.stringify(r.ingested)}; findings ${JSON.stringify(r.tiers)}; fix items ${r.made.join(', ') || 'none new'}; blockers ${r.blockers.found} (${r.blockers.closed} closed)`)
     }
     if (sub === 'sync') { RSI.ensure(db); const r = syncBlockers(db); return out(r, () => `blockers: ${r.found} found, ${r.closed} auto-closed`) }
     if (sub === 'board') { const b = RSI.board(db); return out(b, () => b.map((d) => `${d.domain.padEnd(11)} ${String(d.open).padStart(4)} open  ${String(d.resolved).padStart(4)} resolved`).join('\n') || '(no findings: nightly assets refresh)') }

@@ -11,7 +11,8 @@ export type DetailData = {
         model?: { glb?: string; viewer_glb?: string; tris?: number; verts?: number; materials?: number; meshes?: number; bbox?: number[]; primitive_meshes?: string[] }
         textures?: { name: string; w: number; h: number; format: string; bytes: number; maps?: string[]; pot?: boolean; embedded?: boolean }[]
         animations?: { name: string; length: number; tracks: number; flags?: string[]; mag_displacement?: number | null }[]
-        sounds?: { name: string; len: number; rate: number; bytes: number; channels?: number; format?: string }[]
+        sounds?: { name: string; len: number; rate: number; bytes: number; channels?: number; format?: string; event?: string; game?: string; kind?: string; synth?: string; file?: string; max_distance?: number; concurrent?: number; source?: string }[]
+        compare?: { status: string; pack?: string; weapon_id?: string; diff?: string[] }
         flags?: { code: string; severity: string; msg: string }[]
     }
 }
@@ -113,9 +114,22 @@ export function AssetDetail({ d, reviews }: { d: DetailData; reviews: ReviewHit[
                 <ReviewMedia reviews={reviews} slots={["filmstrip", "clip", "image", "screenshot"]} />
             </Section>
 
+            {x.compare && (
+                <div className="mt-3 rounded-lg border border-line bg-panel/40 p-2 text-[12px]">
+                    <span className="font-medium">Game-local copy</span>{" "}
+                    {x.compare.pack ? <span className="text-dim">same weapon id as {x.compare.pack}/{x.compare.weapon_id}{x.compare.diff?.length ? `, differs: ${x.compare.diff.join(", ")}` : ", identical stats"}</span> : <span className="text-dim">{x.compare.status}: no pack carries this weapon id</span>}
+                </div>
+            )}
+
             <Section id="sounds" title={`Sounds (${(x.sounds ?? []).length})`}>
                 {(x.sounds ?? []).length ? (
                     <div className="space-y-2">{x.sounds!.map((s, i) => (
+                        s.event ? (
+                        <div key={i} className="rounded-lg border border-line bg-panel/40 p-2 text-[12px]">
+                            <div className="flex flex-wrap items-baseline gap-x-3"><span className="rounded bg-sky-400/15 px-1.5 text-sky-300">event</span><span className="font-medium">{s.name}</span><span className="font-mono text-dim">{s.event}</span><span className="text-dim">{s.game} / {s.kind}</span></div>
+                            <div className="mt-1 text-dim">{s.synth ? `synthesised: ${s.synth}` : s.file ? `file: ${s.file}` : "no file"}{s.max_distance ? `, audible ${s.max_distance} m` : ""}{s.concurrent ? `, ${s.concurrent} voices` : ""}</div>
+                            {s.source && <div className="font-mono text-[11px] text-muted">{s.source}</div>}
+                        </div>) :
                         <div key={i} className="rounded-lg border border-line bg-panel/40 p-2">
                             <div className="mb-1 flex flex-wrap items-baseline gap-x-3 text-[12px]"><span className="font-medium">{s.name}</span><span className="tabular-nums text-dim">{(s.len ?? 0).toFixed(2)} s, {s.rate} Hz{s.channels ? `, ${s.channels} ch` : ""}, {kb(s.bytes)}</span></div>
                             <Waveform src={fileUrl(d.id, "snd", i)} />

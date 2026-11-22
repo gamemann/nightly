@@ -3,7 +3,7 @@ import path from 'node:path'
 import { MEDIA_DIR, MEDIA_EXT } from '~/server/media'
 
 // Run screenshots, read straight from the media dir. Behind the same password as the panel (proxy.ts).
-export async function GET(_req: Request, ctx: RouteContext<'/media/[...path]'>) {
+export async function GET(_req: Request, ctx: { params: Promise<{ path: string[] }> }) {
     const rel = (await ctx.params).path.map(decodeURIComponent).join('/')
     const file = path.resolve(MEDIA_DIR, rel)
     const type = MEDIA_EXT[path.extname(file).toLowerCase()]

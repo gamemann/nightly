@@ -152,6 +152,12 @@ npm run db:push
 
 A new database is blank and paused. In the panel: add a runner script named [`run.sh`](./scripts/run.sh) and a prompt (Prompts), a schedule (Schedules), then switch **Nightly run** on (Settings). The repository includes a runner you can start from; see [Runner Script](#runner-script) below.
 
+### Restarting the panel
+After a deploy (`git merge --ff-only`, `npx prisma generate`, `npm run build`) run [`scripts/restart-panel.sh`](./scripts/restart-panel.sh). Where there is no systemd unit the panel is plain `npm start` on port 3010; the script stops whatever listens there and starts a fresh detached `npm start`, logging to `data/panel.log` (`--stop` only stops it). It re-runs itself as the checkout's owner, and runs already started keep going.
+
+### RSI board and audit output
+`nightly rsi refresh` (every `rsiRefreshHours` from `tick`) runs `rsi_asset_audit.py` per texture tier, then audits maps from `perf_bench --mesh-census` logs (`rsiCensusDir`; budgets `rsiMeshBudget`, `rsiAlphaBoxBudget`). The audit tool is looked up in this order: setting `rsiAuditScript`, env `NIGHTLY_RSI_AUDIT`, dot-game `tools/rsi_asset_audit.py` on its checked-out branch (main once merged), then read from the `nightly/rsi-assets-audit` branch; if none exist a `NO_AUDIT_TOOL` finding is raised. Output goes to `data/rsi-assets` inside the checkout (core-owned); the setting `rsiAuditDir` or env `NIGHTLY_ASSETS_DIR` overrides it (the panel only follows the env var). Tests: `npm test`.
+
 ### Scheduler
 There is no cron job to set up. While the web panel is running, it checks every minute whether one of your schedules is due and starts it. The schedules themselves (when, which prompt, any extra instructions) are managed in the panel, and the **Schedules** page shows when the scheduler last checked in, with a warning if it has stopped.
 

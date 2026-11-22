@@ -14,7 +14,7 @@ export type WorstAsset = { assetId: number | null; subject: string; score: numbe
 export type Board = { tier: string; domains: DomainStat[]; worst: WorstAsset[]; blockers: Finding[]; lastRefresh: string; toolMissing: boolean }
 
 const NO_AUDITOR: Record<string, string> = {
-    maps: "No map audit feeds this board yet. Next: a fix agent wires the BSP converter ratchet (sound/texture mapping coverage) into the audit (see queue item bsp-sound-categories-1).",
+    maps: "No map census data yet: run perf_bench --mesh-census on a map (logs in the rsiCensusDir setting) and `nightly rsi refresh`.",
 }
 
 /** Everything the home page shows: per-domain RSI state, worst-scoring assets, blockers. */
