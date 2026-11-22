@@ -14,7 +14,7 @@ export type DetailData = {
         sounds?: { name: string; len: number; rate: number; bytes: number; channels?: number; format?: string; event?: string; game?: string; kind?: string; synth?: string; file?: string; max_distance?: number; concurrent?: number; source?: string }[]
         compare?: { status: string; pack?: string; weapon_id?: string; diff?: string[] }
         flags?: { code: string; severity: string; msg: string }[]
-        map?: { layout: string; tris: number; surfaces: number; materials: number; textured: number; untextured: number; untexturedTris: number; missingTextures: string[]; missingTextureCount: number; spawns: number; hulls: number; triggers: number; chunks: number; bounds?: { min: number[]; max: number[] } | null }
+        map?: { layout: string; tris: number; surfaces: number; materials: number; textured: number; untextured: number; untexturedTris: number; missingTextures: string[]; missingTextureCount: number; mappedMaterials?: number; props?: number; propsPlaced?: number; propsMissing?: number; missingModels?: string[]; textureMb?: number; textureMax?: number; spawns: number; hulls: number; triggers: number; chunks: number; bounds?: { min: number[]; max: number[] } | null }
     }
 }
 export type ReviewHit = { key: string; title: string; verdict: string; note: string; media: { slot: string; variant: string; label: string; file: string; waveform?: string; strip?: string; poster?: string }[] }
@@ -85,8 +85,9 @@ export function AssetDetail({ d, reviews }: { d: DetailData; reviews: ReviewHit[
                     <div className="mt-2">
                         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-6">
                             <Stat k="surfaces" v={x.map.surfaces} /><Stat k="culling chunks" v={x.map.chunks} /><Stat k="spawns" v={x.map.spawns} /><Stat k="collision hulls" v={x.map.hulls} /><Stat k="trigger zones" v={x.map.triggers} />
-                            <Stat k="untextured" v={`${x.map.untextured} of ${x.map.surfaces}`} />
+                            <Stat k="untextured" v={`${x.map.untextured} of ${x.map.surfaces}`} />{x.map.props ? <Stat k="props placed" v={`${x.map.propsPlaced ?? 0} of ${x.map.props}`} /> : null}{x.map.textureMax ? <Stat k="texture budget" v={`${x.map.textureMax}px, ${x.map.textureMb} MB`} /> : null}
                         </div>
+                        {(x.map.missingModels?.length ?? 0) > 0 && <div className="mt-2 text-[12px] text-dim"><span className="text-muted">props without a model ({x.map.propsMissing}): </span><span className="font-mono">{x.map.missingModels!.join(", ")}</span></div>}
                         {x.map.missingTextureCount > 0 && <div className="mt-2 text-[12px] text-dim"><span className="text-muted">materials without a texture file ({x.map.missingTextureCount}): </span><span className="font-mono">{x.map.missingTextures.join(", ")}{x.map.missingTextureCount > x.map.missingTextures.length ? ", ..." : ""}</span></div>}
                     </div>
                 )}
