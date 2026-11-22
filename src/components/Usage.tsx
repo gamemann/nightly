@@ -16,7 +16,7 @@ const DIM_TABS: [string, string][] = [["project", "Project"], ["session", "Sessi
 const RANGES: [string, number][] = [["24h", 1], ["7d", 7], ["30d", 30], ["90d", 90], ["all", 0]]
 
 const fmt = (n: number) => (n >= 1e9 ? (n / 1e9).toFixed(2) + "B" : n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "k" : String(Math.round(n)))
-const usd = (n: number) => (n >= 100 ? "$" + Math.round(n).toLocaleString() : "$" + n.toFixed(2))
+const usd = (n: number) => (n >= 100 ? "$" + Math.round(n).toLocaleString("en-GB") : "$" + n.toFixed(2))
 const when = (ms: number) => (ms ? new Date(ms).toISOString().slice(0, 16).replace("T", " ") : "-")
 
 export function Usage() {

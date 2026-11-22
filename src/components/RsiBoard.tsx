@@ -59,7 +59,7 @@ export function RsiBoard({ b, q, bq, wq }: { b: Board; q: PageQuery; bq: PageQue
             <div className="mb-4 flex flex-wrap items-baseline justify-between gap-3">
                 <div>
                     <h1 className="text-[18px] font-semibold tracking-tight">RSI board</h1>
-                    <p className="text-[12px] text-dim">Detect, fix, remeasure. Findings come from the scheduled audit; last refresh {b.lastRefresh ? new Date(b.lastRefresh).toLocaleString() : "never"}.</p>
+                    <p className="text-[12px] text-dim">Detect, fix, remeasure. Findings come from the scheduled audit; last refresh <span suppressHydrationWarning>{b.lastRefresh ? new Date(b.lastRefresh).toLocaleString("en-GB") : "never"}</span>.</p>
                 </div>
                 <div className="flex items-center gap-1 text-[12px]" title="Texture findings are judged against this video-settings tier">
                     <span className="mr-1 text-dim">Texture tier</span>

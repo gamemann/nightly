@@ -78,7 +78,7 @@ export function AssetDetail({ d, reviews }: { d: DetailData; reviews: ReviewHit[
             <Section id="model" title="Model">
                 {d.hasModel ? <AssetViewer url={fileUrl(d.id, "glb", 0)} bbox={x.model?.bbox} textures={(x.textures ?? []).map((t, i) => ({ name: t.name, url: fileUrl(d.id, "tex", i) }))} map={!!x.map} /> : <div className="rounded-lg border border-line p-6 text-center text-[12px] text-muted">No model file for this asset.</div>}
                 <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-6">
-                    <Stat k="triangles" v={(x.model?.tris ?? 0).toLocaleString()} /><Stat k="vertices" v={(x.model?.verts ?? 0).toLocaleString()} /><Stat k="materials" v={x.model?.materials ?? 0} /><Stat k="meshes" v={x.model?.meshes ?? 0} />
+                    <Stat k="triangles" v={(x.model?.tris ?? 0).toLocaleString("en-GB")} /><Stat k="vertices" v={(x.model?.verts ?? 0).toLocaleString("en-GB")} /><Stat k="materials" v={x.model?.materials ?? 0} /><Stat k="meshes" v={x.model?.meshes ?? 0} />
                     <Stat k="bbox (m)" v={(x.model?.bbox ?? []).map((v) => v.toFixed(2)).join(" x ") || "-"} /><Stat k="primitive meshes" v={(x.model?.primitive_meshes ?? []).length} />
                 </div>
                 {x.map && (

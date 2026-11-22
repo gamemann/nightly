@@ -29,7 +29,7 @@ function Thumb({ r, tab }: { r: AssetRow; tab: Tab }) {
     )
 }
 
-const num = (v: number) => v.toLocaleString()
+const num = (v: number) => v.toLocaleString("en-GB")
 const TAB_COLS: Record<Tab, Column<AssetRow>[]> = {
     models: [
         { key: "tris", label: "Tris", sortable: true, className: "tabular-nums", render: (r) => (r.hasModel ? num(r.tris) : "no model") },
@@ -124,7 +124,7 @@ export function Assets({ data, agg, kinds, sources, trend = [], packNames }: { d
         <div className="mx-auto max-w-6xl px-6 py-5 max-md:px-3">
             <h1 className="text-[15px] font-semibold tracking-tight">Assets <span className="text-muted">(RSI)</span></h1>
             <p className="mt-0.5 mb-3 text-[12px] text-muted">
-                Every model of every source (packs and games): model, textures, animations and sounds with quality flags and a score, judged against the budget of its kind. {agg.total.toLocaleString()} assets, {agg.audited.toLocaleString()} audited, the rest listed from a directory scan
+                Every model of every source (packs and games): model, textures, animations and sounds with quality flags and a score, judged against the budget of its kind. {agg.total.toLocaleString("en-GB")} assets, {agg.audited.toLocaleString("en-GB")} audited, the rest listed from a directory scan
                 (<code className="font-mono">nightly assets scan</code>; audits arrive with <code className="font-mono">nightly assets ingest audit.json</code> or POST /api/assets/ingest). Previews come from <code className="font-mono">nightly assets thumbs</code>. <Link className="text-sky-300 hover:underline" href="/assets/sources">Sources and kinds</Link>
             </p>
             <AssetCharts agg={agg} tab={tab} set={set} trend={trend} />
