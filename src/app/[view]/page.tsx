@@ -1,3 +1,4 @@
+import { Suspense } from 'react'
 import { notFound } from 'next/navigation'
 import { ItemList } from '~/components/ItemList'
 import type { View } from '~/server/api'
@@ -9,5 +10,5 @@ const SLUGS: Record<string, View> = {
 export default async function ViewPage({ params }: { params: Promise<{ view: string }> }) {
     const view = SLUGS[(await params).view]
     if (!view) notFound()
-    return <ItemList view={view} />
+    return <Suspense><ItemList view={view} /></Suspense>
 }

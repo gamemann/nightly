@@ -1,4 +1,5 @@
 import Link from "next/link"
+import { Suspense } from "react"
 import { Qa } from "~/components/Qa"
 import { Reviews } from "~/components/Reviews"
 import { Screenshots } from "~/components/Screenshots"
@@ -13,7 +14,7 @@ const TABS = [["", "Reviews"], ["media", "Media / evidence"], ["qa", "QA"]] as c
 /** Reviews, the media evidence behind them and the QA gate runs live on one page; /screenshots and /qa redirect here. */
 export default async function ReviewsPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
     const tab = (await searchParams).tab ?? ""
-    const body = tab === "media" ? <Screenshots /> : tab === "qa" ? <Qa /> : await reviewList()
+    const body = tab === "media" ? <Screenshots /> : tab === "qa" ? <Suspense><Qa /></Suspense> : await reviewList()
     return (
         <div>
             <nav className="flex gap-1 border-b border-line px-6 pt-4 text-[13px]">

@@ -16,9 +16,9 @@ const VIEWS = [
 /** Item counts and recent run outcomes: the live numbers behind the Settings and Home pages. */
 export function OverviewStats({ title = 'Last two weeks' }: { title?: string }) {
     const router = useRouter()
-    const runs = api.run.list.useQuery({}, { refetchInterval: 60_000 })
+    const runs = api.run.chart.useQuery({ days: DAYS }, { refetchInterval: 60_000 })
     const counts = api.item.counts.useQuery(undefined, { refetchInterval: 60_000 })
-    const rows = runs.data ?? []
+    const rows = runs.data?.runs ?? []
     const now = Date.now()
     const days = statusByDay(rows, { days: DAYS, now })
     const recent = rows.filter((r) => Date.parse(String(r.startedAt)) >= now - DAYS * 86_400_000)

@@ -1,7 +1,7 @@
 // nightly -- CLI over the nightly to-do database. See README.md for the reference.
 import '../lib/env.mjs'   // first: the other modules read process.env when they load
 import { OWNER } from '../lib/owner.mjs'
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import path from 'node:path'
 import * as A from '../lib/agents.mjs'
@@ -18,13 +18,14 @@ import * as PG from '../lib/perf-gate.mjs'
 import * as PV from '../lib/perf-viz.mjs'
 import * as AS from '../lib/assets.mjs'
 import * as ASC from '../lib/assets-cli.mjs'
+import * as TH from '../lib/assets-thumbs.mjs'
 import * as RSI from '../lib/rsi.mjs'
 import { syncBlockers } from '../lib/rsi-blockers.mjs'
 import { agentLive } from '../lib/cli-agents.mjs'
 import { FEED_COMMANDS, FEED_HELP, runFeedCommand } from '../lib/cli-feeds.mjs'
 
 const argv = process.argv.slice(2)
-const BOOL = new Set(['json', 'all', 'top', 'due', 'help', 'h', 'dryRun', 'force', 'peek', 'strict', 'register', 'noFindings', 'noBudgets', 'noBaseline', 'requireToken', 'tokenOnly', 'png', 'disable', 'enable', 'infra', 'leave', 'purge'])
+const BOOL = new Set(['json', 'all', 'top', 'due', 'help', 'h', 'dryRun', 'force', 'peek', 'strict', 'register', 'noFindings', 'noBudgets', 'noBaseline', 'requireToken', 'tokenOnly', 'png', 'disable', 'enable', 'infra', 'leave', 'purge', 'wait', 'child'])
 
 const multi = {}
 function parse(args) {
@@ -112,6 +113,7 @@ const HELP = `nightly -- the nightly run's to-do database (${S.DB_PATH})
   assets show <id|pack/weapon_id|weapon_id> [--json]     model, textures, animations, sounds, flags, score
   assets refresh                                run rsi_asset_audit.py for every texture tier (setting rsiTiers), ingest and sync findings (tick does this every rsiRefreshHours)
   rsi board|sync|refresh                        the RSI board: findings per domain; sync = stale/duplicate/blocked pass (auto-closes non-owner stale items)
+  assets thumbs [id...] [--force] [--limit N] [--wait]   (re)generate the 128x96 webp thumbnails (textures downscaled, models rendered in software, cached beside the audit data, regenerated when the file hash changes); runs detached unless --wait
   assets summary                                per-pack counts and average score
   perf migrate                                  create/upgrade the perf tables (backs up the database to data/backup/ first)
   perf token add --name N [--game G]            ingest token for one runner/game; the secret is printed once, only its hash is kept
@@ -605,7 +607,7 @@ function cmdRsi(forced) {
 }
 
 function cmdAssets() {
-    const sub = pos.shift() ?? die('assets migrate|source|kind|config|scan|ingest|list|show|summary')
+    const sub = pos.shift() ?? die('assets migrate|source|kind|config|scan|ingest|list|show|summary|thumbs')
     if (sub === 'migrate') { const bak = AS.migrate(db, { backup: true, dbPath: S.DB_PATH }); return out({ ok: true, backup: bak }, () => `assets table ready${bak ? `; database backed up to ${bak}` : ''}`) }
     if (sub === 'refresh') return cmdRsi('refresh')
     if (sub === 'source' || sub === 'sources') return ASC.sourceCmd(db, pos, opt, out, die)
@@ -642,7 +644,17 @@ function cmdAssets() {
         const rows = AS.summary(db, { kind: opt.kind })
         return out(rows, () => rows.map((r) => `${r.pack.padEnd(24)} ${String(r.weapons).padStart(4)} assets  ${r.pass ?? 0} pass  avg ${r.avg_score}  ${r.audited} audited`).join('\n'))
     }
-    die('assets migrate|source|kind|config|scan|ingest|list|show|summary')
+    if (sub === 'thumbs') {
+        // thumbnails: detached by default so a scan or a shell is never blocked; --wait runs in the foreground (also what the background child does)
+        if (!opt.wait && !opt.child) {
+            const child = spawn(process.execPath, [process.argv[1], 'assets', 'thumbs', '--child', ...(opt.force ? ['--force'] : []), ...(opt.limit ? ['--limit', String(opt.limit)] : []), ...pos], { detached: true, stdio: 'ignore', env: process.env })
+            child.unref()
+            return out({ ok: true, pid: child.pid }, () => `thumbnails generating in the background (pid ${child.pid}); add --wait to run in the foreground`)
+        }
+        AS.ready(db)
+        return TH.generate(db, { force: !!opt.force, limit: Number(opt.limit) || 0, ids: pos.length ? pos.map(Number).filter(Number.isInteger) : null }).then((r) => out(r, () => `${r.total} assets: ${r.made} made, ${r.fresh} up to date, ${r.none} without an image, ${r.error} failed`))
+    }
+    die('assets migrate|source|kind|config|scan|ingest|list|show|summary|thumbs')
 }
 
 function cmdPerf() {

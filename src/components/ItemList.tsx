@@ -4,7 +4,10 @@ import { useRouter } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
 import { KINDS, STATUSES, STATUS_LABEL, type Kind } from '~/lib/constants'
 import type { View } from '~/server/api'
-import { api } from '~/trpc/react'
+import { api, type RouterOutputs } from '~/trpc/react'
+import { parsePage } from '~/lib/paging'
+import { DataTable, type Column } from './DataTable'
+import { useUrlParams } from './Pagination'
 import { KindTag, RepoChips, STATUS_DOT, StatusPill, ago } from './pills'
 
 const TITLES: Record<View, string> = {
@@ -26,90 +29,73 @@ export function useDebounced<T>(v: T, ms: number) {
     return d
 }
 
+const ITEM_SORT = ['key', 'title', 'kind', 'status', 'priority', 'updated', 'done']
+type Row = RouterOutputs['item']['list']['rows'][number]
+
 export function ItemList({ view }: { view: View }) {
-    const [q, setQ] = useState('')
-    const dq = useDebounced(q, 200)
+    const { sp } = useUrlParams()
+    const q = parsePage(sp, { sorts: ITEM_SORT, sort: view === 'done' ? 'done' : 'priority', dir: view === 'done' ? 'desc' : 'asc', filters: ['kind', 'status'] })
     const utils = api.useUtils()
-    const list = api.item.list.useQuery({ view, q: dq || undefined }, { placeholderData: (p) => p })
+    const list = api.item.list.useQuery(
+        { view, q: q.q || undefined, page: q.page, size: q.size, sort: q.sort as 'key', dir: q.dir, kind: q.f.kind, status: q.f.status },
+        { placeholderData: (p) => p })
     const invalidate = () => Promise.all([utils.item.list.invalidate(), utils.item.counts.invalidate()])
     const move = api.item.move.useMutation({ onSuccess: invalidate })
     const update = api.item.update.useMutation({ onSuccess: invalidate })
-    const searchRef = useRef<HTMLInputElement>(null)
-    const orderable = !dq && ['queue', 'in_progress', 'review', 'blocked', 'checks'].includes(view)
 
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
-            const t = e.target as HTMLElement
-            if (t.closest('input,textarea,select')) return
-            if (e.key === '/') { e.preventDefault(); searchRef.current?.focus() }
+            if ((e.target as HTMLElement).closest('input,textarea,select')) return
+            if (e.key === '/') { e.preventDefault(); document.querySelector<HTMLInputElement>('input[aria-label="search"]')?.focus() }
         }
         window.addEventListener('keydown', onKey)
         return () => window.removeEventListener('keydown', onKey)
     }, [])
 
-    const items = list.data ?? []
+    const data = list.data
+    const orderable = !!data?.orderable
+    const base = data ? data.from - 1 : 0
+    const cols: Column<Row>[] = [
+        { key: 'priority', label: '#', sortable: true, className: 'w-10 text-right font-mono text-[11px] text-muted', render: (it) => (orderable && data ? base + data.rows.indexOf(it) + 1 : <span className={`inline-block size-2 rounded-full ${STATUS_DOT[it.status]}`} />) },
+        { key: 'key', label: 'Key', sortable: true, render: (it) => <Link href={`/item/${encodeURIComponent(it.key)}`} className="font-mono text-[11.5px] text-muted hover:text-accent">{it.key}</Link> },
+        { key: 'kind', label: 'Kind', sortable: true, render: (it) => <KindTag kind={it.kind} /> },
+        { key: 'title', label: 'Title', sortable: true, className: 'max-w-[32rem] truncate', render: (it) => <Link href={`/item/${encodeURIComponent(it.key)}`} className="hover:text-white">{it.title}</Link> },
+        { key: 'cadence', label: 'Check', render: (it) => (it.kind === 'check' ? <span className={`text-[11px] ${it.due ? 'text-teal-300' : 'text-muted'}`}>{it.cadence}{it.due ? ' · due' : ` · ${ago(it.lastRunAt)}`}</span> : null) },
+        { key: 'repos', label: 'Repos', className: 'max-lg:hidden', render: (it) => <RepoChips repos={it.repos} /> },
+        { key: 'notes', label: '', className: 'text-[11px] text-muted', render: (it) => (it._count.notes > 0 ? `✉ ${it._count.notes}` : '') },
+        { key: view === 'done' ? 'done' : 'updated', label: view === 'done' ? 'Done' : 'Updated', sortable: true, className: 'whitespace-nowrap text-[11px] text-muted', render: (it) => ago(view === 'done' ? it.completedAt : it.updatedAt) },
+        { key: 'status', label: 'Status', sortable: true, render: (it) => (view === 'done' ? <StatusPill status={it.status} /> : (
+            <select value={it.status} aria-label="status" onChange={(e) => update.mutate({ key: it.key, patch: { status: e.target.value as (typeof STATUSES)[number] } })}
+                className="cursor-pointer appearance-none bg-transparent text-[11.5px] text-dim outline-none hover:text-fg">
+                {STATUSES.map((s) => <option key={s} value={s} className="bg-panel">{STATUS_LABEL[s]}</option>)}
+            </select>)) },
+        ...(orderable ? [{ key: 'move', label: '', render: (it: Row) => {
+            const i = data!.rows.indexOf(it)
+            const first = base + i === 0
+            const last = base + i === data!.total - 1
+            return (
+                <span className="flex gap-0.5">
+                    <button className="icon-btn" title="Move to top" disabled={first} onClick={() => move.mutate({ key: it.key, to: 'top' })}>⤒</button>
+                    <button className="icon-btn" title="Move up" disabled={first} onClick={() => move.mutate({ key: it.key, to: 'up' })}>↑</button>
+                    <button className="icon-btn" title="Move down" disabled={last} onClick={() => move.mutate({ key: it.key, to: 'down' })}>↓</button>
+                </span>
+            )
+        } }] : []),
+    ]
     return (
         <div className="mx-auto max-w-6xl px-6 py-5 max-md:px-3">
             <QuickAdd view={view} onAdded={invalidate} />
-            <div className="mt-5 mb-2 flex items-end justify-between gap-4">
-                <div>
-                    <h1 className="text-[15px] font-semibold tracking-tight">
-                        {dq ? `Search “${dq}”` : TITLES[view]}
-                        <span className="ml-2 text-[12px] font-normal text-muted tabular-nums">{items.length}</span>
-                    </h1>
-                    {!dq && HINT[view] && <p className="mt-0.5 text-[12px] text-muted">{HINT[view]}</p>}
-                </div>
-                <div className="relative">
-                    <input ref={searchRef} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search all items…"
-                        className="input w-64 pl-7 max-md:w-40" onKeyDown={(e) => e.key === 'Escape' && setQ('')} />
-                    <span className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-muted">⌕</span>
-                    <kbd className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 rounded border border-line px-1 text-[10px] text-muted">/</kbd>
-                </div>
+            <div className="mt-5 mb-2">
+                <h1 className="text-[15px] font-semibold tracking-tight">
+                    {q.q ? `Search “${q.q}”` : TITLES[view]}
+                    <span className="ml-2 text-[12px] font-normal text-muted tabular-nums">{data?.total ?? ''}</span>
+                </h1>
+                {!q.q && HINT[view] && <p className="mt-0.5 text-[12px] text-muted">{HINT[view]}</p>}
             </div>
-            <div className="overflow-hidden rounded-lg border border-line bg-panel/40">
-                {list.isLoading && <div className="p-6 text-center text-muted">Loading…</div>}
-                {!list.isLoading && !items.length && <div className="p-10 text-center text-muted">Nothing here.</div>}
-                {items.map((it, i) => (
-                    <div key={it.id} className="group flex items-center gap-3 border-b border-line/70 px-3 py-[7px] last:border-0 hover:bg-hover/50">
-                        {orderable ? (
-                            <span className="w-6 shrink-0 text-right font-mono text-[10.5px] tabular-nums text-muted">{i + 1}</span>
-                        ) : (
-                            <span className={`size-2 shrink-0 rounded-full ${STATUS_DOT[it.status]}`} />
-                        )}
-                        <Link href={`/item/${encodeURIComponent(it.key)}`} className="w-40 shrink-0 truncate font-mono text-[11.5px] text-muted hover:text-accent max-lg:w-28">
-                            {it.key}
-                        </Link>
-                        <KindTag kind={it.kind} />
-                        <Link href={`/item/${encodeURIComponent(it.key)}`} className="min-w-0 flex-1 truncate text-fg/95 hover:text-white">
-                            {it.title}
-                        </Link>
-                        {it.kind === 'check' && (
-                            <span className={`shrink-0 text-[11px] ${it.due ? 'text-teal-300' : 'text-muted'}`}>
-                                {it.cadence}{it.due ? ' · due' : ` · ${ago(it.lastRunAt)}`}
-                            </span>
-                        )}
-                        <span className="max-w-[30%] max-lg:hidden"><RepoChips repos={it.repos} /></span>
-                        {it._count.notes > 0 && <span className="shrink-0 text-[11px] text-muted" title="notes">✉ {it._count.notes}</span>}
-                        {view === 'done' ? (
-                            <span className="w-20 shrink-0 text-right text-[11px] text-muted">{ago(it.completedAt)}</span>
-                        ) : (
-                            <select value={it.status} aria-label="status"
-                                onChange={(e) => update.mutate({ key: it.key, patch: { status: e.target.value as (typeof STATUSES)[number] } })}
-                                className="w-24 shrink-0 cursor-pointer appearance-none bg-transparent text-right text-[11.5px] text-dim outline-none hover:text-fg">
-                                {STATUSES.map((s) => <option key={s} value={s} className="bg-panel">{STATUS_LABEL[s]}</option>)}
-                            </select>
-                        )}
-                        {view === 'done' && <StatusPill status={it.status} />}
-                        {orderable && (
-                            <span className="flex shrink-0 gap-0.5 opacity-0 transition group-hover:opacity-100 max-md:opacity-100">
-                                <button className="icon-btn" title="Move to top" disabled={i === 0} onClick={() => move.mutate({ key: it.key, to: 'top' })}>⤒</button>
-                                <button className="icon-btn" title="Move up" disabled={i === 0} onClick={() => move.mutate({ key: it.key, to: 'up' })}>↑</button>
-                                <button className="icon-btn" title="Move down" disabled={i === items.length - 1} onClick={() => move.mutate({ key: it.key, to: 'down' })}>↓</button>
-                            </span>
-                        )}
-                    </div>
-                ))}
-            </div>
+            {!data ? <div className="p-6 text-center text-muted">Loading…</div> : (
+                <DataTable cols={cols} data={data} rowKey={(it) => it.id} sort={q.sort} dir={q.dir} q={q.q} active={q.f} searchHint="Search all items (/)"
+                    filters={[{ key: 'kind', label: 'Kind', options: KINDS.map((value) => ({ value })) }, { key: 'status', label: 'Status', options: STATUSES.map((value) => ({ value, label: STATUS_LABEL[value] })) }]} />
+            )}
         </div>
     )
 }

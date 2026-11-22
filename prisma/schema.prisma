@@ -29,6 +29,9 @@ model Item {
   notes       Note[]
 
   @@index([status, priority])
+  @@index([kind, status])
+  @@index([completedAt])
+  @@index([updatedAt])
 }
 
 model Note {
@@ -67,6 +70,8 @@ model Run {
   notes      Note[]
 
   @@index([scheduleId])
+  @@index([startedAt])
+  @@index([status])
 }
 
 /// When and how the runner starts. `nightly tick` (crontab, every minute) fires each enabled
@@ -371,10 +376,27 @@ model AssetWeapon {
   auditedAt  String @default("")
   updatedAt  String @default("")
   data       String @default("{}")
+  /// Denormalised from `data` so the table pages, sorts and charts in SQL (lib/asset-cols.mjs backfills; shape 0 = not yet).
+  hasModel   Int    @default(0)
+  verts      Int    @default(0)
+  materials  Int    @default(0)
+  texMax     Int    @default(0)
+  texBytes   Int    @default(0)
+  texMaps    String @default("")
+  animLen    Float  @default(0)
+  soundLen   Float  @default(0)
+  soundBytes Int    @default(0)
+  /// hash of the model file the cached thumbnail was rendered from; the thumbnail is redone when it changes
+  fileHash   String @default("")
+  shape      Int    @default(0)
 
   @@unique([pack, weaponId])
   @@index([game])
   @@index([kind])
+  @@index([pack])
+  @@index([score])
+  @@index([tris])
+  @@index([kind, pack])
 }
 
 /// ASSETS: a place assets live (a pack or a game checkout). `name` is what AssetWeapon.pack holds. `config` (JSON) holds the globs

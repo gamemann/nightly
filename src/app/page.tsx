@@ -1,10 +1,13 @@
 import { RsiBoard } from "~/components/RsiBoard"
-import { loadBoard } from "~/server/rsiBoard"
+import { parsePage } from "~/lib/paging"
+import { FINDING_SPEC, loadBoard } from "~/server/rsiBoard"
 
 export const dynamic = "force-dynamic"
 
-/** Home: the RSI board (findings per domain, worst assets, blockers). The item lists live under /queue etc. */
-export default async function Home({ searchParams }: { searchParams: Promise<{ tier?: string }> }) {
-    const { tier } = await searchParams
-    return <RsiBoard b={await loadBoard(tier)} />
+/** Home: the RSI board (findings per domain, worst assets, blockers). The findings table is paged, sorted, filtered and searched in SQL. */
+export default async function Home({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+    const sp = await searchParams
+    const tier = Array.isArray(sp.tier) ? sp.tier[0] : sp.tier
+    const q = parsePage(sp, FINDING_SPEC)
+    return <RsiBoard b={await loadBoard(tier, q)} q={q} />
 }

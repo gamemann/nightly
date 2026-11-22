@@ -2,7 +2,9 @@
 import Link from 'next/link'
 import { useEffect, useRef, useState } from 'react'
 import { api } from '~/trpc/react'
-import { useDebounced } from './ItemList'
+import { DataTable, type Column } from './DataTable'
+import { useUrlParams } from './Pagination'
+import { parsePage } from '~/lib/paging'
 import { Markdown } from './Markdown'
 import { StatusPill, ago, fmt } from './pills'
 import { Legend, Panel, HeatGrid, StackedBars, StatTile } from './Charts'
@@ -18,44 +20,40 @@ const day = (d: Date | string) => {
     return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`
 }
 
+const RUN_SPEC = { sorts: ['started', 'status', 'turns', 'minutes', 'cost', 'trigger', 'id'], sort: 'started', dir: 'desc', filters: ['status', 'trigger'] } as const
+
 export function RunList() {
-    const [q, setQ] = useState('')
-    const dq = useDebounced(q, 250)
-    const runs = api.run.list.useQuery({ q: dq || undefined }, { placeholderData: (p) => p, refetchInterval: 30_000 })
-    const rows = runs.data ?? []
+    const { sp } = useUrlParams()
+    const q = parsePage(sp, RUN_SPEC)
+    const runs = api.run.list.useQuery({ q: q.q || undefined, page: q.page, size: q.size, sort: q.sort as 'started', dir: q.dir, status: q.f.status, trigger: q.f.trigger }, { placeholderData: (p) => p, refetchInterval: 30_000 })
+    const chart = api.run.chart.useQuery({ days: DAYS }, { refetchInterval: 60_000 })
+    const data = runs.data?.page
+    const cols: Column<NonNullable<typeof data>['rows'][number]>[] = [
+        { key: 'id', label: '#', sortable: true, className: 'font-mono text-muted', render: (r) => <Link href={`/runs/${r.id}`}>#{r.id}</Link> },
+        { key: 'started', label: 'Started', sortable: true, className: 'text-dim whitespace-nowrap', render: (r) => fmt(r.startedAt) },
+        { key: 'status', label: 'Status', sortable: true, render: (r) => <StatusPill status={r.status} /> },
+        { key: 'trigger', label: 'Schedule', sortable: true, className: 'text-muted', render: (r) => r.schedule?.name ?? (r.trigger === 'import' ? 'imported' : r.trigger) },
+        { key: 'summary', label: 'Summary', className: 'max-w-[28rem] truncate', render: (r) => <Link href={`/runs/${r.id}`}>{r.summary || <span className="text-muted">no summary</span>}</Link> },
+        { key: 'notes', label: 'Notes', className: 'text-muted', render: (r) => (r._count.notes > 0 ? `✉ ${r._count.notes}` : '') },
+        { key: 'cost', label: 'Cost', sortable: true, className: 'text-right tabular-nums text-muted', render: (r) => usd(r.costUsd) },
+        { key: 'minutes', label: 'Time', sortable: true, className: 'text-right text-muted', render: (r) => (r.status === 'running' ? ago(r.startedAt).replace(' ago', '') : dur(r.minutes)) },
+    ]
+    const opts = (xs?: string[]) => (xs ?? []).map((value) => ({ value }))
     return (
         <div className="mx-auto max-w-6xl px-6 py-5 max-md:px-3">
-            <div className="mb-3 flex items-end justify-between gap-4">
-                <div>
-                    <h1 className="text-[15px] font-semibold tracking-tight">
-                        Runs &amp; reports<span className="ml-2 text-[12px] font-normal tabular-nums text-muted">{rows.length}</span>
-                    </h1>
-                    <p className="mt-0.5 text-[12px] text-muted">
-                        Every run since the first, with its report, log and frames. When they start is set in <Link href="/schedules" className="text-dim hover:text-accent">Schedules</Link>.
-                    </p>
-                </div>
-                <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Escape' && setQ('')}
-                    placeholder="Search reports and logs…" className="input w-64 max-md:w-40" />
+            <div className="mb-3">
+                <h1 className="text-[15px] font-semibold tracking-tight">
+                    Runs &amp; reports<span className="ml-2 text-[12px] font-normal tabular-nums text-muted">{data?.total ?? ''}</span>
+                </h1>
+                <p className="mt-0.5 text-[12px] text-muted">
+                    Every run since the first, with its report, log and frames. When they start is set in <Link href="/schedules" className="text-dim hover:text-accent">Schedules</Link>.
+                </p>
             </div>
-            {!dq && !runs.isLoading && <RunCharts runs={rows} />}
-            <div className="overflow-hidden rounded-lg border border-line bg-panel/40">
-                {runs.isLoading && <div className="p-6 text-center text-muted">Loading…</div>}
-                {!runs.isLoading && rows.length === 0 && <div className="p-10 text-center text-muted">{dq ? 'No run mentions that.' : 'No runs yet.'}</div>}
-                {rows.map((r) => (
-                    <Link key={r.id} href={`/runs/${r.id}`} className="flex items-center gap-4 border-b border-line/70 px-4 py-2.5 last:border-0 hover:bg-hover/50 max-md:gap-2">
-                        <span className="w-8 shrink-0 font-mono text-[11px] text-muted">#{r.id}</span>
-                        <span className="w-40 shrink-0 text-dim max-md:w-28">{fmt(r.startedAt)}</span>
-                        <StatusPill status={r.status} />
-                        <span className="w-20 shrink-0 truncate text-[11px] text-muted max-lg:hidden" title={r.trigger}>
-                            {r.schedule?.name ?? (r.trigger === 'import' ? 'imported' : r.trigger)}
-                        </span>
-                        <span className="min-w-0 flex-1 truncate text-fg/90">{r.summary || <span className="text-muted">no summary</span>}</span>
-                        {r._count.notes > 0 && <span className="text-[11px] text-muted max-md:hidden">✉ {r._count.notes}</span>}
-                        <span className="w-12 shrink-0 text-right text-[11px] tabular-nums text-muted max-md:hidden">{usd(r.costUsd)}</span>
-                        <span className="w-14 shrink-0 text-right text-[11px] text-muted">{r.status === 'running' ? ago(r.startedAt).replace(' ago', '') : dur(r.minutes)}</span>
-                    </Link>
-                ))}
-            </div>
+            {!q.q && chart.data && <RunCharts runs={chart.data.runs} />}
+            {runs.isLoading || !data ? <div className="p-6 text-center text-muted">Loading…</div> : (
+                <DataTable cols={cols} data={data} rowKey={(r) => r.id} sort={q.sort} dir={q.dir} q={q.q} active={q.f} searchHint="Search summaries, reports and logs"
+                    filters={[{ key: 'status', label: 'Status', options: opts(runs.data?.statuses) }, { key: 'trigger', label: 'Trigger', options: opts(runs.data?.triggers) }]} />
+            )}
         </div>
     )
 }

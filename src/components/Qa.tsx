@@ -2,6 +2,9 @@
 import { useState } from "react"
 import { api, type RouterOutputs } from "~/trpc/react"
 import { ago } from "./pills"
+import { parsePage } from "~/lib/paging"
+import { DataTable, type Column } from "./DataTable"
+import { useUrlParams } from "./Pagination"
 import { HeatGrid, Legend, Panel, StackedBars } from "./Charts"
 import { COLOR, qaAreaGrid, qaTrend } from "../../lib/charts.mjs"
 
@@ -28,8 +31,36 @@ export function Qa() {
                     return <Card key={k} game={game} kind={kind} runs={rows.filter((r) => r.game === game && r.kind === kind).slice(0, TREND)} />
                 })}
             </div>
+            <QaHistory />
             <Docs />
         </div>
+    )
+}
+
+const QA_SPEC = { sorts: ["ranAt", "game", "kind", "ok", "failed", "total", "commit"], sort: "ranAt", dir: "desc", filters: ["game", "kind", "result"] } as const
+
+/** Every QA run, paged, sortable, filterable and searchable on the server. */
+function QaHistory() {
+    const { sp } = useUrlParams()
+    const q = parsePage(sp, QA_SPEC)
+    const h = api.qa.history.useQuery({ page: q.page, size: q.size, sort: q.sort as "ranAt", dir: q.dir, q: q.q || undefined, game: q.f.game, kind: q.f.kind, result: (q.f.result as "pass" | "fail") || undefined }, { placeholderData: (p) => p })
+    if (!h.data) return null
+    const cols: Column<(typeof h.data.page.rows)[number]>[] = [
+        { key: "ranAt", label: "Ran", sortable: true, className: "whitespace-nowrap text-dim", render: (r) => new Date(r.ranAt).toLocaleString("en-GB") },
+        { key: "game", label: "Game", sortable: true, render: (r) => r.game },
+        { key: "kind", label: "Kind", sortable: true, render: (r) => r.kind },
+        { key: "ok", label: "Result", sortable: true, render: (r) => <span className={`rounded px-1.5 text-[11px] ${badge(r.ok)}`}>{r.ok ? "pass" : "FAIL"}</span> },
+        { key: "failed", label: "Failed", sortable: true, className: "tabular-nums", render: (r) => r.failedCount },
+        { key: "total", label: "Total", sortable: true, className: "tabular-nums", render: (r) => r.total },
+        { key: "commit", label: "Commit", sortable: true, className: "font-mono text-muted", render: (r) => r.commit.slice(0, 9) },
+    ]
+    const opts = (xs: string[]) => xs.map((value) => ({ value }))
+    return (
+        <section className="mt-6">
+            <h2 className="mb-2 text-[13px] font-semibold">All runs</h2>
+            <DataTable cols={cols} data={h.data.page} rowKey={(r) => r.id} sort={q.sort} dir={q.dir} q={q.q} active={q.f} searchHint="Search game, kind, commit, failures"
+                filters={[{ key: "game", label: "Game", options: opts(h.data.games) }, { key: "kind", label: "Kind", options: opts(h.data.kinds) }, { key: "result", label: "Result", options: [{ value: "pass" }, { value: "fail" }] }]} />
+        </section>
     )
 }
 

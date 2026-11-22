@@ -84,10 +84,11 @@ const HOURS = 72
 /** Next fires of every enabled schedule on one timeline, and how each schedule has been doing. */
 function ScheduleCharts({ schedules }: { schedules: Schedule[] }) {
     const router = useRouter()
-    const runs = api.run.list.useQuery({}, { refetchInterval: 60_000 })
+    const runs = api.run.chart.useQuery({ days: 30 }, { refetchInterval: 60_000 })
     const live = schedules.filter((s) => s.enabled)
     const fires = timelineOf(live.flatMap((s) => s.next.map((at) => ({ scheduleId: s.id, name: s.name, at }))), { hours: HOURS })
-    const stats = perSchedule((runs.data ?? []).filter((r) => r.schedule))
+    const totals = new Map((runs.data?.perSched ?? []).map((x) => [x.schedule.id, x.total]))
+    const stats = perSchedule((runs.data?.perSched ?? []).flatMap((x) => x.runs.map((r) => ({ ...r, schedule: x.schedule })))).map((x) => ({ ...x, total: totals.get(x.id as number) ?? x.total }))
     const byId = new Map(stats.map((x) => [x.id, x]))
     const jump = (id: number | string | undefined) => document.getElementById(`schedule-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
     return (

@@ -9,6 +9,7 @@ import { z } from 'zod'
 import type { Prisma, PrismaClient } from '../../generated/prisma/client'
 import { cronError, nextFires } from '../../lib/cron.mjs'
 import { OWNER, CADENCES, KINDS, LIVE_MINUTES, OPEN_STATUSES, STATUSES, isDue, slugify } from '~/lib/constants'
+import { offsetOf, paged } from '~/lib/paging'
 import { AUTH_KEYS, PRIVATE_SETTINGS, forgetAuth, hashPassword, newSecret } from './auth'
 import { ATTACH_DIR, MEDIA_DIR, MEDIA_EXT } from './media'
 import { assetsRouter } from './assetsRouter'
@@ -34,6 +35,8 @@ type Tx = Prisma.TransactionClient | PrismaClient
 
 export const VIEWS = ['queue', 'in_progress', 'review', 'blocked', 'issues', 'checks', 'done', 'all'] as const
 export type View = (typeof VIEWS)[number]
+export const RUN_SORTS = ['started', 'status', 'turns', 'minutes', 'cost', 'trigger', 'id'] as const
+export const ITEM_SORTS = ['key', 'title', 'kind', 'status', 'priority', 'updated', 'done'] as const
 
 function whereFor(view: View): Prisma.ItemWhereInput {
     switch (view) {
@@ -81,25 +84,35 @@ async function uniqueKey(tx: Tx, base: string) {
 const keyInput = z.object({ key: z.string().min(1) })
 
 const itemRouter = router({
+    /** One page of items: view, kind/status filters, search, sort and limit/offset all in the database. */
     list: procedure
-        .input(z.object({ view: z.enum(VIEWS), q: z.string().optional() }))
+        .input(z.object({
+            view: z.enum(VIEWS), q: z.string().optional(), page: z.number().int().min(1).default(1), size: z.number().int().min(1).max(1000).default(100),
+            sort: z.enum(ITEM_SORTS).optional(), dir: z.enum(['asc', 'desc']).optional(), kind: z.string().optional(), status: z.string().optional(),
+        }))
         .query(async ({ ctx, input }) => {
             const q = input.q?.trim()
             const where: Prisma.ItemWhereInput = {
                 ...(q ? {} : whereFor(input.view)),
                 ...(q ? { OR: [{ title: { contains: q } }, { key: { contains: q } }, { body: { contains: q } }, { repos: { contains: q } }] } : {}),
+                ...((KINDS as readonly string[]).includes(input.kind ?? '') ? { kind: input.kind } : {}),
+                ...((STATUSES as readonly string[]).includes(input.status ?? '') ? { status: input.status } : {}),
             }
             const done = input.view === 'done'
+            const sort = input.sort ?? (done ? 'done' : 'priority')
+            const dir = input.dir ?? (!input.sort && done ? 'desc' : 'asc')
+            const col = { key: 'key', title: 'title', kind: 'kind', status: 'status', priority: 'priority', updated: 'updatedAt', done: 'completedAt' }[sort] as string
+            const total = await ctx.db.item.count({ where })
             const items = await ctx.db.item.findMany({
                 where,
-                orderBy: done ? [{ completedAt: 'desc' }, { id: 'desc' }] : [{ priority: 'asc' }, { id: 'asc' }],
-                take: done || q ? 300 : undefined,
+                orderBy: [{ [col]: dir }, { id: dir }] as Prisma.ItemOrderByWithRelationInput[],
+                skip: offsetOf(total, input), take: input.size,
                 select: {
                     id: true, key: true, title: true, kind: true, status: true, priority: true, repos: true, cadence: true,
                     lastRunAt: true, completedAt: true, updatedAt: true, addedBy: true, _count: { select: { notes: true } },
                 },
             })
-            return items.map((i) => ({ ...i, due: isDue(i) }))
+            return { ...paged(items.map((i) => ({ ...i, due: isDue(i) })), total, input), orderable: !q && !input.sort && !input.kind && !input.status && ['queue', 'in_progress', 'review', 'blocked', 'checks'].includes(input.view) }
         }),
 
     counts: procedure.query(async ({ ctx }) => {
@@ -217,21 +230,55 @@ const noteRouter = router({
 })
 
 const runRouter = router({
-    list: procedure.input(z.object({ q: z.string().optional(), scheduleId: z.number().optional() }).optional()).query(({ ctx, input }) => {
-        const q = input?.q?.trim()
-        return ctx.db.run.findMany({
-            where: {
-                ...(q ? { OR: [{ summary: { contains: q } }, { report: { contains: q } }, { log: { contains: q } }] } : {}),
-                ...(input?.scheduleId ? { scheduleId: input.scheduleId } : {}),
-            },
-            orderBy: [{ startedAt: 'desc' }, { id: 'desc' }],
-            take: 500,
+    /** One page of runs (sort, status/trigger/schedule filters and search in the database) plus SQL aggregates for the charts over every run. */
+    list: procedure.input(z.object({
+        q: z.string().optional(), scheduleId: z.number().optional(), page: z.number().int().min(1).default(1), size: z.number().int().min(1).max(1000).default(100),
+        sort: z.enum(RUN_SORTS).optional(), dir: z.enum(['asc', 'desc']).optional(), status: z.string().optional(), trigger: z.string().optional(),
+    }).optional()).query(async ({ ctx, input }) => {
+        const i = input ?? { page: 1, size: 100 }
+        const q = i.q?.trim()
+        const where: Prisma.RunWhereInput = {
+            ...(q ? { OR: [{ summary: { contains: q } }, { report: { contains: q } }, { log: { contains: q } }] } : {}),
+            ...(i.scheduleId ? { scheduleId: i.scheduleId } : {}),
+            ...(i.status ? { status: i.status } : {}),
+            ...(i.trigger ? { trigger: i.trigger } : {}),
+        }
+        const col = { started: 'startedAt', status: 'status', turns: 'turns', minutes: 'minutes', cost: 'costUsd', trigger: 'trigger', id: 'id' }[i.sort ?? 'started'] as string
+        const dir = i.dir ?? 'desc'
+        const total = await ctx.db.run.count({ where })
+        const rows = await ctx.db.run.findMany({
+            where,
+            orderBy: [{ [col]: dir }, { id: 'desc' }] as Prisma.RunOrderByWithRelationInput[],
+            skip: offsetOf(total, i), take: i.size,
             select: {
                 id: true, startedAt: true, finishedAt: true, status: true, summary: true, turns: true, minutes: true, costUsd: true, trigger: true,
                 schedule: { select: { id: true, name: true } }, _count: { select: { notes: true } },
             },
         })
+        const [statuses, triggers] = await Promise.all([ctx.db.run.groupBy({ by: ['status'], _count: { _all: true } }), ctx.db.run.groupBy({ by: ['trigger'], _count: { _all: true } })])
+        return { page: paged(rows, total, i), statuses: statuses.map((x) => x.status), triggers: triggers.map((x) => x.trigger) }
     }),
+    /** Chart inputs, bounded in SQL and slim (no report or log): runs of the last `days` days, the newest 30 with a duration or cost,
+     *  and the newest 20 runs of every schedule with its all-time run count. Never the whole table. */
+    chart: procedure.input(z.object({ days: z.number().int().min(1).max(365).default(30) }).optional()).query(async ({ ctx, input }) => {
+        const days = input?.days ?? 30
+        const slim = { id: true, startedAt: true, status: true, minutes: true, costUsd: true } as const
+        const [recent, latest, totals] = await Promise.all([
+            ctx.db.run.findMany({ where: { startedAt: { gte: new Date(Date.now() - (days + 1) * 86_400_000) } }, select: slim, orderBy: { startedAt: 'desc' }, take: 5000 }),
+            ctx.db.run.findMany({ select: slim, orderBy: { startedAt: 'desc' }, take: 60 }),
+            ctx.db.run.groupBy({ by: ['scheduleId'], where: { scheduleId: { not: null } }, _count: { _all: true } }),
+        ])
+        const scheds = await ctx.db.schedule.findMany({ select: { id: true, name: true } })
+        const perSched = await Promise.all(scheds.map(async (sc) => ({
+            schedule: sc,
+            runs: await ctx.db.run.findMany({ where: { scheduleId: sc.id }, select: slim, orderBy: { startedAt: 'desc' }, take: 20 }),
+            total: totals.find((t) => t.scheduleId === sc.id)?._count._all ?? 0,
+        })))
+        const byId = new Map<number, (typeof recent)[number]>()
+        for (const r of [...recent, ...latest]) byId.set(r.id, r)
+        return { runs: [...byId.values()], perSched }
+    }),
+
     get: procedure.input(z.object({ id: z.number() })).query(async ({ ctx, input }) => {
         const r = await ctx.db.run.findUnique({
             where: { id: input.id },
@@ -390,7 +437,29 @@ const attachmentRouter = router({
 export type PerfMetric = { value: number; baseline?: number; budget: number; cap: number; noise_pct?: number; status: string }
 export type PerfSummary = { gpu?: string; tolerance?: number; resolution?: string; dirty?: boolean; metrics?: Record<string, Record<string, PerfMetric>> }
 
+export const QA_SORTS = ['ranAt', 'game', 'kind', 'ok', 'failed', 'total', 'commit'] as const
+
 const qaRouter = router({
+    /** Every QA run as a paged table: sort, game/kind/result filters and search (game, commit) in the database. */
+    history: procedure.input(z.object({
+        page: z.number().int().min(1).default(1), size: z.number().int().min(1).max(1000).default(100), sort: z.enum(QA_SORTS).default('ranAt'), dir: z.enum(['asc', 'desc']).default('desc'),
+        q: z.string().optional(), game: z.string().optional(), kind: z.string().optional(), result: z.enum(['pass', 'fail']).optional(),
+    })).query(async ({ ctx, input }) => {
+        const q = input.q?.trim()
+        const where: Prisma.QaRunWhereInput = {
+            ...(q ? { OR: [{ game: { contains: q } }, { commit: { contains: q } }, { kind: { contains: q } }, { failures: { contains: q } }] } : {}),
+            ...(input.game ? { game: input.game } : {}), ...(input.kind ? { kind: input.kind } : {}),
+            ...(input.result ? { ok: input.result === 'pass' } : {}),
+        }
+        const col = { ranAt: 'ranAt', game: 'game', kind: 'kind', ok: 'ok', failed: 'failedCount', total: 'total', commit: 'commit' }[input.sort]
+        const total = await ctx.db.qaRun.count({ where })
+        const rows = await ctx.db.qaRun.findMany({
+            where, orderBy: [{ [col]: input.dir }, { id: 'desc' }] as Prisma.QaRunOrderByWithRelationInput[], skip: offsetOf(total, input), take: input.size,
+            select: { id: true, game: true, kind: true, commit: true, ranAt: true, ok: true, total: true, failedCount: true },
+        })
+        const [games, kinds] = await Promise.all([ctx.db.qaRun.groupBy({ by: ['game'] }), ctx.db.qaRun.groupBy({ by: ['kind'] })])
+        return { page: paged(rows, total, input), games: games.map((g) => g.game).sort(), kinds: kinds.map((k) => k.kind).sort() }
+    }),
     /** Newest QA runs (all games and kinds); the page groups and trends them. */
     list: procedure.query(async ({ ctx }) => {
         const rows = await ctx.db.qaRun.findMany({ orderBy: { ranAt: "desc" }, take: 600 })
