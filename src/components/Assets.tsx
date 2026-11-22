@@ -1,0 +1,117 @@
+"use client"
+import Link from "next/link"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
+import { useMemo } from "react"
+
+export type Tab = "models" | "textures" | "animations" | "sounds"
+export type AssetRow = {
+    id: number; pack: string; game: string; weaponId: string; kind: string; source: string; score: number; pass: boolean; auditedAt: string
+    hasModel: boolean; tris: number; verts: number; materials: number
+    texCount: number; texMax: number; texBytes: number; texMaps: string[]
+    animCount: number; animLen: number; soundCount: number; soundLen: number; soundBytes: number
+    flags: { code: string; severity: string; tab: Tab }[]
+}
+const TABS: [Tab, string][] = [["models", "Models"], ["textures", "Textures"], ["animations", "Animations"], ["sounds", "Sounds"]]
+const kb = (n: number) => (n >= 1 << 20 ? `${(n / (1 << 20)).toFixed(1)} MB` : `${Math.round(n / 1024)} KB`)
+export const scoreCls = (s: number) => (s >= 70 ? "text-emerald-300" : s >= 40 ? "text-amber-300" : "text-red-300")
+export const sevCls = (s: string) => (s === "error" ? "bg-red-400/15 text-red-300" : s === "warn" ? "bg-amber-400/15 text-amber-300" : "bg-hover text-dim")
+
+type Col = { key: string; label: string; get: (r: AssetRow) => number | string; show?: (r: AssetRow) => React.ReactNode }
+const COMMON_HEAD: Col[] = [
+    { key: "weapon", label: "Weapon", get: (r) => r.weaponId },
+    { key: "pack", label: "Pack", get: (r) => r.pack },
+    { key: "game", label: "Games", get: (r) => r.game },
+]
+const TAB_COLS: Record<Tab, Col[]> = {
+    models: [
+        { key: "tris", label: "Tris", get: (r) => r.tris, show: (r) => (r.hasModel ? r.tris.toLocaleString() : "no model") },
+        { key: "verts", label: "Verts", get: (r) => r.verts, show: (r) => r.verts.toLocaleString() },
+        { key: "mats", label: "Materials", get: (r) => r.materials },
+    ],
+    textures: [
+        { key: "tex", label: "Textures", get: (r) => r.texCount },
+        { key: "texmax", label: "Largest", get: (r) => r.texMax, show: (r) => (r.texMax ? `${r.texMax}px` : "-") },
+        { key: "texbytes", label: "Size", get: (r) => r.texBytes, show: (r) => (r.texBytes ? kb(r.texBytes) : "-") },
+        { key: "maps", label: "Maps", get: (r) => r.texMaps.length, show: (r) => r.texMaps.join(" ") || "-" },
+    ],
+    animations: [
+        { key: "clips", label: "Clips", get: (r) => r.animCount },
+        { key: "animlen", label: "Total length", get: (r) => r.animLen, show: (r) => (r.animLen ? `${r.animLen.toFixed(1)} s` : "-") },
+    ],
+    sounds: [
+        { key: "snd", label: "Sounds", get: (r) => r.soundCount },
+        { key: "sndlen", label: "Total length", get: (r) => r.soundLen, show: (r) => (r.soundLen ? `${r.soundLen.toFixed(1)} s` : "-") },
+        { key: "sndbytes", label: "Size", get: (r) => r.soundBytes, show: (r) => (r.soundBytes ? kb(r.soundBytes) : "-") },
+    ],
+}
+
+export function Assets({ rows }: { rows: AssetRow[] }) {
+    const router = useRouter()
+    const path = usePathname()
+    const sp = useSearchParams()
+    const tab = (TABS.find(([t]) => t === sp.get("tab"))?.[0] ?? "models") as Tab
+    const pack = sp.get("pack") ?? "", game = sp.get("game") ?? "", flag = sp.get("flag") ?? "", q = sp.get("q") ?? "", maxScore = sp.get("max") ?? "", minScore = sp.get("min") ?? ""
+    const sort = sp.get("sort") ?? "score", dir = sp.get("dir") === "desc" ? -1 : 1
+    const set = (o: Record<string, string>) => { const n = new URLSearchParams(sp.toString()); for (const [k, v] of Object.entries(o)) v ? n.set(k, v) : n.delete(k); router.replace(`${path}?${n}`, { scroll: false }) }
+    const packs = [...new Set(rows.map((r) => r.pack))].sort()
+    const games = [...new Set(rows.flatMap((r) => r.game.split(",").filter(Boolean)))].sort()
+    const flagCodes = [...new Set(rows.flatMap((r) => r.flags.filter((f) => f.tab === tab).map((f) => f.code)))].sort()
+    const cols = [...COMMON_HEAD, ...TAB_COLS[tab]]
+    const shown = useMemo(() => {
+        const c = [...cols, { key: "score", label: "Score", get: (r: AssetRow) => r.score }].find((x) => x.key === sort)
+        const f = rows.filter((r) =>
+            (!pack || r.pack === pack) && (!game || r.game.split(",").includes(game)) && (!flag || r.flags.some((x) => x.code === flag)) &&
+            (!q || r.weaponId.toLowerCase().includes(q.toLowerCase())) && (!minScore || r.score >= Number(minScore)) && (!maxScore || r.score <= Number(maxScore)))
+        return f.sort((a, b) => { const x = c?.get(a) ?? 0, y = c?.get(b) ?? 0; return (typeof x === "number" && typeof y === "number" ? x - y : String(x).localeCompare(String(y))) * dir || a.weaponId.localeCompare(b.weaponId) })
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [rows, tab, pack, game, flag, q, minScore, maxScore, sort, dir])
+    const sel = "rounded-md border border-line bg-panel px-2 py-1 text-[12px]"
+    const th = (key: string, label: string) => (
+        <th key={key} className="cursor-pointer select-none px-2 py-1 text-left font-medium text-dim hover:text-fg" onClick={() => set({ sort: key, dir: sort === key && dir === 1 ? "desc" : "asc" })}>
+            {label}{sort === key ? (dir === 1 ? " ▲" : " ▼") : ""}
+        </th>
+    )
+    const audited = rows.filter((r) => r.source === "audit").length
+    return (
+        <div className="mx-auto max-w-6xl px-6 py-5 max-md:px-3">
+            <h1 className="text-[15px] font-semibold tracking-tight">Assets <span className="text-muted">(RSI)</span></h1>
+            <p className="mt-0.5 mb-3 text-[12px] text-muted">
+                Every gun of every weapon pack and game: model, textures, animations and sounds with quality flags and a score. {rows.length} weapons, {audited} audited, the rest listed from a directory scan
+                (<code className="font-mono">nightly assets scan</code>; audits arrive with <code className="font-mono">nightly assets ingest audit.json</code> or POST /api/assets/ingest).
+            </p>
+            <div className="mb-3 flex gap-1 border-b border-line">
+                {TABS.map(([t, l]) => (
+                    <button key={t} onClick={() => set({ tab: t === "models" ? "" : t, flag: "", sort: "", dir: "" })} className={`-mb-px border-b-2 px-3 py-1.5 text-[13px] ${t === tab ? "border-sky-400 text-fg" : "border-transparent text-dim hover:text-fg"}`}>
+                        {l} <span className="text-[11px] text-muted">{rows.filter((r) => (t === "models" ? r.hasModel : t === "textures" ? r.texCount : t === "animations" ? r.animCount : r.soundCount)).length}</span>
+                    </button>
+                ))}
+            </div>
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+                <input className={sel} placeholder="search weapon" value={q} onChange={(e) => set({ q: e.target.value })} />
+                <select className={sel} value={pack} onChange={(e) => set({ pack: e.target.value })}><option value="">all packs</option>{packs.map((p) => <option key={p}>{p}</option>)}</select>
+                <select className={sel} value={game} onChange={(e) => set({ game: e.target.value })}><option value="">all games</option>{games.map((p) => <option key={p}>{p}</option>)}</select>
+                <select className={sel} value={flag} onChange={(e) => set({ flag: e.target.value })}><option value="">any flag</option>{flagCodes.map((p) => <option key={p}>{p}</option>)}</select>
+                <label className="text-[12px] text-dim">score <input className={`${sel} w-14`} placeholder="min" value={minScore} onChange={(e) => set({ min: e.target.value })} /> <input className={`${sel} w-14`} placeholder="max" value={maxScore} onChange={(e) => set({ max: e.target.value })} /></label>
+                <span className="text-[12px] text-muted">{shown.length} shown</span>
+            </div>
+            <div className="overflow-x-auto rounded-lg border border-line">
+                <table className="w-full text-[12.5px]">
+                    <thead className="border-b border-line bg-panel/60"><tr>{cols.map((c) => th(c.key, c.label))}{th("score", "Score")}<th className="px-2 py-1 text-left font-medium text-dim">Flags</th></tr></thead>
+                    <tbody>
+                        {shown.map((r) => (
+                            <tr key={r.id} className="border-b border-line/50 hover:bg-hover/40">
+                                <td className="px-2 py-1"><Link className="text-sky-300 hover:underline" href={`/assets/${r.id}`}>{r.weaponId}</Link>{r.source !== "audit" && <span className="ml-1 text-[10px] text-muted" title="from a directory scan, not yet audited">scan</span>}</td>
+                                <td className="px-2 py-1 text-dim">{r.pack}</td>
+                                <td className="px-2 py-1 text-dim">{r.game || "-"}</td>
+                                {TAB_COLS[tab].map((c) => <td key={c.key} className="px-2 py-1 tabular-nums">{c.show ? c.show(r) : String(c.get(r))}</td>)}
+                                <td className={`px-2 py-1 tabular-nums ${scoreCls(r.score)}`}>{r.score}</td>
+                                <td className="px-2 py-1">{r.flags.filter((f) => f.tab === tab).map((f) => <span key={f.code} className={`mr-1 rounded px-1 text-[10.5px] ${sevCls(f.severity)}`}>{f.code}</span>)}</td>
+                            </tr>
+                        ))}
+                        {!shown.length && <tr><td colSpan={cols.length + 2} className="px-2 py-6 text-center text-muted">Nothing matches. Run <code>nightly assets scan</code> to list the weapons.</td></tr>}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    )
+}

@@ -16,6 +16,7 @@ import * as PS from '../lib/perf-store.mjs'
 import * as PR from '../lib/perf-run.mjs'
 import * as PG from '../lib/perf-gate.mjs'
 import * as PV from '../lib/perf-viz.mjs'
+import * as AS from '../lib/assets.mjs'
 
 const argv = process.argv.slice(2)
 const BOOL = new Set(['json', 'all', 'top', 'due', 'help', 'h', 'dryRun', 'force', 'peek', 'strict', 'register', 'noFindings', 'noBudgets', 'noBaseline', 'requireToken', 'tokenOnly', 'png', 'disable', 'enable'])
@@ -94,6 +95,12 @@ const HELP = `nightly -- the nightly run's to-do database (${S.DB_PATH})
   prompt set <name> [--file F | stdin] [--note N] [--by B] [--kind prompt|script]
 
   schedule list                                 when the runner starts (edit in the panel)
+  assets migrate                                create the assets (RSI) table (backs up the database to data/backup/ first)
+  assets scan [--packs a,b]                     list every weapon of the packs and games by scanning their directories (never overwrites audited rows)
+  assets ingest <audit.json|-> [--require-token|--token-only]   load rsi_asset_audit.py output (schema rsi-assets/1); token = NIGHTLY_PERF_TOKEN
+  assets list [--pack P] [--game G] [--flag CODE] [--min-score N] [--max-score N] [--q TEXT] [--json]
+  assets show <id|pack/weapon_id|weapon_id> [--json]     model, textures, animations, sounds, flags, score
+  assets summary                                per-pack counts and average score
   perf migrate                                  create/upgrade the perf tables (backs up the database to data/backup/ first)
   perf token add --name N [--game G]            ingest token for one runner/game; the secret is printed once, only its hash is kept
   perf token list | perf token revoke NAME      (HTTP ingest needs "Authorization: Bearer <token>" once a token exists)
@@ -563,6 +570,46 @@ function cmdBrief() {
     process.stdout.write(L.join('\n') + '\n')
 }
 
+function cmdAssets() {
+    const sub = pos.shift() ?? die('assets migrate|scan|ingest|list|show|summary')
+    if (sub === 'migrate') { const bak = AS.migrate(db, { backup: true, dbPath: S.DB_PATH }); return out({ ok: true, backup: bak }, () => `assets table ready${bak ? `; database backed up to ${bak}` : ''}`) }
+    if (sub === 'scan') {
+        const r = AS.scanInto(db, { packs: opt.packs ? String(opt.packs).split(',') : undefined, onLog: (m) => process.stderr.write(`scan: ${m}\n`) })
+        return out(r, () => `scanned: ${r.added} added, ${r.updated} updated, ${r.kept} audited rows kept`)
+    }
+    if (sub === 'ingest') {
+        const file = pos[0] ?? die('assets ingest <audit.json|->')
+        const text = readText(file)
+        if (!text.trim()) die('empty input')
+        if (opt.requireToken || opt.tokenOnly) PS.authorizeIngest(db, process.env.NIGHTLY_PERF_TOKEN, '', { strict: !!opt.tokenOnly })
+        let doc
+        try { doc = JSON.parse(text) } catch (e) { die(`not JSON: ${e.message}`) }
+        const r = AS.ingestAudit(db, doc, { auditDir: file === '-' ? undefined : path.dirname(path.resolve(file)) })
+        return out(r, () => `ingested: ${r.added} added, ${r.updated} updated, ${r.skipped} skipped`)
+    }
+    if (sub === 'list' || sub === 'ls') {
+        const rows = AS.list(db, { pack: opt.pack, game: opt.game, flag: opt.flag, minScore: opt.minScore != null ? Number(opt.minScore) : undefined, maxScore: opt.maxScore != null ? Number(opt.maxScore) : undefined, q: opt.q })
+        return out(rows, () => rows.map((r) => `${String(r.id).padStart(4)}  ${r.pack.padEnd(22)} ${r.weaponId.padEnd(26)} score ${String(r.score).padStart(3)} ${r.pass ? 'pass' : 'FAIL'}  tris ${String(r.tris).padStart(6)}  tex ${r.texCount}  anim ${r.animCount}  snd ${r.soundCount}  ${r.source}  ${r.flagCodes}`).join('\n') + `\n${rows.length} weapons`)
+    }
+    if (sub === 'show') {
+        const r = AS.show(db, pos[0] ?? die('assets show <id|pack/weapon_id>'))
+        const d = r.data
+        return out(r, () => [
+            `${r.pack}/${r.weaponId}  (#${r.id}, ${r.source}${r.game ? ', games: ' + r.game : ''})  score ${r.score} ${r.pass ? 'pass' : 'FAIL'}  audited ${r.auditedAt || '-'}`,
+            `model: ${d.model?.glb || '(none)'}  ${d.model?.tris} tris, ${d.model?.verts} verts, ${d.model?.materials} materials, bbox ${(d.model?.bbox ?? []).join(' x ')}`,
+            `textures (${d.textures?.length ?? 0}):`, ...(d.textures ?? []).map((t) => `  ${t.name}  ${t.w}x${t.h} ${t.format} ${t.bytes} B  maps: ${(t.maps ?? []).join(',') || '-'}`),
+            `animations (${d.animations?.length ?? 0}):`, ...(d.animations ?? []).map((a) => `  ${a.name}  ${a.length}s  ${a.tracks} tracks  ${(a.flags ?? []).join(',')}`),
+            `sounds (${d.sounds?.length ?? 0}):`, ...(d.sounds ?? []).map((x) => `  ${x.name}  ${x.len}s  ${x.rate} Hz  ${x.bytes} B`),
+            `flags (${d.flags?.length ?? 0}):`, ...(d.flags ?? []).map((f) => `  ${f.severity.padEnd(5)} ${f.code}  ${f.msg}`),
+        ].join('\n'))
+    }
+    if (sub === 'summary') {
+        const rows = AS.summary(db)
+        return out(rows, () => rows.map((r) => `${r.pack.padEnd(24)} ${String(r.weapons).padStart(4)} weapons  ${r.pass ?? 0} pass  avg ${r.avg_score}  ${r.audited} audited`).join('\n'))
+    }
+    die('assets migrate|scan|ingest|list|show|summary')
+}
+
 function cmdPerf() {
     const sub = pos.shift() ?? die('perf migrate|game|ingest|run|nightly|runs|compare|findings|finding')
     const num = (v) => (v === undefined || v === true ? undefined : Number(v))
@@ -707,7 +754,7 @@ try {
     db = S.open()
     const table = { list: cmdList, ls: cmdList, show: cmdShow, add: cmdAdd, set: cmdSet, note: cmdNote, attach: cmdAttach, attachments: cmdAttachments, review: cmdReview, reviews: cmdReview, checks: cmdChecks,
         checked: cmdChecked, run: cmdRun, get: cmdGet, 'set-setting': cmdSetSetting, brief: cmdBrief,
-        prompt: cmdPrompt, prompts: cmdPrompt, schedule: cmdSchedule, schedules: cmdSchedule, tick: cmdTick, start: cmdStart, exec: cmdExec, agent: cmdAgent, account: cmdAccount, accounts: cmdAccount, perf: cmdPerf }
+        prompt: cmdPrompt, prompts: cmdPrompt, schedule: cmdSchedule, schedules: cmdSchedule, tick: cmdTick, start: cmdStart, exec: cmdExec, agent: cmdAgent, account: cmdAccount, accounts: cmdAccount, perf: cmdPerf, assets: cmdAssets }
     const fn = table[cmd] ?? die(`unknown command "${cmd}" (try: nightly help)`)
     await fn()
 } catch (e) {

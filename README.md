@@ -297,6 +297,15 @@ loginctl enable-linger $USER
 - **Screenshots**: `nightly perf shot add --run ID frame.png [--name N --note T]` (or `-` for stdin, or `POST /api/perf/shot?run=ID` with a png body and the same Bearer token) attaches a png to a run, for example the frame at the worst hitch. Limits: `perfMaxShotBytes` (5000000) and `perfMaxShotsPerRun` (30), 0 = unlimited.
 - **Reports**: `nightly perf report ID [--out DIR] [--png] [--image-url URL]` writes `perf-run-ID.md` and `.svg` (and `.png`) for READMEs and PRs; the panel serves them at `/api/perf/report/ID?format=md|svg|png`. `nightly perf diff A B [--out DIR] [--png]` does the same for two runs.
 
+## Assets tab
+
+`/assets` is the asset-quality side of RSI: tabs Models, Textures, Animations and Sounds list every weapon of every pack and game, sortable and filterable by pack, game, score and flag. `/assets/<id>` is the weapon page: a three.js viewer (orbit, pan, zoom, wireframe, lit/unlit, lighting presets, bounding box, grid), its textures (resolution, size, format, preview), animations, sounds (length, rate, waveform, player, flags, score, last audited, review verdicts) and linked review items.
+
+- **Seed by scanning**: `nightly assets migrate` (writes a `backup/` copy first), then `nightly assets scan [--packs DIR]` reads the pack directories (`NIGHTLY_GODOT_ROOT`, or `NIGHTLY_ASSET_ROOTS`) and parses the GLBs. Scan rows never overwrite audited rows; identical files are deduplicated by sha1.
+- **Ingest** the audit tool's `audit.json` (schema `rsi-assets/1`, with its `glb/` dir in `NIGHTLY_ASSETS_DIR`): `nightly assets ingest FILE [--require-token|--token-only]`, or `POST /api/assets/ingest` with the panel session or an `nps_` ingest token (same rules as perf ingest; the CLI reads it from `NIGHTLY_PERF_TOKEN`).
+- **Inspect**: `nightly assets list [--pack P --game G --flag F --min-score N --max-score N --q TEXT] [--json]`, `assets show ID`, `assets summary`.
+- Files are served by `/api/assets/file/<id>/<glb|tex|snd>/<index>` (Range supported, only from under the configured roots).
+
 ## CLI
 
 `~/stack/nightly/bin/nightly` — works from any directory and under cron's bare `PATH` (it finds `/usr/local/bin/node` itself). Every command takes `--json`. `NIGHTLY_DB=/path/to.db` points it at another file (tests, scratch copies).

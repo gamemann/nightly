@@ -8,7 +8,7 @@ export async function proxy(req: NextRequest) {
     const { pathname } = req.nextUrl
     if (pathname === '/login' || pathname === '/api/login' || pathname === '/api/logout') return NextResponse.next()
     // Runners post perf reports with an ingest token instead of the panel cookie; the route verifies the token itself.
-    if (['/api/perf/ingest', '/api/perf/gate', '/api/perf/shot'].includes(pathname) && /^Bearer\s+nps_/i.test(req.headers.get('authorization') ?? '')) return NextResponse.next()
+    if (['/api/perf/ingest', '/api/assets/ingest', '/api/perf/gate', '/api/perf/shot'].includes(pathname) && /^Bearer\s+nps_/i.test(req.headers.get('authorization') ?? '')) return NextResponse.next()
     if (safeEqual(req.cookies.get(COOKIE)?.value ?? '', sessionToken(cfg))) return NextResponse.next()
     if (pathname.startsWith('/api/')) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
     const url = req.nextUrl.clone()

@@ -349,3 +349,29 @@ model PerfShot {
 
   @@index([runId])
 }
+
+/// ASSETS (RSI) tab: one row per weapon (or pack-level sound bucket) with its asset audit record. `data` is the audit JSON
+/// (model, textures, animations, sounds, flags) plus `_files` (where the glb / texture / sound files live on disk).
+/// source: audit (from rsi_asset_audit.py) | scan (the panel's own directory scan; an audit row is never overwritten by a scan).
+model AssetWeapon {
+  id         Int    @id @default(autoincrement())
+  pack       String
+  game       String @default("")
+  weaponId   String
+  kind       String @default("weapon")
+  source     String @default("scan")
+  tris       Int    @default(0)
+  texCount   Int    @default(0)
+  animCount  Int    @default(0)
+  soundCount Int    @default(0)
+  flagCount  Int    @default(0)
+  flagCodes  String @default("")
+  score      Int    @default(0)
+  pass       Int    @default(0)
+  auditedAt  String @default("")
+  updatedAt  String @default("")
+  data       String @default("{}")
+
+  @@unique([pack, weaponId])
+  @@index([game])
+}
