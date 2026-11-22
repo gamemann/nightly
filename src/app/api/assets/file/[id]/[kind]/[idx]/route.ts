@@ -1,16 +1,17 @@
 import { readFileSync, statSync } from "node:fs"
 import path from "node:path"
 import { db } from "~/server/db"
-import { resolveFile } from "../../../../../../../../lib/assets-files.mjs"
+import { resolveFile, setExtraRoots } from "../../../../../../../../lib/assets-files.mjs"
 
 export const dynamic = "force-dynamic"
 const TYPES: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".ogg": "audio/ogg", ".wav": "audio/wav", ".mp3": "audio/mpeg", ".glb": "model/gltf-binary", ".gltf": "model/gltf+json" }
 
 // /api/assets/file/<weapon id>/<glb|tex|snd>/<index>: the weapon's model, a texture or a sound. Only files under the configured roots
-// (NIGHTLY_ASSET_ROOTS, default the godot tree and the rsi-assets dir) are served; the path comes from the stored audit row, never the URL.
+// (a registered source root, NIGHTLY_ASSET_ROOTS, or the audit dir) are served; the path comes from the stored audit row, never the URL.
 export async function GET(req: Request, { params }: { params: Promise<{ id: string; kind: string; idx: string }> }) {
     const { id, kind, idx } = await params
     if (!/^\d+$/.test(id) || !["glb", "tex", "snd"].includes(kind) || !/^\d+$/.test(idx)) return new Response("bad request", { status: 400 })
+    setExtraRoots((await db.assetSource.findMany({ select: { root: true } })).map((s) => s.root))
     const row = await db.assetWeapon.findUnique({ where: { id: Number(id) }, select: { data: true } })
     if (!row) return new Response("not found", { status: 404 })
     const r = resolveFile(JSON.parse(row.data), kind, Number(idx))

@@ -374,6 +374,33 @@ model AssetWeapon {
 
   @@unique([pack, weaponId])
   @@index([game])
+  @@index([kind])
+}
+
+/// ASSETS: a place assets live (a pack or a game checkout). `name` is what AssetWeapon.pack holds. `config` (JSON) holds the globs
+/// for models / textures / animations / sounds, kind rules, weapon definitions and the event table; see lib/assets-sources.mjs.
+model AssetSource {
+  id         Int     @id @default(autoincrement())
+  name       String  @unique
+  type       String  @default("pack")
+  root       String  @default("")
+  repo       String  @default("")
+  enabled    Boolean @default(true)
+  config     String  @default("{}")
+  lastScanAt String  @default("")
+  createdAt  String  @default("")
+  updatedAt  String  @default("")
+}
+
+/// ASSETS: an asset kind (weapon, prop, avatar, ...) with the regex that classifies a path and the audit budget (JSON) for it.
+model AssetKind {
+  id        Int    @id @default(autoincrement())
+  key       String @unique
+  label     String @default("")
+  sort      Int    @default(0)
+  match     String @default("")
+  budget    String @default("{}")
+  updatedAt String @default("")
 }
 
 /// RSI board (the Nightly home page): one finding per subject + code + tier. domain: weapons | textures | animations | sounds |

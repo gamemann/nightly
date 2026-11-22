@@ -17,13 +17,14 @@ import * as PR from '../lib/perf-run.mjs'
 import * as PG from '../lib/perf-gate.mjs'
 import * as PV from '../lib/perf-viz.mjs'
 import * as AS from '../lib/assets.mjs'
+import * as ASC from '../lib/assets-cli.mjs'
 import * as RSI from '../lib/rsi.mjs'
 import { syncBlockers } from '../lib/rsi-blockers.mjs'
 import { agentLive } from '../lib/cli-agents.mjs'
 import { FEED_COMMANDS, FEED_HELP, runFeedCommand } from '../lib/cli-feeds.mjs'
 
 const argv = process.argv.slice(2)
-const BOOL = new Set(['json', 'all', 'top', 'due', 'help', 'h', 'dryRun', 'force', 'peek', 'strict', 'register', 'noFindings', 'noBudgets', 'noBaseline', 'requireToken', 'tokenOnly', 'png', 'disable', 'enable', 'infra', 'leave'])
+const BOOL = new Set(['json', 'all', 'top', 'due', 'help', 'h', 'dryRun', 'force', 'peek', 'strict', 'register', 'noFindings', 'noBudgets', 'noBaseline', 'requireToken', 'tokenOnly', 'png', 'disable', 'enable', 'infra', 'leave', 'purge'])
 
 const multi = {}
 function parse(args) {
@@ -101,9 +102,13 @@ const HELP = `nightly -- the nightly run's to-do database (${S.DB_PATH})
 
   schedule list                                 when the runner starts (edit in the panel)
   assets migrate                                create the assets (RSI) table (backs up the database to data/backup/ first)
-  assets scan [--packs a,b]                     list every weapon of the packs and games by scanning their directories (never overwrites audited rows)
-  assets ingest <audit.json|-> [--require-token|--token-only]   load rsi_asset_audit.py output (schema rsi-assets/1); token = NIGHTLY_PERF_TOKEN
-  assets list [--pack P] [--game G] [--flag CODE] [--min-score N] [--max-score N] [--q TEXT] [--json]
+  assets source add <name> --root DIR [--type pack|game] [--models GLOBS] [--textures GLOBS] [--sounds GLOBS] [--exclude DIRS] [--default-kind K] [--sound-kinds K,K] [--sound-match id-prefix|all|none] [--config JSON]
+  assets source list|show <name>|set <name> [same flags, --disable|--enable]|rm <name> [--purge]|scan [name...]   asset sources (packs, games), stored in the database
+  assets kind list|set <key> [--label L] [--sort N] [--match REGEX] [--budget JSON]|rm <key>   asset kinds and their audit budgets
+  assets config                                 print the rsi-config/1 JSON (sources, kinds, tiers) the audit tool reads
+  assets scan [name...]                         list every asset of the enabled sources by scanning their directories (never overwrites audited rows)
+  assets ingest <audit.json|-> [--require-token|--token-only]   load rsi_asset_audit.py output (schema rsi-assets/2); token = NIGHTLY_PERF_TOKEN
+  assets list [--pack P] [--kind K] [--game G] [--flag CODE] [--min-score N] [--max-score N] [--q TEXT] [--json]
   assets show <id|pack/weapon_id|weapon_id> [--json]     model, textures, animations, sounds, flags, score
   assets refresh                                run rsi_asset_audit.py for every texture tier (setting rsiTiers), ingest and sync findings (tick does this every rsiRefreshHours)
   rsi board|sync|refresh                        the RSI board: findings per domain; sync = stale/duplicate/blocked pass (auto-closes non-owner stale items)
@@ -600,13 +605,13 @@ function cmdRsi(forced) {
 }
 
 function cmdAssets() {
-    const sub = pos.shift() ?? die('assets migrate|scan|ingest|list|show|summary')
+    const sub = pos.shift() ?? die('assets migrate|source|kind|config|scan|ingest|list|show|summary')
     if (sub === 'migrate') { const bak = AS.migrate(db, { backup: true, dbPath: S.DB_PATH }); return out({ ok: true, backup: bak }, () => `assets table ready${bak ? `; database backed up to ${bak}` : ''}`) }
     if (sub === 'refresh') return cmdRsi('refresh')
-    if (sub === 'scan') {
-        const r = AS.scanInto(db, { packs: opt.packs ? String(opt.packs).split(',') : undefined, onLog: (m) => process.stderr.write(`scan: ${m}\n`) })
-        return out(r, () => `scanned: ${r.added} added, ${r.updated} updated, ${r.kept} audited rows kept`)
-    }
+    if (sub === 'source' || sub === 'sources') return ASC.sourceCmd(db, pos, opt, out, die)
+    if (sub === 'kind' || sub === 'kinds') return ASC.kindCmd(db, pos, opt, out, die)
+    if (sub === 'config') { const c = ASC.config(db); return out(c, () => JSON.stringify(c, null, 2)) }
+    if (sub === 'scan') return ASC.scanCmd(db, pos, opt, out)
     if (sub === 'ingest') {
         const file = pos[0] ?? die('assets ingest <audit.json|->')
         const text = readText(file)
@@ -618,8 +623,8 @@ function cmdAssets() {
         return out(r, () => `ingested: ${r.added} added, ${r.updated} updated, ${r.skipped} skipped`)
     }
     if (sub === 'list' || sub === 'ls') {
-        const rows = AS.list(db, { pack: opt.pack, game: opt.game, flag: opt.flag, minScore: opt.minScore != null ? Number(opt.minScore) : undefined, maxScore: opt.maxScore != null ? Number(opt.maxScore) : undefined, q: opt.q })
-        return out(rows, () => rows.map((r) => `${String(r.id).padStart(4)}  ${r.pack.padEnd(22)} ${r.weaponId.padEnd(26)} score ${String(r.score).padStart(3)} ${r.pass ? 'pass' : 'FAIL'}  tris ${String(r.tris).padStart(6)}  tex ${r.texCount}  anim ${r.animCount}  snd ${r.soundCount}  ${r.source}  ${r.flagCodes}`).join('\n') + `\n${rows.length} weapons`)
+        const rows = AS.list(db, { pack: opt.pack, kind: opt.kind, game: opt.game, flag: opt.flag, minScore: opt.minScore != null ? Number(opt.minScore) : undefined, maxScore: opt.maxScore != null ? Number(opt.maxScore) : undefined, q: opt.q })
+        return out(rows, () => rows.map((r) => `${String(r.id).padStart(4)}  ${r.pack.padEnd(22)} ${r.kind.padEnd(9)} ${r.weaponId.padEnd(26)} score ${String(r.score).padStart(3)} ${r.pass ? 'pass' : 'FAIL'}  tris ${String(r.tris).padStart(6)}  tex ${r.texCount}  anim ${r.animCount}  snd ${r.soundCount}  ${r.source}  ${r.flagCodes}`).join('\n') + `\n${rows.length} assets`)
     }
     if (sub === 'show') {
         const r = AS.show(db, pos[0] ?? die('assets show <id|pack/weapon_id>'))
@@ -634,10 +639,10 @@ function cmdAssets() {
         ].join('\n'))
     }
     if (sub === 'summary') {
-        const rows = AS.summary(db)
-        return out(rows, () => rows.map((r) => `${r.pack.padEnd(24)} ${String(r.weapons).padStart(4)} weapons  ${r.pass ?? 0} pass  avg ${r.avg_score}  ${r.audited} audited`).join('\n'))
+        const rows = AS.summary(db, { kind: opt.kind })
+        return out(rows, () => rows.map((r) => `${r.pack.padEnd(24)} ${String(r.weapons).padStart(4)} assets  ${r.pass ?? 0} pass  avg ${r.avg_score}  ${r.audited} audited`).join('\n'))
     }
-    die('assets migrate|scan|ingest|list|show|summary')
+    die('assets migrate|source|kind|config|scan|ingest|list|show|summary')
 }
 
 function cmdPerf() {

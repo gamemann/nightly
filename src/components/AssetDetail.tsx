@@ -5,7 +5,7 @@ import { AssetViewer } from "./AssetViewer"
 import { scoreCls, sevCls } from "./Assets"
 
 export type DetailData = {
-    id: number; pack: string; game: string; weaponId: string; source: string; score: number; pass: boolean; auditedAt: string; hasModel: boolean
+    id: number; pack: string; game: string; weaponId: string; kind: string; source: string; score: number; pass: boolean; auditedAt: string; hasModel: boolean
     data: {
         source_commit?: string; last_changed?: string
         model?: { glb?: string; viewer_glb?: string; tris?: number; verts?: number; materials?: number; meshes?: number; bbox?: number[]; primitive_meshes?: string[] }
@@ -65,6 +65,7 @@ export function AssetDetail({ d, reviews }: { d: DetailData; reviews: ReviewHit[
             <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px]">
                 <span className={`text-[22px] font-semibold tabular-nums ${scoreCls(d.score)}`}>{d.score}</span>
                 <span className={`rounded px-1.5 ${d.pass ? "bg-emerald-400/15 text-emerald-300" : "bg-red-400/15 text-red-300"}`}>{d.pass ? "pass" : "fail"}</span>
+                <span className="rounded bg-hover px-1.5 text-dim">{d.kind}</span>
                 <span className="text-dim">games: {d.game || "-"}</span>
                 <span className="text-dim">{d.source === "audit" ? `audited ${d.auditedAt.slice(0, 16).replace("T", " ")}` : `listed from a directory scan ${d.auditedAt.slice(0, 10)} (no audit yet)`}</span>
                 {x.source_commit && <span className="font-mono text-muted">{x.source_commit}</span>}
@@ -74,7 +75,7 @@ export function AssetDetail({ d, reviews }: { d: DetailData; reviews: ReviewHit[
             {!!flags.length && <div className="mt-2 flex flex-wrap gap-1.5">{flags.map((f) => <span key={f.code} title={f.msg} className={`rounded px-1.5 py-0.5 text-[11px] ${sevCls(f.severity)}`}>{f.code}: {f.msg}</span>)}</div>}
 
             <Section id="model" title="Model">
-                {d.hasModel ? <AssetViewer url={fileUrl(d.id, "glb", 0)} bbox={x.model?.bbox} textures={(x.textures ?? []).map((t, i) => ({ name: t.name, url: fileUrl(d.id, "tex", i) }))} /> : <div className="rounded-lg border border-line p-6 text-center text-[12px] text-muted">No model file for this weapon.</div>}
+                {d.hasModel ? <AssetViewer url={fileUrl(d.id, "glb", 0)} bbox={x.model?.bbox} textures={(x.textures ?? []).map((t, i) => ({ name: t.name, url: fileUrl(d.id, "tex", i) }))} /> : <div className="rounded-lg border border-line p-6 text-center text-[12px] text-muted">No model file for this asset.</div>}
                 <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-6">
                     <Stat k="triangles" v={(x.model?.tris ?? 0).toLocaleString()} /><Stat k="vertices" v={(x.model?.verts ?? 0).toLocaleString()} /><Stat k="materials" v={x.model?.materials ?? 0} /><Stat k="meshes" v={x.model?.meshes ?? 0} />
                     <Stat k="bbox (m)" v={(x.model?.bbox ?? []).map((v) => v.toFixed(2)).join(" x ") || "-"} /><Stat k="primitive meshes" v={(x.model?.primitive_meshes ?? []).length} />
@@ -117,7 +118,7 @@ export function AssetDetail({ d, reviews }: { d: DetailData; reviews: ReviewHit[
             {x.compare && (
                 <div className="mt-3 rounded-lg border border-line bg-panel/40 p-2 text-[12px]">
                     <span className="font-medium">Game-local copy</span>{" "}
-                    {x.compare.pack ? <span className="text-dim">same weapon id as {x.compare.pack}/{x.compare.weapon_id}{x.compare.diff?.length ? `, differs: ${x.compare.diff.join(", ")}` : ", identical stats"}</span> : <span className="text-dim">{x.compare.status}: no pack carries this weapon id</span>}
+                    {x.compare.pack ? <span className="text-dim">same asset id as {x.compare.pack}/{x.compare.weapon_id}{x.compare.diff?.length ? `, differs: ${x.compare.diff.join(", ")}` : ", identical stats"}</span> : <span className="text-dim">{x.compare.status}: no pack carries this asset id</span>}
                 </div>
             )}
 
@@ -135,7 +136,7 @@ export function AssetDetail({ d, reviews }: { d: DetailData; reviews: ReviewHit[
                             <Waveform src={fileUrl(d.id, "snd", i)} />
                             <audio controls preload="none" src={fileUrl(d.id, "snd", i)} className="mt-1 h-8 w-full" />
                         </div>))}</div>
-                ) : <div className="text-[12px] text-muted">No sounds matched to this weapon.</div>}
+                ) : <div className="text-[12px] text-muted">No sounds matched to this asset.</div>}
                 <ReviewMedia reviews={reviews} slots={["audio"]} />
             </Section>
 
@@ -145,7 +146,7 @@ export function AssetDetail({ d, reviews }: { d: DetailData; reviews: ReviewHit[
                         <Link href={`/item/${r.key}`} className="text-sky-300 hover:underline">{r.title}</Link>{" "}
                         <span className={`rounded px-1.5 text-[11px] ${r.verdict === "good" ? "bg-emerald-400/15 text-emerald-300" : r.verdict === "wrong" ? "bg-red-400/15 text-red-300" : "bg-hover text-dim"}`}>{r.verdict === "wrong" ? "still wrong" : r.verdict || "not reviewed"}</span>
                         {r.note && <p className="mt-1 whitespace-pre-wrap text-dim">{r.note}</p>}
-                    </div>)) : <div className="text-[12px] text-muted">No review item mentions this weapon.</div>}
+                    </div>)) : <div className="text-[12px] text-muted">No review item mentions this asset.</div>}
             </Section>
         </div>
     )
