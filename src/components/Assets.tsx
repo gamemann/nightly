@@ -2,6 +2,9 @@
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useMemo } from "react"
+import { BarList } from "./PerfChart"
+import { Legend, Panel, StackedBars } from "./Charts"
+import { COLOR, flagCounts, passByGroup, scoreBins, worstOffenders } from "../../lib/charts.mjs"
 
 export type Tab = "models" | "textures" | "animations" | "sounds"
 export type AssetRow = {
@@ -45,6 +48,44 @@ const TAB_COLS: Record<Tab, Col[]> = {
     ],
 }
 
+const tierColor = { fail: COLOR.bad, warn: COLOR.warn, pass: COLOR.good }
+const rateColor = (r: number) => (r >= 0.7 ? COLOR.good : r >= 0.4 ? COLOR.warn : COLOR.bad)
+
+/** Score distribution, pass share per pack and kind, flags of the current tab and the worst weapons. Clicking a mark
+ *  narrows the table below through the same URL filters the dropdowns use. */
+function AssetCharts({ rows, tab, set }: { rows: AssetRow[]; tab: Tab; set: (o: Record<string, string>) => void }) {
+    const bins = scoreBins(rows)
+    const packs = passByGroup(rows, (r) => r.pack)
+    const kinds = passByGroup(rows, (r) => r.kind)
+    const flags = flagCounts(rows, tab)
+    const worst = worstOffenders(rows, 8)
+    const pct = (x: { rate: number; pass: number; total: number }) => `${x.pass} of ${x.total} pass`
+    return (
+        <div className="mb-4 grid gap-3 lg:grid-cols-3">
+            <Panel title="Score distribution" subtitle={`${rows.length} weapons by score 0-100. Click a bar to filter the table to that range.`} empty={rows.length === 0 && "No assets scanned yet."}
+                legend={<Legend items={[{ label: "pass, 70 and up", color: COLOR.good }, { label: "warn, 40 to 69", color: COLOR.warn }, { label: "fail, under 40", color: COLOR.bad }]} />}>
+                <StackedBars ariaLabel="Weapons per score band" unit="weapons" height={110}
+                    bars={bins.map((b) => ({ key: `${b.lo}-${b.hi}`, label: `${b.label}`, segments: [{ key: b.tier, label: b.tier, value: b.count, color: tierColor[b.tier] }] }))}
+                    onBar={(b) => { const [lo, hi] = b.key.split("-"); set({ min: lo, max: hi }) }} />
+            </Panel>
+            <Panel title="Pass share by pack" subtitle="Weapons at or above the pass score, per pack, weakest first. Click a pack to filter." empty={packs.length === 0 && "No packs."}>
+                <BarList unit="%" onClick={(k) => set({ pack: k })} rows={packs.slice(0, 8).map((x) => ({ key: x.key, label: x.key, value: Math.round(x.rate * 100), color: rateColor(x.rate), note: pct(x) }))} max={100} />
+            </Panel>
+            <Panel title="Pass share by kind" subtitle="Same measure per weapon kind, weakest first." empty={kinds.length === 0 && "No kinds."}>
+                <BarList unit="%" rows={kinds.slice(0, 8).map((x) => ({ key: x.key, label: x.key, value: Math.round(x.rate * 100), color: rateColor(x.rate), note: pct(x) }))} max={100} />
+            </Panel>
+            <Panel title={`Most common flags: ${tab}`} subtitle="Weapons carrying each quality flag on the current tab. Click a flag to filter." empty={flags.length === 0 && "No flags on this tab."}>
+                <BarList unit="" onClick={(k) => set({ flag: k })} rows={flags.slice(0, 8).map((f) => ({ key: f.code, label: f.code, value: f.n, color: f.severity === "error" ? COLOR.bad : f.severity === "warn" ? COLOR.warn : COLOR.info, note: f.severity }))} />
+            </Panel>
+            <div className="lg:col-span-2">
+                <Panel title="Worst offenders" subtitle="The eight lowest-scoring weapons. Click one to search for it." empty={worst.length === 0 && "Nothing scored."}>
+                    <BarList unit="" max={100} onClick={(k) => set({ q: k })} rows={worst.map((r) => ({ key: r.weaponId, label: r.weaponId, value: r.score, color: rateColor(r.score / 100), note: `${r.pack}, ${r.kind}` }))} />
+                </Panel>
+            </div>
+        </div>
+    )
+}
+
 export function Assets({ rows }: { rows: AssetRow[] }) {
     const router = useRouter()
     const path = usePathname()
@@ -79,6 +120,7 @@ export function Assets({ rows }: { rows: AssetRow[] }) {
                 Every gun of every weapon pack and game: model, textures, animations and sounds with quality flags and a score. {rows.length} weapons, {audited} audited, the rest listed from a directory scan
                 (<code className="font-mono">nightly assets scan</code>; audits arrive with <code className="font-mono">nightly assets ingest audit.json</code> or POST /api/assets/ingest).
             </p>
+            <AssetCharts rows={rows} tab={tab} set={set} />
             <div className="mb-3 flex gap-1 border-b border-line">
                 {TABS.map(([t, l]) => (
                     <button key={t} onClick={() => set({ tab: t === "models" ? "" : t, flag: "", sort: "", dir: "" })} className={`-mb-px border-b-2 px-3 py-1.5 text-[13px] ${t === tab ? "border-sky-400 text-fg" : "border-transparent text-dim hover:text-fg"}`}>
