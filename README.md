@@ -305,7 +305,7 @@ loginctl enable-linger $USER
 
 ## RSI board
 
-The home page (`/`) is the RSI board: one card per domain (perf, weapons, textures, animations, sounds, maps) with found, fixed and remeasured counts and the average before/after change, a list of the worst-scoring assets first (each links to `/assets/<id>`), a blockers panel, and the findings per domain. Every finding shows its next action.
+The home page (`/`) is the RSI board: one card per domain (perf, models, textures, animations, sounds, maps) with found, fixed and remeasured counts and the average before/after change, a list of the worst-scoring assets first (each links to `/assets/<id>`), a blockers panel, and the findings per domain. Every finding shows its next action.
 
 - **Auto audit and ingest**: the tick runs `nightly rsi refresh` on a schedule (`rsiRefreshHours`, default 6; `rsiAuditScript` overrides the audit script path). It runs the asset audit once per video-settings tier, ingests the result (no manual `nightly assets ingest`), creates or updates one finding per failing flag, closes it as remeasured when the flag clears (keeping the before and after scores) and opens a fix item per pack. `nightly rsi board` prints the counts, `nightly rsi sync` re-runs only the finding and blocker pass.
 - **Video-settings tiers**: texture findings are judged against the low, medium and high tiers (`rsiTiers`); the board has a tier switch (`/?tier=low|medium|high`). Bolt-action cycle-clip flags show under Animations when the audit emits them.
@@ -313,12 +313,19 @@ The home page (`/`) is the RSI board: one card per domain (perf, weapons, textur
 
 ## Assets tab
 
-`/assets` is the asset-quality side of RSI: tabs Models, Textures, Animations and Sounds list every weapon of every pack and game, sortable and filterable by pack, game, score and flag. `/assets/<id>` is the weapon page: a three.js viewer (orbit, pan, zoom, wireframe, lit/unlit, lighting presets, bounding box, grid), its textures (resolution, size, format, preview), animations, sounds (length, rate, waveform, player, flags, score, last audited, review verdicts) and linked review items.
+`/assets` is the asset-quality side of RSI. It covers every kind of asset (weapons, props, avatars, pickups, grenades, vehicles, viewmodel arms, buildings, or kinds you define), with kind tabs and per-kind counts, tabs Models, Textures, Animations and Sounds, and a detail page `/assets/<id>` with a 3D viewer, textures, animations, sounds, flags and score. Nothing about your packs, games or budgets is built in: **sources** (directories to scan) and **kinds** (with audit budgets) are database rows, edited on `/assets/sources` or with the CLI. A fresh install shows a first-run guide until a source exists.
 
-- **Seed by scanning**: `nightly assets migrate` (writes a `backup/` copy first), then `nightly assets scan [--packs DIR]` reads the pack directories (`NIGHTLY_GODOT_ROOT`, or `NIGHTLY_ASSET_ROOTS`) and parses the GLBs. Scan rows never overwrite audited rows; identical files are deduplicated by sha1.
-- **Ingest** the audit tool's `audit.json` (schema `rsi-assets/1`, with its `glb/` dir in `NIGHTLY_ASSETS_DIR`): `nightly assets ingest FILE [--require-token|--token-only]`, or `POST /api/assets/ingest` with the panel session or an `nps_` ingest token (same rules as perf ingest; the CLI reads it from `NIGHTLY_PERF_TOKEN`).
-- **Inspect**: `nightly assets list [--pack P --game G --flag F --min-score N --max-score N --q TEXT] [--json]`, `assets show ID`, `assets summary`.
-- Files are served by `/api/assets/file/<id>/<glb|tex|snd>/<index>` (Range supported, only from under the configured roots).
+### Point it at your own game
+
+1. `nightly assets migrate` (backs up the database first when there is work), then add a source: `nightly assets source add mygame --root /path/to/game --type game` (a pack is `--type pack`). Optional: `--models "**/*.glb"`, `--exclude .git,.godot`, `--default-kind prop`; `source set NAME ...` edits, `source list`, `source rm NAME [--purge]`.
+2. `nightly assets source scan [NAME...]` (or `nightly assets scan`) lists every model, texture and sound of each enabled source (no hash de-duplication: the same file in two packs is two assets).
+3. Kinds: seeded with generic defaults (weapon, prop, avatar, pickup, grenade, vehicle, arms, building, other). Edit labels, the `match` regex that classifies a path, and the budgets (tris range, texture size per tier, bones, required clips, scale, pivot, LODs) on the Sources page or with `nightly assets kind ...`. A source may also carry `kindRules` (`[{"match": "...", "kind": "..."}]`) in its config.
+4. Quality audit: `nightly assets config > rsi-config.json` writes the `rsi-config/1` export (tiers, sources, kinds with budgets); run an auditor against it and `nightly assets ingest audit.json` (schema `rsi-assets/2`, an `assets` array with a `kind` each; the older `weapons` array is still accepted). The panel runs the script named by the `rsiAuditScript` setting on the refresh schedule. Findings land on the RSI board under the `models`, `textures`, `animations` and `sounds` domains, judged per video tier.
+5. Local setup that must not live in this repository (your own pack names, event tables) belongs in a seed script that calls the CLI against your live database.
+
+- **Ingest**: `nightly assets ingest FILE [--require-token|--token-only]`, or `POST /api/assets/ingest`; the audit's `glb/` directory is `NIGHTLY_ASSETS_DIR`.
+- **Inspect**: `nightly assets list [--kind K --pack S --flag F --min-score N --max-score N --q TEXT] [--json]`, `assets show ID`, `assets summary`.
+- Files are served by `/api/assets/file/<id>/<glb|tex|snd>/<index>` (Range supported, only from under a source root).
 
 ## CLI
 

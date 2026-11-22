@@ -1,10 +1,10 @@
 import { COOKIE, readAuth, safeEqual, sessionToken } from "~/server/auth"
 import { assetsIngest } from "~/server/assetsServer"
 
-// Asset audit ingest: POST the audit.json of tools/rsi_asset_audit.py (schema rsi-assets/1) as the body.
+// Asset audit ingest: POST the audit.json of tools/rsi_asset_audit.py (schema rsi-assets/2 (assets[]; the older weapons[] is accepted)) as the body.
 //   curl -X POST -H "Authorization: Bearer nps_..." --data-binary @audit.json "$PANEL/api/assets/ingest"
 // Same auth as /api/perf/ingest: panel cookie, or an ingest token (`nightly perf token add`); once any token exists one is required.
-// Viewer glbs are read from NIGHTLY_ASSETS_DIR (default /home/gamedev/perf-bench/rsi-assets) by relative path.
+// Viewer glbs are read from NIGHTLY_ASSETS_DIR or the registered source roots by relative path.
 export async function POST(req: Request) {
     const body = await req.text()
     if (!body.trim()) return Response.json({ error: "empty body" }, { status: 400 })
