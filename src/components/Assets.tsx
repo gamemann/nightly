@@ -2,7 +2,7 @@
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useMemo } from "react"
-import { BarList } from "./PerfChart"
+import { BarList, Sparkline } from "./PerfChart"
 import { Legend, Panel, StackedBars } from "./Charts"
 import { COLOR, flagCounts, passByGroup, scoreBins, worstOffenders } from "../../lib/charts.mjs"
 
@@ -53,7 +53,7 @@ const rateColor = (r: number) => (r >= 0.7 ? COLOR.good : r >= 0.4 ? COLOR.warn 
 
 /** Score distribution, pass share per pack and kind, flags of the current tab and the worst weapons. Clicking a mark
  *  narrows the table below through the same URL filters the dropdowns use. */
-function AssetCharts({ rows, tab, set }: { rows: AssetRow[]; tab: Tab; set: (o: Record<string, string>) => void }) {
+function AssetCharts({ rows, tab, set, trend }: { rows: AssetRow[]; tab: Tab; set: (o: Record<string, string>) => void; trend: PackTrend[] }) {
     const bins = scoreBins(rows)
     const packs = passByGroup(rows, (r) => r.pack)
     const kinds = passByGroup(rows, (r) => r.kind)
@@ -77,6 +77,16 @@ function AssetCharts({ rows, tab, set }: { rows: AssetRow[]; tab: Tab; set: (o: 
             <Panel title={`Most common flags: ${tab}`} subtitle="Weapons carrying each quality flag on the current tab. Click a flag to filter." empty={flags.length === 0 && "No flags on this tab."}>
                 <BarList unit="" onClick={(k) => set({ flag: k })} rows={flags.slice(0, 8).map((f) => ({ key: f.code, label: f.code, value: f.n, color: f.severity === "error" ? COLOR.bad : f.severity === "warn" ? COLOR.warn : COLOR.info, note: f.severity }))} />
             </Panel>
+            <Panel title="Average score per audit" subtitle="One point per audit run, per pack. History starts at the first audit after this was added." empty={trend.length === 0 && "No audit history yet: it fills as audits are ingested."}>
+                <ul className="space-y-1">
+                    {trend.slice(0, 8).map((t) => (
+                        <li key={t.pack} className="flex items-center justify-between gap-2 text-[12px]">
+                            <span className="truncate text-dim">{t.pack}</span>
+                            <span className="flex items-center gap-2"><Sparkline values={t.scores} label={`Average score of ${t.pack} per audit`} /><span className="tabular-nums text-fg">{t.last}</span></span>
+                        </li>
+                    ))}
+                </ul>
+            </Panel>
             <div className="lg:col-span-2">
                 <Panel title="Worst offenders" subtitle="The eight lowest-scoring weapons. Click one to search for it." empty={worst.length === 0 && "Nothing scored."}>
                     <BarList unit="" max={100} onClick={(k) => set({ q: k })} rows={worst.map((r) => ({ key: r.weaponId, label: r.weaponId, value: r.score, color: rateColor(r.score / 100), note: `${r.pack}, ${r.kind}` }))} />
@@ -86,9 +96,10 @@ function AssetCharts({ rows, tab, set }: { rows: AssetRow[]; tab: Tab; set: (o: 
     )
 }
 
+export type PackTrend = { pack: string; scores: number[]; last: number; total: number; pass: number }
 export type KindInfo = { key: string; label: string }
 
-export function Assets({ rows, kinds, sources }: { rows: AssetRow[]; kinds: KindInfo[]; sources: number }) {
+export function Assets({ rows, kinds, sources, trend = [] }: { rows: AssetRow[]; kinds: KindInfo[]; sources: number; trend?: PackTrend[] }) {
     const router = useRouter()
     const path = usePathname()
     const sp = useSearchParams()
@@ -124,7 +135,7 @@ export function Assets({ rows, kinds, sources }: { rows: AssetRow[]; kinds: Kind
                 Every model of every source (packs and games): model, textures, animations and sounds with quality flags and a score, judged against the budget of its kind. {rows.length} assets, {audited} audited, the rest listed from a directory scan
                 (<code className="font-mono">nightly assets scan</code>; audits arrive with <code className="font-mono">nightly assets ingest audit.json</code> or POST /api/assets/ingest). <Link className="text-sky-300 hover:underline" href="/assets/sources">Sources and kinds</Link>
             </p>
-            <AssetCharts rows={rows} tab={tab} set={set} />
+            <AssetCharts rows={rows} tab={tab} set={set} trend={trend} />
             <div className="mb-2 flex flex-wrap gap-1.5">
                 {[{ key: "", label: "All" }, ...kinds.filter((k) => rows.some((r) => r.kind === k.key)), ...[...new Set(rows.map((r) => r.kind))].filter((k) => !kinds.some((x) => x.key === k)).map((k) => ({ key: k, label: k }))].map((k) => (
                     <button key={k.key} onClick={() => set({ kind: k.key, flag: "" })} className={`rounded-full border px-2.5 py-0.5 text-[12px] ${k.key === kind ? "border-sky-400 text-fg" : "border-line text-dim hover:text-fg"}`}>

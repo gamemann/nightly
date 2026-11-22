@@ -509,3 +509,15 @@ model ContentStat {
 
   @@unique([game, category, name, metric], map: "ContentStat_key")
 }
+
+/// One row per pack per audit ingest (AssetWeapon keeps only the latest audit per asset).
+model AssetAuditHistory {
+  id       Int    @id @default(autoincrement())
+  at       String
+  pack     String
+  total    Int    @default(0)
+  pass     Int    @default(0)
+  avgScore Int    @default(0)
+
+  @@index([pack, at])
+}

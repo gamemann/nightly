@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation"
 import { AssetDetail, type DetailData, type ReviewHit } from "~/components/AssetDetail"
 import { AssetSources } from "~/components/AssetSources"
-import { Assets, type AssetRow } from "~/components/Assets"
+import { Assets, type AssetRow, type PackTrend } from "~/components/Assets"
 import { db } from "~/server/db"
 import { load } from "../../../../lib/review.mjs"
 
@@ -42,8 +42,12 @@ export default async function AssetsPage({ params }: { params: Promise<{ slug?: 
                 flags: flags.map((f) => ({ code: f.code, severity: f.severity, tab: flagTab(f.code) })),
             }
         })
+        const hist = await db.assetAuditHistory.findMany({ orderBy: [{ at: "asc" }, { id: "asc" }] })
+        const byPack = new Map<string, typeof hist>()
+        for (const h of hist) byPack.set(h.pack, [...(byPack.get(h.pack) ?? []), h])
+        const trend: PackTrend[] = [...byPack].map(([pack, hs]) => ({ pack, scores: hs.slice(-30).map((h) => h.avgScore), last: hs[hs.length - 1].avgScore, total: hs[hs.length - 1].total, pass: hs[hs.length - 1].pass })).sort((a, b) => a.last - b.last)
         const [kinds, sources] = await Promise.all([db.assetKind.findMany({ orderBy: [{ sort: "asc" }, { key: "asc" }], select: { key: true, label: true } }), db.assetSource.count()])
-        return <Assets rows={out} kinds={kinds} sources={sources} />
+        return <Assets rows={out} kinds={kinds} sources={sources} trend={trend} />
     }
     const id = Number(slug[0])
     const row = Number.isInteger(id) ? await db.assetWeapon.findUnique({ where: { id } }) : null
