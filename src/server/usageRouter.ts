@@ -4,7 +4,7 @@ import { promisify } from 'node:util'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { chConfig, chPing, chQuery, publicConfig } from '../../lib/usage-ch.mjs'
-import { type Backend, breakdown, foldRuns, insights, series, sessions, totals } from '../../lib/usage-query.mjs'
+import { type Backend, breakdown, insights, series, sessions, totals } from '../../lib/usage-query.mjs'
 import { parsePrices } from '../../lib/usage-price.mjs'
 import { paged, offsetOf } from '../lib/paging'
 import { procedure, router } from './trpc'
@@ -127,8 +127,13 @@ export const usageRouter = router({
     }),
     /** Nightly's own scheduled runs (the Run table): turns, minutes and cost the runner recorded. */
     runs: procedure.input(z.object({ days: z.number().int().min(0).max(3650).default(30) })).query(async ({ ctx, input }) => {
-        const rows = await ctx.db.run.findMany({ where: input.days ? { startedAt: { gte: new Date(since(input.days)) } } : {}, select: { startedAt: true, turns: true, minutes: true, costUsd: true } })
-        return foldRuns(rows)
+        // Folded by day in SQL (startedAt is ISO text, so its first 10 characters are the UTC day): no Run row crosses into JS.
+        const rows = await ctx.db.$queryRawUnsafe<{ day: string | null; runs: unknown; turns: unknown; minutes: unknown; costUsd: unknown }[]>(
+            `SELECT substr(startedAt, 1, 10) AS day, COUNT(*) AS runs, COALESCE(SUM(turns), 0) AS turns, COALESCE(SUM(minutes), 0) AS minutes, COALESCE(SUM(costUsd), 0) AS costUsd
+             FROM Run ${input.days ? 'WHERE startedAt >= ?' : ''} GROUP BY day ORDER BY day`, ...(input.days ? [new Date(since(input.days)).toISOString()] : []))
+        const byDay = rows.map((r) => ({ day: r.day ?? '(unknown)', runs: Number(r.runs), turns: Number(r.turns), minutes: Number(r.minutes), costUsd: Number(r.costUsd) }))
+        const total = byDay.reduce((t, d) => ({ runs: t.runs + d.runs, turns: t.turns + d.turns, minutes: t.minutes + d.minutes, costUsd: t.costUsd + d.costUsd }), { runs: 0, turns: 0, minutes: 0, costUsd: 0 })
+        return { total, byDay }
     }),
     ingest: procedure.input(z.object({ full: z.boolean().default(false) }).default({ full: false })).mutation(async ({ input }) => {
         cache.clear()

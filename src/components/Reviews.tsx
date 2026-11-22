@@ -3,6 +3,8 @@ import { useRouter } from "next/navigation"
 import { gameLabel } from "~/lib/games"
 import { useEffect, useMemo, useState } from "react"
 import { Pagination, useUrlParams } from "./Pagination"
+import { api } from "~/trpc/react"
+import { parsePage } from "~/lib/paging"
 import type { reviewPage } from "~/server/reviewIndex"
 import { Metrics, Stage, Viewer, type MediaGroup, type MediaItem } from "./MediaViewer"
 import type { ReviewMedia, ReviewWeapon } from "../../lib/review.mjs"
@@ -12,7 +14,7 @@ import { Legend, Panel, StackedBars } from "./Charts"
 import { COLOR } from "../../lib/charts.mjs"
 
 type Counts = { total: number; good: number; wrong: number; todo: number }
-type Review = { key: string; title: string; body: string; createdAt: string; updatedAt: string; weapons: Record<string, ReviewWeapon>; game: string; counts: Counts }
+type Review = { key: string; title: string; body: string; createdAt: string; updatedAt: string; game: string; counts: Counts }
 const url = (key: string, file: string) => `/reviewmedia/${encodeURIComponent(key)}/${file.split("/").map(encodeURIComponent).join("/")}`
 const VERDICT: Record<string, { label: string; cls: string }> = {
     good: { label: "good", cls: "bg-emerald-400/15 text-emerald-300" },
@@ -110,25 +112,47 @@ export function Reviews({ data }: { data: Data }) {
     )
 }
 
+const WEAPON_SPEC = { sorts: ["id"], sort: "id", dir: "asc", filters: ["verdict"] } as const
+
 function ReviewCard({ r }: { r: Data["page"]["rows"][number] }) {
-    const ids = Object.keys(r.weapons).sort()
-    const count = (v: string) => ids.filter((i) => r.weapons[i].verdict === v).length
+    const ns = `w.${r.key}.`
+    const { sp, set } = useUrlParams(ns)
+    const router = useRouter()
+    const utils = api.useUtils()
+    const wq = parsePage(sp, WEAPON_SPEC, ns)
+    const [text, setText] = useState(wq.q)
+    useEffect(() => { if (text === wq.q) return; const t = setTimeout(() => set({ q: text }), 300); return () => clearTimeout(t) }, [text]) // eslint-disable-line react-hooks/exhaustive-deps
+    const res = api.review.weapons.useQuery({ key: r.key, page: wq.page, size: wq.size, sort: wq.sort, dir: wq.dir, q: wq.q || undefined, f: wq.f }, { placeholderData: (p) => p })
+    const data = res.data
+    const c = r.counts
+    const sel = "rounded-md border border-line bg-panel px-2 py-1 text-[12px]"
     return (
         <section className="rounded-lg border border-line">
             <header className="flex flex-wrap items-baseline gap-3 border-b border-line px-4 py-2.5">
                 <h2 className="text-[13px] font-semibold">{r.title}</h2>
                 <code className="font-mono text-[11px] text-muted">{r.key}</code>
-                <span className="ml-auto text-[11px] text-dim">{ids.length} entries, {count("good")} good, {count("wrong")} still wrong, {ids.length - count("good") - count("wrong")} not reviewed</span>
+                <span className="ml-auto text-[11px] text-dim">{c.total} entries, {c.good} good, {c.wrong} still wrong, {c.todo} not reviewed</span>
             </header>
             {r.body && <p className="border-b border-line px-4 py-2 text-[12px] text-dim">{r.body}</p>}
-            <div className="divide-y divide-line">{ids.map((id) => <Weapon key={id} rkey={r.key} id={id} w={r.weapons[id]} />)}</div>
-            {ids.length === 0 && <p className="px-4 py-4 text-[12px] text-muted">Nothing filed under this review yet.</p>}
+            {c.total > 0 && (
+                <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-2">
+                    <input className={`${sel} w-56`} placeholder="Search entry id or title" aria-label="search entries" value={text} onChange={(e) => setText(e.target.value)} />
+                    <select className={sel} aria-label="verdict" value={wq.f.verdict ?? ""} onChange={(e) => set({ verdict: e.target.value })}>
+                        <option value="">all verdicts</option><option value="todo">not reviewed</option><option value="good">good</option><option value="wrong">still wrong</option>
+                    </select>
+                </div>
+            )}
+            <div className="divide-y divide-line">
+                {data?.rows.map(({ id, w }) => <Weapon key={id} rkey={r.key} id={id} w={w} onSaved={() => { utils.review.weapons.invalidate({ key: r.key }); router.refresh() }} />)}
+            </div>
+            {data && data.total === 0 && <p className="px-4 py-4 text-[12px] text-muted">{c.total === 0 ? "Nothing filed under this review yet." : "No entry matches."}</p>}
+            {!data && <p className="px-4 py-4 text-[12px] text-muted">Loading…</p>}
+            {data && data.total > 0 && <Pagination p={data} ns={ns} />}
         </section>
     )
 }
 
-function Weapon({ rkey, id, w }: { rkey: string; id: string; w: ReviewWeapon }) {
-    const router = useRouter()
+function Weapon({ rkey, id, w, onSaved }: { rkey: string; id: string; w: ReviewWeapon; onSaved: () => void }) {
     const [note, setNote] = useState(w.note)
     const [busy, setBusy] = useState(false)
     const [err, setErr] = useState("")
@@ -143,7 +167,7 @@ function Weapon({ rkey, id, w }: { rkey: string; id: string; w: ReviewWeapon }) 
         try {
             const res = await fetch("/api/review", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "verdict", key: rkey, weapon: id, verdict, note, by: OWNER }) })
             if (!res.ok) setErr(((await res.json().catch(() => ({}))) as { error?: string }).error ?? `HTTP ${res.status}`)
-            else router.refresh()
+            else onSaved()
         } finally { setBusy(false) }
     }
     return (

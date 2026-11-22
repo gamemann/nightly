@@ -1,10 +1,13 @@
 'use client'
 import Link from 'next/link'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { gameLabel } from '~/lib/games'
 import { api } from '~/trpc/react'
 import { PictureViewer, type Shot } from './PictureViewer'
 import { StatusPill, ago, fmt } from './pills'
+import { DataTable, type Column } from './DataTable'
+import { Pagination, useUrlParams } from './Pagination'
+import { parsePage } from '~/lib/paging'
 
 const TABS = ['items', 'runs', 'media', 'reviews', 'qa'] as const
 type Tab = (typeof TABS)[number]
@@ -27,11 +30,16 @@ export function GameIndex() {
     )
 }
 
+const ITEM_SPEC = { sorts: ['updatedAt', 'title', 'status', 'key'], sort: 'updatedAt', dir: 'desc', filters: ['status'] } as const
+const RUN_SPEC = { sorts: ['startedAt', 'id', 'status'], sort: 'startedAt', dir: 'desc', filters: ['status'] } as const
+const MEDIA_SPEC = { sorts: ['at'], sort: 'at', dir: 'desc', filters: ['kind'] } as const
+const QA_SPEC = { sorts: ['ranAt'], sort: 'ranAt', dir: 'desc', filters: ['state'] } as const
+
 export function GamePage({ slug }: { slug: string }) {
     const [tab, setTab] = useState<Tab>('items')
     const q = api.game.get.useQuery({ slug }, { refetchInterval: 30_000 })
     const d = q.data
-    const count: Record<Tab, number | undefined> = { items: d?.items.length, runs: d?.runs.length, media: d?.shots.length, reviews: d?.reviews.length, qa: d?.qa.length }
+    const count: Record<Tab, number | undefined> = { items: d?.items, runs: d?.runs, media: d?.media, reviews: d?.reviews, qa: d?.qa }
     return (
         <div className="mx-auto max-w-6xl px-6 py-5 max-md:px-3">
             <h1 className="text-[15px] font-semibold tracking-tight">{gameLabel(slug)} <span className="font-mono text-[11px] font-normal text-muted">{slug}</span></h1>
@@ -42,73 +50,113 @@ export function GamePage({ slug }: { slug: string }) {
                     </button>
                 ))}
             </div>
-            {q.isLoading && <div className="p-6 text-center text-muted">Loading…</div>}
-            {d && tab === 'items' && <Items rows={d.items} />}
-            {d && tab === 'reviews' && <Items rows={d.reviews} />}
-            {d && tab === 'runs' && (
-                <div className="overflow-hidden rounded-lg border border-line bg-panel/40">
-                    {d.runs.length === 0 && <div className="p-6 text-center text-muted">No run has written a note on this game&apos;s items.</div>}
-                    {d.runs.map((r) => (
-                        <Link key={r.id} href={`/runs/${r.id}`} className="flex items-center gap-3 border-b border-line/70 px-4 py-2.5 last:border-0 hover:bg-hover/50">
-                            <span className="w-10 font-mono text-[11px] text-muted">#{r.id}</span>
-                            <span className="w-36 shrink-0 text-dim">{fmt(r.startedAt)}</span>
-                            <StatusPill status={r.status} />
-                            <span className="min-w-0 flex-1 truncate text-dim">{r.summary}</span>
-                        </Link>
+            {tab === 'items' && <Items slug={slug} ns="i" />}
+            {tab === 'reviews' && <Items slug={slug} ns="v" reviews />}
+            {tab === 'runs' && <GameRuns slug={slug} />}
+            {tab === 'media' && <Media slug={slug} />}
+            {tab === 'qa' && <QaList slug={slug} />}
+        </div>
+    )
+}
+
+const opts = (xs?: string[]) => (xs ?? []).map((value) => ({ value }))
+const Loading = () => <div className="p-6 text-center text-muted">Loading…</div>
+
+function Items({ slug, ns, reviews }: { slug: string; ns: string; reviews?: boolean }) {
+    const { sp } = useUrlParams(ns)
+    const pq = parsePage(sp, ITEM_SPEC, ns)
+    const res = api.game.items.useQuery({ slug, reviews: !!reviews, page: pq.page, size: pq.size, sort: pq.sort, dir: pq.dir, q: pq.q || undefined, f: pq.f }, { placeholderData: (p) => p })
+    const data = res.data?.page
+    if (!data) return <Loading />
+    const cols: Column<(typeof data.rows)[number]>[] = [
+        { key: 'status', label: 'Status', sortable: true, render: (i) => <StatusPill status={i.status} /> },
+        { key: 'title', label: 'Title', sortable: true, className: 'max-w-[32rem] truncate', render: (i) => <Link href={`/item/${encodeURIComponent(i.key)}`} className="hover:text-accent">{i.title}</Link> },
+        { key: 'key', label: 'Key', sortable: true, className: 'font-mono text-[11px] text-muted max-md:hidden', render: (i) => i.key },
+        { key: 'updatedAt', label: 'Updated', sortable: true, className: 'whitespace-nowrap text-right text-[11px] text-muted', render: (i) => ago(i.updatedAt) },
+    ]
+    return <DataTable cols={cols} data={data} rowKey={(i) => i.key} sort={pq.sort} dir={pq.dir} q={pq.q} active={pq.f} ns={ns} searchHint="Search title or key" empty="Nothing here."
+        filters={[{ key: 'status', label: 'Status', options: opts(res.data?.statuses) }]} />
+}
+
+function GameRuns({ slug }: { slug: string }) {
+    const { sp } = useUrlParams('r')
+    const pq = parsePage(sp, RUN_SPEC, 'r')
+    const res = api.game.runs.useQuery({ slug, page: pq.page, size: pq.size, sort: pq.sort, dir: pq.dir, q: pq.q || undefined, f: pq.f }, { placeholderData: (p) => p })
+    const data = res.data?.page
+    if (!data) return <Loading />
+    const cols: Column<(typeof data.rows)[number]>[] = [
+        { key: 'id', label: '#', sortable: true, className: 'font-mono text-[11px] text-muted', render: (r) => <Link href={`/runs/${r.id}`}>#{r.id}</Link> },
+        { key: 'startedAt', label: 'Started', sortable: true, className: 'whitespace-nowrap text-dim', render: (r) => fmt(r.startedAt) },
+        { key: 'status', label: 'Status', sortable: true, render: (r) => <StatusPill status={r.status} /> },
+        { key: 'summary', label: 'Summary', className: 'max-w-[32rem] truncate text-dim', render: (r) => <Link href={`/runs/${r.id}`}>{r.summary}</Link> },
+    ]
+    return <DataTable cols={cols} data={data} rowKey={(r) => r.id} sort={pq.sort} dir={pq.dir} q={pq.q} active={pq.f} ns="r" searchHint="Search summaries"
+        empty="No run has written a note on this game's items." filters={[{ key: 'status', label: 'Status', options: opts(res.data?.statuses) }]} />
+}
+
+function Media({ slug }: { slug: string }) {
+    const [open, setOpen] = useState<Shot | null>(null)
+    const { sp, set } = useUrlParams('p')
+    const pq = parsePage(sp, MEDIA_SPEC, 'p')
+    const [text, setText] = useState(pq.q)
+    useEffect(() => { if (text === pq.q) return; const t = setTimeout(() => set({ q: text }), 300); return () => clearTimeout(t) }, [text]) // eslint-disable-line react-hooks/exhaustive-deps
+    const res = api.game.media.useQuery({ slug, page: pq.page, size: pq.size, sort: pq.sort, dir: pq.dir, q: pq.q || undefined, f: pq.f }, { placeholderData: (p) => p })
+    const data = res.data?.page
+    const sel = 'rounded-md border border-line bg-panel px-2 py-1 text-[12px]'
+    return (
+        <>
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+                <input className={`${sel} w-56`} placeholder="Search item, note or file" aria-label="search" value={text} onChange={(e) => setText(e.target.value)} />
+                <select className={sel} aria-label="kind" value={pq.f.kind ?? ''} onChange={(e) => set({ kind: e.target.value })}>
+                    <option value="">all shots</option><option value="3d">with 3D model</option>
+                </select>
+                <select className={sel} aria-label="order" value={pq.dir} onChange={(e) => set({ dir: e.target.value })}>
+                    <option value="desc">newest first</option><option value="asc">oldest first</option>
+                </select>
+            </div>
+            {!data ? <Loading /> : !data.rows.length ? <div className="p-6 text-center text-muted">No screenshots on this game&apos;s items.</div> : (
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
+                    {data.rows.map((a) => (
+                        <figure key={a.item + a.file} className="space-y-1">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={`/attachments/${encodeURIComponent(a.item)}/${encodeURIComponent(a.file)}`} alt={a.note || a.file} loading="lazy" onClick={() => setOpen(a)} className="h-36 w-full cursor-zoom-in rounded-md border border-line object-cover" />
+                            <figcaption className="text-xs text-muted">
+                                {a.model && <span className="mr-1 rounded bg-accent/15 px-1 text-accent">3D</span>}
+                                <Link href={`/item/${encodeURIComponent(a.item)}`} className="font-mono text-dim hover:text-fg">{a.item}</Link>
+                                <div className="line-clamp-2 text-dim">{a.note || a.file}</div>
+                            </figcaption>
+                        </figure>
                     ))}
                 </div>
             )}
-            {d && tab === 'media' && <Media shots={d.shots} />}
-            {d && tab === 'qa' && <QaList rows={d.qa} />}
-        </div>
-    )
-}
-
-function Items({ rows }: { rows: { key: string; title: string; status: string; kind: string; updatedAt: Date }[] }) {
-    if (!rows.length) return <div className="p-6 text-center text-muted">Nothing here.</div>
-    return (
-        <div className="overflow-hidden rounded-lg border border-line bg-panel/40">
-            {rows.map((i) => (
-                <Link key={i.key} href={`/item/${encodeURIComponent(i.key)}`} className="flex items-center gap-3 border-b border-line/70 px-4 py-2 last:border-0 hover:bg-hover/50">
-                    <StatusPill status={i.status} />
-                    <span className="min-w-0 flex-1 truncate">{i.title}</span>
-                    <span className="font-mono text-[11px] text-muted max-md:hidden">{i.key}</span>
-                    <span className="w-16 text-right text-[11px] text-muted">{ago(i.updatedAt)}</span>
-                </Link>
-            ))}
-        </div>
-    )
-}
-
-function Media({ shots }: { shots: Shot[] }) {
-    const [open, setOpen] = useState<Shot | null>(null)
-    if (!shots.length) return <div className="p-6 text-center text-muted">No screenshots on this game&apos;s items.</div>
-    return (
-        <>
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
-                {shots.map((a) => (
-                    <figure key={a.item + a.file} className="space-y-1">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={`/attachments/${encodeURIComponent(a.item)}/${encodeURIComponent(a.file)}`} alt={a.note || a.file} loading="lazy" onClick={() => setOpen(a)} className="h-36 w-full cursor-zoom-in rounded-md border border-line object-cover" />
-                        <figcaption className="text-xs text-muted">
-                            {a.model && <span className="mr-1 rounded bg-accent/15 px-1 text-accent">3D</span>}
-                            <Link href={`/item/${encodeURIComponent(a.item)}`} className="font-mono text-dim hover:text-fg">{a.item}</Link>
-                            <div className="line-clamp-2 text-dim">{a.note || a.file}</div>
-                        </figcaption>
-                    </figure>
-                ))}
-            </div>
+            {data && <Pagination p={data} ns="p" />}
             {open && <PictureViewer shot={open} onClose={() => setOpen(null)} />}
         </>
     )
 }
 
-function QaList({ rows }: { rows: { id: number; kind: string; ranAt: Date; ok: boolean; total: number; failedCount: number; commit: string; failures: { name: string; reasons: string[] }[]; images: { file: string; note: string }[] }[] }) {
-    if (!rows.length) return <div className="p-6 text-center text-muted">No QA runs for this game. <Link href="/qa" className="text-accent">All QA</Link></div>
+function QaList({ slug }: { slug: string }) {
+    const { sp, set } = useUrlParams('q')
+    const pq = parsePage(sp, QA_SPEC, 'q')
+    const [text, setText] = useState(pq.q)
+    useEffect(() => { if (text === pq.q) return; const t = setTimeout(() => set({ q: text }), 300); return () => clearTimeout(t) }, [text]) // eslint-disable-line react-hooks/exhaustive-deps
+    const res = api.game.qa.useQuery({ slug, page: pq.page, size: pq.size, sort: pq.sort, dir: pq.dir, q: pq.q || undefined, f: pq.f }, { placeholderData: (p) => p })
+    const data = res.data?.page
+    const sel = 'rounded-md border border-line bg-panel px-2 py-1 text-[12px]'
     return (
         <div className="space-y-3">
-            <p className="text-[12px] text-muted">Newest first. <Link href="/qa" className="text-accent">All games on the QA page</Link>.</p>
-            {rows.map((r) => (
+            <div className="flex flex-wrap items-center gap-2">
+                <input className={`${sel} w-56`} placeholder="Search kind or commit" aria-label="search" value={text} onChange={(e) => setText(e.target.value)} />
+                <select className={sel} aria-label="state" value={pq.f.state ?? ''} onChange={(e) => set({ state: e.target.value })}>
+                    <option value="">all runs</option><option value="ok">ok</option><option value="failing">failing</option>
+                </select>
+                <select className={sel} aria-label="order" value={pq.dir} onChange={(e) => set({ dir: e.target.value })}>
+                    <option value="desc">newest first</option><option value="asc">oldest first</option>
+                </select>
+                <Link href="/qa" className="ml-auto text-[12px] text-accent">All games on the QA page</Link>
+            </div>
+            {!data ? <Loading /> : !data.rows.length && <div className="p-6 text-center text-muted">No QA runs match.</div>}
+            {data?.rows.map((r) => (
                 <div key={r.id} className="rounded-lg border border-line bg-panel/40 px-4 py-3">
                     <div className="flex items-center gap-3 text-[13px]">
                         <span className={`rounded px-1.5 text-[11px] ${r.ok ? 'bg-emerald-400/15 text-emerald-300' : 'bg-red-400/15 text-red-300'}`}>{r.ok ? 'ok' : 'failing'}</span>
@@ -127,6 +175,7 @@ function QaList({ rows }: { rows: { id: number; kind: string; ranAt: Date; ok: b
                     )}
                 </div>
             ))}
+            {data && <Pagination p={data} ns="q" />}
         </div>
     )
 }
