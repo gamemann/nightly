@@ -1,8 +1,12 @@
 'use client'
-import { useEffect, useRef, useState } from 'react'
+import { Suspense, useEffect, useRef, useState } from 'react'
 import { api, type RouterOutputs } from '~/trpc/react'
 import { OWNER } from '~/lib/constants'
 import { ago } from './pills'
+import { Pagination, useUrlParams } from './Pagination'
+import { parsePage } from '~/lib/paging'
+
+const MSG_SPEC = { sorts: ['id'], sort: 'id', dir: 'desc', filters: ['author', 'hide'] } as const
 
 type Board = RouterOutputs['agent']['board']
 type Agent = Board['live'][number]
@@ -26,7 +30,7 @@ export function Agents() {
             {board.isLoading && <div className="p-6 text-center text-muted">Loading…</div>}
             {b && (
                 <div className="grid grid-cols-[minmax(0,1fr)_320px] gap-5 max-lg:grid-cols-1">
-                    <Feed b={b} />
+                    <Suspense><Feed b={b} /></Suspense>
                     <aside className="space-y-5">
                         <section>
                             <span className="label">Live · {b.live.length}</span>
@@ -105,11 +109,16 @@ function Feed({ b }: { b: Board }) {
     const utils = api.useUtils()
     const [body, setBody] = useState('')
     const [to, setTo] = useState('')
-    const [hideBoard, setHideBoard] = useState(false)
-    const post = api.agent.post.useMutation({ onSuccess: () => { setBody(''); return utils.agent.board.invalidate() } })
+    const { sp, set } = useUrlParams('m')
+    const mq = parsePage(sp, MSG_SPEC, 'm')
+    const hideBoard = !!mq.f.hide
+    const [text, setText] = useState(mq.q)
+    useEffect(() => { if (text === mq.q) return; const t = setTimeout(() => set({ q: text }), 300); return () => clearTimeout(t) }, [text]) // eslint-disable-line react-hooks/exhaustive-deps
+    const log = api.agent.messages.useQuery({ page: mq.page, size: mq.size, sort: 'id', dir: 'desc', q: mq.q || undefined, f: mq.f }, { refetchInterval: 4000, placeholderData: (p) => p })
+    const post = api.agent.post.useMutation({ onSuccess: () => { setBody(''); return Promise.all([utils.agent.board.invalidate(), utils.agent.messages.invalidate()]) } })
     const ref = useRef<HTMLDivElement>(null)
     const pinned = useRef(true)
-    const msgs = hideBoard ? b.messages.filter((m) => m.author !== 'board') : b.messages
+    const msgs = log.data?.page.rows ?? []
     const last = msgs.at(-1)?.id
     useEffect(() => {
         const el = ref.current
@@ -121,8 +130,13 @@ function Feed({ b }: { b: Board }) {
         <section className="flex min-h-[420px] flex-col overflow-hidden rounded-lg border border-line bg-panel/40 lg:h-[calc(100vh-150px)]">
             <div className="flex items-center gap-3 border-b border-line px-3 py-2">
                 <span className="label">Messages</span>
-                <label className="ml-auto flex items-center gap-1.5 text-[11px] text-muted">
-                    <input type="checkbox" checked={hideBoard} onChange={(e) => setHideBoard(e.target.checked)} /> hide joins &amp; claims
+                <input className="input ml-auto w-40" placeholder="Search messages" aria-label="search messages" value={text} onChange={(e) => setText(e.target.value)} />
+                <select className="select w-32" aria-label="author" value={mq.f.author ?? ''} onChange={(e) => set({ author: e.target.value })}>
+                    <option value="">all authors</option>
+                    {(log.data?.facets.author ?? []).map((a) => <option key={a} value={a}>{a}</option>)}
+                </select>
+                <label className="flex items-center gap-1.5 text-[11px] text-muted">
+                    <input type="checkbox" checked={hideBoard} onChange={(e) => set({ hide: e.target.checked ? '1' : '' })} /> hide joins &amp; claims
                 </label>
             </div>
             <div ref={ref} onScroll={(e) => { const el = e.currentTarget; pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60 }}
@@ -155,6 +169,7 @@ function Feed({ b }: { b: Board }) {
                     )
                 })}
             </div>
+            {log.data && <div className="border-t border-line"><Pagination p={log.data.page} ns="m" /></div>}
             <div className="flex items-end gap-2 border-t border-line p-2">
                 <select className="select w-36 shrink-0" value={to} onChange={(e) => setTo(e.target.value)} title="Send to">
                     <option value="">everyone</option>

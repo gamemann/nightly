@@ -1,26 +1,37 @@
 'use client'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { clearDraft, readDraft, writeDraft } from '~/lib/drafts'
 import { api } from '~/trpc/react'
 import { Markdown } from './Markdown'
 import { MarkdownEditor } from './MarkdownEditor'
 import { ago, fmt } from './pills'
+import { Pagination, useUrlParams } from './Pagination'
+import { parsePage } from '~/lib/paging'
 
-export function Prompts({ name, kind = 'prompt' }: { name?: string; kind?: 'prompt' | 'script' }) {
+const LIST_SPEC = { sorts: ['name', 'updatedAt'], sort: 'name', dir: 'asc' } as const
+
+export function Prompts(props: { name?: string; kind?: 'prompt' | 'script' }) { return <Suspense><PromptsInner {...props} /></Suspense> }
+
+function PromptsInner({ name, kind = 'prompt' }: { name?: string; kind?: 'prompt' | 'script' }) {
     const base = kind === 'script' ? '/jobs' : '/prompts'
     const noun = kind === 'script' ? 'Jobs / Scripts' : 'Prompts'
     const router = useRouter()
     const utils = api.useUtils()
-    const list = api.prompt.list.useQuery()
+    const { sp, set } = useUrlParams('l')
+    const lq = parsePage(sp, LIST_SPEC, 'l')
+    const [text, setText] = useState(lq.q)
+    useEffect(() => { if (text === lq.q) return; const t = setTimeout(() => set({ q: text }), 300); return () => clearTimeout(t) }, [text]) // eslint-disable-line react-hooks/exhaustive-deps
+    const list = api.prompt.page.useQuery({ kind, page: lq.page, size: lq.size, sort: lq.sort, dir: lq.dir, q: lq.q || undefined, f: {} }, { placeholderData: (p) => p })
+    const keepQs = sp.toString() ? `?${sp.toString()}` : ''
     const create = api.prompt.save.useMutation({
-        onSuccess: (p) => { void utils.prompt.list.invalidate(); router.push(`${base}/${encodeURIComponent(p.name)}`) },
+        onSuccess: (p) => { void utils.prompt.page.invalidate(); void utils.prompt.list.invalidate(); router.push(`${base}/${encodeURIComponent(p.name)}`) },
     })
-    const rows = list.data?.filter((p) => p.kind === kind) ?? []
+    const rows = list.data?.rows ?? []
     useEffect(() => {
-        if (!name && rows.length) router.replace(`${base}/${encodeURIComponent(rows[0].name)}`)
-    }, [name, rows, router, base])
+        if (!name && rows.length && !lq.q && lq.page === 1) router.replace(`${base}/${encodeURIComponent(rows[0].name)}`)
+    }, [name, rows, router, base, lq.q, lq.page])
     const add = () => {
         const n = prompt(kind === 'script' ? 'Name of the new job (e.g. check.sh)' : 'Name of the new prompt (e.g. deploy.md)')?.trim()
         if (n) create.mutate({ name: n, kind, body: kind === 'script' ? '#!/usr/bin/env bash\n' : `# ${n.replace(/\.md$/, '')}\n\n` })
@@ -36,9 +47,10 @@ export function Prompts({ name, kind = 'prompt' }: { name?: string; kind?: 'prom
                     ? 'Runnable jobs: a schedule runs one as a script, no agent involved. Exit 0 = ok, 1 = findings, anything else = failed.'
                     : 'What the agent runs are told. Agents read them with'} {kind === 'prompt' && <code className="font-mono">nightly prompt show</code>}</p>
                 {create.error && <p className="mb-2 text-[12px] text-red-300">{create.error.message}</p>}
-                <nav className="mb-3 flex flex-col gap-0.5">
+                <input className="input mb-2 w-full" placeholder="Search name or text" aria-label="search" value={text} onChange={(e) => setText(e.target.value)} />
+                <nav className="mb-1 flex flex-col gap-0.5">
                     {rows.map((p) => (
-                        <Link key={p.id} href={`${base}/${encodeURIComponent(p.name)}`}
+                        <Link key={p.id} href={`${base}/${encodeURIComponent(p.name)}${keepQs}`}
                             className={`flex items-center gap-2 rounded-md px-2 py-1.5 ${p.name === name ? 'bg-hover text-fg' : 'text-dim hover:bg-hover/60 hover:text-fg'}`}>
                             <span className="min-w-0 flex-1 truncate font-mono text-[12px]">{p.name}</span>
                             {p.codeLike && <span className="rounded bg-violet-400/15 px-1 text-[10px] text-violet-300" title="Starts with #!: this is a script">script</span>}
@@ -46,6 +58,7 @@ export function Prompts({ name, kind = 'prompt' }: { name?: string; kind?: 'prom
                         </Link>
                     ))}
                 </nav>
+                {list.data && <Pagination p={list.data} ns="l" />}
             </aside>
             <main className="min-w-0 flex-1">
                 {name ? <PromptEditor key={name} name={name} base={base} /> : rows.length === 0 && <div className="rounded-lg border border-line p-10 text-center text-muted">Nothing here yet.</div>}
@@ -79,11 +92,11 @@ function PromptEditor({ name, base: root }: { name: string; base: string }) {
         if (p && text !== null && text === base && p.body !== base) { setText(p.body); setBase(p.body) }
     }, [p, text, base])
 
-    const invalidate = () => Promise.all([utils.prompt.get.invalidate({ name }), utils.prompt.list.invalidate()])
+    const invalidate = () => Promise.all([utils.prompt.get.invalidate({ name }), utils.prompt.list.invalidate(), utils.prompt.page.invalidate()])
     const save = api.prompt.save.useMutation({
         onSuccess: async (r) => { clearDraft(draftId); setBase(r.body); setText(r.body); setNote(''); await invalidate() },
     })
-    const del = api.prompt.delete.useMutation({ onSuccess: async () => { await utils.prompt.list.invalidate(); router.push(root) } })
+    const del = api.prompt.delete.useMutation({ onSuccess: async () => { await Promise.all([utils.prompt.list.invalidate(), utils.prompt.page.invalidate()]); router.push(root) } })
 
     const dirty = text !== null && text !== base
     const changedElsewhere = !!p && p.body !== base

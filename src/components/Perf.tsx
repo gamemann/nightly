@@ -1,9 +1,13 @@
 "use client"
 import Link from "next/link"
-import { useMemo, useState } from "react"
+import { Suspense, useMemo, useState } from "react"
 import { api, type RouterOutputs } from "~/trpc/react"
 import { unitLabel, unitOf } from "../../lib/perf.mjs"
 import { ago } from "./pills"
+import { DataTable, type Column } from "./DataTable"
+import { useUrlParams } from "./Pagination"
+import { PERF_SPECS } from "~/lib/feedSpecs"
+import { parsePage, type Paged } from "~/lib/paging"
 import { Trends } from "./PerfTrends"
 
 type Game = RouterOutputs["perf"]["games"][number]
@@ -63,7 +67,7 @@ function Overview() {
                 {adding && <AddGame done={() => { setAdding(false); void games.refetch() }} />}
             </div>
             <h2 className="mt-6 mb-2 text-[13px] font-medium">Findings and fixes</h2>
-            <Rsi />
+            <Suspense><Rsi /></Suspense>
             <h2 className="mt-6 mb-2 text-[13px] font-medium">Ingest tokens</h2>
             <Tokens games={games.data?.map((g) => g.slug) ?? []} />
         </>
@@ -95,59 +99,50 @@ function AddGame({ done }: { done: () => void }) {
     )
 }
 
+type FindingRow = RouterOutputs["perf"]["findings"]["page"]["rows"][number]
+const opts = (xs?: string[]) => (xs ?? []).map((value) => ({ value }))
 function Findings({ game }: { game?: string }) {
-    const q = api.perf.findings.useQuery({ game }, { refetchInterval: 30_000 })
-    const rows = q.data ?? []
-    if (!rows.length) return <div className="rounded-lg border border-line px-3 py-4 text-center text-[12px] text-muted">No findings. A breached budget files one (and a queue item) automatically.</div>
-    return (
-        <table className="w-full text-[12px]">
-            <thead className="text-left text-muted"><tr><th className="py-1">Game</th><th>Metric</th><th>State</th><th>Value / limit</th><th>Queue item</th><th>Updated</th></tr></thead>
-            <tbody>
-                {rows.map((f) => (
-                    <tr key={f.id} className="border-t border-line">
-                        <td className="py-1"><Link className="hover:text-sky-300" href={`/perf/${f.game}`}>{f.game}</Link></td>
-                        <td className="font-mono">{f.metric}</td>
-                        <td><span className={`rounded px-1.5 ${f.status === "open" ? "bg-red-400/15 text-red-300" : "bg-emerald-400/15 text-emerald-300"}`}>{f.status}</span></td>
-                        <td className="tabular-nums">{f2(f.value)}{unitLabel(f.metric)} / {f2(f.limit)} {f.runId ? <Link className="text-muted hover:text-sky-300" href={`/perf/${f.game}/run/${f.runId}`}>#{f.runId}</Link> : null}</td>
-                        <td>{f.item ? <><Link className="font-mono hover:text-sky-300" href={`/item/${f.item.key}`}>{f.item.key}</Link><span className="ml-1 text-muted">({f.item.status})</span></> : "-"}</td>
-                        <td className="text-muted">{ago(f.updatedAt)}</td>
-                    </tr>
-                ))}
-            </tbody>
-        </table>
-    )
+    const { sp } = useUrlParams("f")
+    const q = parsePage(sp, PERF_SPECS.findings, "f")
+    const d = api.perf.findings.useQuery({ game, page: q.page, size: q.size, sort: q.sort, dir: q.dir, q: q.q || undefined, f: q.f }, { refetchInterval: 30_000, placeholderData: (p) => p })
+    const cols: Column<FindingRow>[] = [
+        ...(game ? [] : [{ key: "game", label: "Game", sortable: true, render: (f: FindingRow) => <Link className="hover:text-sky-300" href={`/perf/${f.game}`}>{f.game}</Link> }]),
+        { key: "metric", label: "Metric", sortable: true, className: "font-mono", render: (f) => f.metric },
+        { key: "status", label: "State", sortable: true, render: (f) => <span className={`rounded px-1.5 ${f.status === "open" ? "bg-red-400/15 text-red-300" : "bg-emerald-400/15 text-emerald-300"}`}>{f.status}</span> },
+        { key: "value", label: "Value / limit", className: "tabular-nums", render: (f) => <>{f2(f.value)}{unitLabel(f.metric)} / {f2(f.limit)} {f.runId ? <Link className="text-muted hover:text-sky-300" href={`/perf/${f.game}/run/${f.runId}`}>#{f.runId}</Link> : null}</> },
+        { key: "item", label: "Queue item", render: (f) => f.item ? <><Link className="font-mono hover:text-sky-300" href={`/item/${f.item.key}`}>{f.item.key}</Link><span className="ml-1 text-muted">({f.item.status})</span></> : "-" },
+        { key: "updatedAt", label: "Updated", sortable: true, className: "text-muted", render: (f) => ago(f.updatedAt) },
+    ]
+    const empty: Paged<FindingRow> = { rows: [], total: 0, page: 1, size: 100, pages: 1, from: 0, to: 0 }
+    return <DataTable ns="f" cols={cols} data={d.data?.page ?? empty} rowKey={(f) => f.id} sort={q.sort} dir={q.dir} q={q.q} active={q.f} searchHint="Search metric, game, item"
+        empty="No findings. A breached budget files one (and a queue item) automatically."
+        filters={[...(game ? [] : [{ key: "game", label: "Game", options: opts(d.data?.facets.game) }]), { key: "status", label: "State", options: opts(d.data?.facets.status) }]} />
 }
 
 const STATE: Record<string, string> = { found: "bg-red-400/15 text-red-300", fixed: "bg-amber-400/15 text-amber-300", remeasured: "bg-emerald-400/15 text-emerald-300", dismissed: "bg-hover text-muted" }
 const what = (f: { kind: string; metric: string; fn: string }) => (f.kind === "offender" ? `fn ${f.fn}` : f.metric)
 
 /** The RSI loop: found -> fixed (its queue item closed) -> remeasured (a later run in the same scope), with the before/after delta. */
+type RsiRow = RouterOutputs["perf"]["rsi"]["page"]["rows"][number]
 function Rsi({ game }: { game?: string }) {
-    const q = api.perf.rsi.useQuery({ game }, { refetchInterval: 30_000 })
-    const rows = q.data ?? []
-    if (!rows.length) return <div className="rounded-lg border border-line px-3 py-4 text-center text-[12px] text-muted">Nothing found yet. A breached budget, a regression against the previous runs or a top offender files a finding and a queue item; closing the item and running again remeasures it here.</div>
-    return (
-        <table className="w-full text-[12px]">
-            <thead className="text-left text-muted"><tr>{!game && <th className="py-1">Game</th>}<th className="py-1">Finding</th><th>Kind</th><th>State</th><th>Queue item</th><th className="text-right">Before</th><th className="text-right">After</th><th className="text-right">Delta</th></tr></thead>
-            <tbody>
-                {rows.map((f) => {
-                    const m = f.kind === "offender" ? "ms" : unitLabel(f.metric.replace(/^regress:/, "").replace(/@.*$/, ""))
-                    return (
-                        <tr key={f.id} className="border-t border-line">
-                            {!game && <td className="py-1"><Link className="hover:text-sky-300" href={`/perf/${f.game}`}>{f.game}</Link></td>}
-                            <td className="max-w-[18rem] truncate py-1 font-mono" title={f.note}>{what(f)}</td>
-                            <td className="text-muted">{f.kind}{f.cycles > 0 && <span title="completed fix cycles before this one"> x{f.cycles + 1}</span>}</td>
-                            <td><span className={`rounded px-1.5 ${STATE[f.state] ?? ""}`}>{f.state}</span></td>
-                            <td>{f.itemKey ? <><Link className="font-mono hover:text-sky-300" href={`/item/${f.itemKey}`}>{f.itemKey}</Link><span className="ml-1 text-muted">({f.itemStatus || "-"})</span></> : "-"}</td>
-                            <td className="text-right tabular-nums">{f.before != null ? `${f2(f.before, 3)}${m}` : f.state === "found" ? `${f2(f.value, 3)}${m}` : "-"}</td>
-                            <td className="text-right tabular-nums">{f.after != null ? <>{f2(f.after, 3)}{m} {f.remeasuredRunId && <Link className="text-muted hover:text-sky-300" href={`/perf/${f.game}/run/${f.remeasuredRunId}`}>#{f.remeasuredRunId}</Link>}{f.remeasuredRunId && f.runId && <Link className="ml-1 text-sky-300" title="differential flame graph: the run that found it vs the run after the fix" href={`/perf/diff/${f.runId}/${f.remeasuredRunId}`}>diff</Link>}</> : "-"}</td>
-                            <td className={`text-right tabular-nums ${f.delta == null ? "text-muted" : f.metric.includes("fps") ? (f.delta >= 0 ? "text-emerald-300" : "text-red-300") : f.delta <= 0 ? "text-emerald-300" : "text-red-300"}`}>{f.delta == null ? "-" : `${f.delta > 0 ? "+" : ""}${f2(f.delta, 3)}${f.pct != null ? ` (${f.pct > 0 ? "+" : ""}${f.pct.toFixed(0)}%)` : ""}`}</td>
-                        </tr>
-                    )
-                })}
-            </tbody>
-        </table>
-    )
+    const { sp } = useUrlParams("r")
+    const q = parsePage(sp, PERF_SPECS.rsi, "r")
+    const d = api.perf.rsi.useQuery({ game, page: q.page, size: q.size, sort: q.sort, dir: q.dir, q: q.q || undefined, f: q.f }, { refetchInterval: 30_000, placeholderData: (p) => p })
+    const unit = (f: RsiRow) => (f.kind === "offender" ? "ms" : unitLabel(f.metric.replace(/^regress:/, "").replace(/@.*$/, "")))
+    const cols: Column<RsiRow>[] = [
+        ...(game ? [] : [{ key: "game", label: "Game", sortable: true, render: (f: RsiRow) => <Link className="hover:text-sky-300" href={`/perf/${f.game}`}>{f.game}</Link> }]),
+        { key: "metric", label: "Finding", className: "max-w-[18rem] truncate font-mono", render: (f) => <span title={f.note}>{what(f)}</span> },
+        { key: "kind", label: "Kind", sortable: true, className: "text-muted", render: (f) => <>{f.kind}{f.cycles > 0 && <span title="completed fix cycles before this one"> x{f.cycles + 1}</span>}</> },
+        { key: "state", label: "State", sortable: true, render: (f) => <span className={`rounded px-1.5 ${STATE[f.state] ?? ""}`}>{f.state}</span> },
+        { key: "item", label: "Queue item", render: (f) => f.itemKey ? <><Link className="font-mono hover:text-sky-300" href={`/item/${f.itemKey}`}>{f.itemKey}</Link><span className="ml-1 text-muted">({f.itemStatus || "-"})</span></> : "-" },
+        { key: "before", label: "Before", className: "text-right tabular-nums", render: (f) => f.before != null ? `${f2(f.before, 3)}${unit(f)}` : f.state === "found" ? `${f2(f.value, 3)}${unit(f)}` : "-" },
+        { key: "after", label: "After", className: "text-right tabular-nums", render: (f) => f.after != null ? <>{f2(f.after, 3)}{unit(f)} {f.remeasuredRunId && <Link className="text-muted hover:text-sky-300" href={`/perf/${f.game}/run/${f.remeasuredRunId}`}>#{f.remeasuredRunId}</Link>}{f.remeasuredRunId && f.runId && <Link className="ml-1 text-sky-300" title="differential flame graph: the run that found it vs the run after the fix" href={`/perf/diff/${f.runId}/${f.remeasuredRunId}`}>diff</Link>}</> : "-" },
+        { key: "delta", label: "Delta", className: "text-right tabular-nums", render: (f) => <span className={f.delta == null ? "text-muted" : f.metric.includes("fps") ? (f.delta >= 0 ? "text-emerald-300" : "text-red-300") : f.delta <= 0 ? "text-emerald-300" : "text-red-300"}>{f.delta == null ? "-" : `${f.delta > 0 ? "+" : ""}${f2(f.delta, 3)}${f.pct != null ? ` (${f.pct > 0 ? "+" : ""}${f.pct.toFixed(0)}%)` : ""}`}</span> },
+    ]
+    const empty: Paged<RsiRow> = { rows: [], total: 0, page: 1, size: 100, pages: 1, from: 0, to: 0 }
+    return <DataTable ns="r" cols={cols} data={d.data?.page ?? empty} rowKey={(f) => f.id} sort={q.sort} dir={q.dir} q={q.q} active={q.f} searchHint="Search finding, game, item"
+        empty="Nothing found yet. A breached budget, a regression against the previous runs or a top offender files a finding and a queue item; closing the item and running again remeasures it here."
+        filters={[...(game ? [] : [{ key: "game", label: "Game", options: opts(d.data?.facets.game) }]), { key: "state", label: "State", options: opts(d.data?.facets.state) }, { key: "kind", label: "Kind", options: opts(d.data?.facets.kind) }]} />
 }
 
 /** Ingest tokens: per runner and/or per game. The secret is shown once; only its hash is stored. */
@@ -225,8 +220,8 @@ function GameView({ slug }: { slug: string }) {
             {tab === "trends" && <Trends game={slug} scope={scope} onTab={setTab} />}
             {tab === "runs" && <Runs game={slug} scope={scope} />}
             {tab === "offenders" && <Offenders game={slug} scope={scope} />}
-            {tab === "findings" && <Findings game={slug} />}
-            {tab === "rsi" && <Rsi game={slug} />}
+            {tab === "findings" && <Suspense><Findings game={slug} /></Suspense>}
+            {tab === "rsi" && <Suspense><Rsi game={slug} /></Suspense>}
             {tab === "budgets" && game && <Budgets game={game} />}
         </>
     )

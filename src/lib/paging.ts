@@ -14,19 +14,20 @@ const get = (p: Params, k: string) => {
     return (Array.isArray(v) ? v[0] : v) ?? ''
 }
 
-/** Reads and validates the paging params; anything unknown falls back to the default (sorts and filters are whitelists). */
-export function parsePage(p: Params, spec: PageSpec): PageQuery {
-    const size = Number(get(p, 'size'))
-    const sort = get(p, 'sort')
-    const d = get(p, 'dir')
+/** Reads and validates the paging params (`ns` prefixes every param name so several tables can share one URL); anything unknown falls back to the default (sorts and filters are whitelists). */
+export function parsePage(p: Params, spec: PageSpec, ns = ''): PageQuery {
+    const g = (k: string) => get(p, ns + k)
+    const size = Number(g('size'))
+    const sort = g('sort')
+    const d = g('dir')
     const f: Record<string, string> = {}
-    for (const k of spec.filters ?? []) { const v = get(p, k); if (v) f[k] = v }
+    for (const k of spec.filters ?? []) { const v = g(k); if (v) f[k] = v }
     return {
-        page: Math.max(1, Math.floor(Number(get(p, 'page'))) || 1),
+        page: Math.max(1, Math.floor(Number(g('page'))) || 1),
         size: (PAGE_SIZES as readonly number[]).includes(size) ? size : DEFAULT_SIZE,
         sort: spec.sorts.includes(sort) ? sort : spec.sort,
         dir: d === 'asc' || d === 'desc' ? d : spec.dir ?? 'asc',
-        q: get(p, 'q').trim().slice(0, 200),
+        q: g('q').trim().slice(0, 200),
         f,
     }
 }

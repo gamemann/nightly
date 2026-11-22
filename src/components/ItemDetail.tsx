@@ -1,13 +1,15 @@
 'use client'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useEffect, useRef, useState } from 'react'
+import { Suspense, useEffect, useRef, useState } from 'react'
 import { CADENCES, KINDS, STATUSES, STATUS_LABEL } from '~/lib/constants'
 import { clearDraft, readDraft, writeDraft } from '~/lib/drafts'
 import { api } from '~/trpc/react'
 import { Markdown } from './Markdown'
 import { PictureViewer } from "./PictureViewer"
 import { MarkdownEditor } from './MarkdownEditor'
+import { Pagination, useUrlParams } from './Pagination'
+import { parsePage } from '~/lib/paging'
 import { KindTag, RepoChips, StatusPill, ago, fmt } from './pills'
 
 type Patch = Parameters<ReturnType<typeof api.item.update.useMutation>['mutate']>[0]['patch']
@@ -113,7 +115,7 @@ export function ItemDetail({ itemKey }: { itemKey: string }) {
                     )}
                 </section>
                 <Attachments itemKey={it.key} items={it.attachments} />
-                <Notes itemKey={it.key} notes={it.notes} onAdded={invalidate} />
+                <Suspense><Notes itemKey={it.key} count={it._count.notes} onAdded={invalidate} /></Suspense>
             </div>
 
             <aside className="w-72 shrink-0 space-y-4 max-lg:w-full">
@@ -210,16 +212,35 @@ function Attachments({ itemKey, items }: { itemKey: string; items: AttachT[] }) 
 
 type NoteT = { id: number; author: string; body: string; createdAt: Date; run: { id: number; startedAt: Date } | null }
 
-function Notes({ itemKey, notes, onAdded }: { itemKey: string; notes: NoteT[]; onAdded: () => unknown }) {
+const NOTE_SPEC = { sorts: ['createdAt'], sort: 'createdAt', dir: 'desc', filters: ['author'] } as const
+
+function Notes({ itemKey, count, onAdded }: { itemKey: string; count: number; onAdded: () => unknown }) {
+    const utils = api.useUtils()
+    const { sp, set } = useUrlParams('n')
+    const nq = parsePage(sp, NOTE_SPEC, 'n')
+    const [find, setFind] = useState(nq.q)
+    useEffect(() => { if (find === nq.q) return; const t = setTimeout(() => set({ q: find }), 300); return () => clearTimeout(t) }, [find]) // eslint-disable-line react-hooks/exhaustive-deps
+    const list = api.note.list.useQuery({ key: itemKey, page: nq.page, size: nq.size, sort: 'createdAt', dir: 'desc', q: nq.q || undefined, f: nq.f }, { placeholderData: (p) => p })
+    const notes: NoteT[] = list.data?.page.rows ?? []
+    const refresh = async () => { await Promise.all([utils.note.list.invalidate(), onAdded()]) }
     const draftId = `${itemKey}:note`
     const [text, setText] = useState(() => readDraft(draftId)?.text ?? '')
     const edit = (v: string) => { setText(v); writeDraft(draftId, v, '') }
-    const add = api.note.add.useMutation({ onSuccess: async () => { setText(''); clearDraft(draftId); await onAdded() } })
-    const del = api.note.delete.useMutation({ onSuccess: onAdded })
+    const add = api.note.add.useMutation({ onSuccess: async () => { setText(''); clearDraft(draftId); await refresh() } })
+    const del = api.note.delete.useMutation({ onSuccess: refresh })
     const submit = () => text.trim() && add.mutate({ key: itemKey, body: text })
     return (
         <section className="mt-8">
-            <span className="label">Notes · {notes.length}</span>
+            <div className="flex flex-wrap items-center gap-2">
+                <span className="label">Notes · {count}</span>
+                {count > 5 && <input className="input w-44" placeholder="Search notes" aria-label="search notes" value={find} onChange={(e) => setFind(e.target.value)} />}
+                {(list.data?.facets.author.length ?? 0) > 1 && (
+                    <select className="select w-32" aria-label="author" value={nq.f.author ?? ''} onChange={(e) => set({ author: e.target.value })}>
+                        <option value="">all authors</option>
+                        {list.data?.facets.author.map((a) => <option key={a} value={a}>{a}</option>)}
+                    </select>
+                )}
+            </div>
             <ol className="relative mt-3 space-y-4 border-l border-line pl-5">
                 {notes.map((n) => (
                     <li key={n.id} className="group relative">
@@ -244,6 +265,7 @@ function Notes({ itemKey, notes, onAdded }: { itemKey: string; notes: NoteT[]; o
                     </div>
                 </li>
             </ol>
+            {list.data && list.data.page.total > list.data.page.size && <Pagination p={list.data.page} ns="n" />}
         </section>
     )
 }

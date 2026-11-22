@@ -1,6 +1,6 @@
 import { RsiBoard } from "~/components/RsiBoard"
 import { parsePage } from "~/lib/paging"
-import { FINDING_SPEC, loadBoard } from "~/server/rsiBoard"
+import { BLOCKER_SPEC, FINDING_SPEC, WORST_SPEC, loadBoard } from "~/server/rsiBoard"
 
 export const dynamic = "force-dynamic"
 
@@ -9,5 +9,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
     const sp = await searchParams
     const tier = Array.isArray(sp.tier) ? sp.tier[0] : sp.tier
     const q = parsePage(sp, FINDING_SPEC)
-    return <RsiBoard b={await loadBoard(tier, q)} q={q} />
+    const bq = parsePage(sp, BLOCKER_SPEC, "b")
+    const wq = parsePage(sp, WORST_SPEC, "w")
+    return <RsiBoard b={await loadBoard(tier, q, bq, wq)} q={q} bq={bq} wq={wq} />
 }

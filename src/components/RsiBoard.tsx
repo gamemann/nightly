@@ -2,8 +2,9 @@ import Link from "next/link"
 import { BarList, Donut } from "./PerfChart"
 import { OverviewStats } from "./OverviewStats"
 import { FindingsTable } from "./FindingsTable"
+import { DataTable, type Column } from "./DataTable"
 import type { PageQuery } from "~/lib/paging"
-import type { Board, DomainStat, Finding } from "~/server/rsiBoard"
+import type { Board, DomainStat, Finding, WorstAsset } from "~/server/rsiBoard"
 import { TIERS } from "~/server/rsiBoard"
 
 const scoreCls = (s: number) => (s >= 70 ? "text-emerald-300" : s >= 40 ? "text-amber-300" : "text-red-300")
@@ -36,7 +37,21 @@ function DomainCard({ d }: { d: DomainStat }) {
     )
 }
 
-export function RsiBoard({ b, q }: { b: Board; q: PageQuery }) {
+const WORST_COLS: Column<WorstAsset>[] = [
+    { key: "subject", label: "Asset", sortable: true, render: (w) => (w.assetId ? <Link href={`/assets/${w.assetId}`} className="hover:underline">{w.subject}</Link> : w.subject) },
+    { key: "score", label: "Score", sortable: true, className: "tabular-nums", render: (w) => <span className={scoreCls(w.score)}>{Math.round(w.score)}{w.before != null && w.before !== w.score && <span className="text-muted"> (was {Math.round(w.before)})</span>}</span> },
+    { key: "codes", label: "Open flags", render: (w) => <>{w.codes.map((c) => <span key={`${c.code}${c.tier}`} className={`mr-1 inline-block rounded px-1.5 py-px text-[11px] ${sevCls(c.severity)}`}>{c.code}{c.tier ? ` ${c.tier}` : ""}</span>)}</> },
+    { key: "next", label: "Next action", className: "text-dim", render: (w) => w.nextAction },
+]
+const BLOCKER_COLS: Column<Finding>[] = [
+    { key: "subject", label: "Subject", sortable: true, render: (x) => <Link href={x.href} className="hover:underline">{x.subject}</Link> },
+    { key: "code", label: "Code", sortable: true, render: (x) => <span className={`rounded px-1.5 py-px text-[11px] ${sevCls(x.severity)}`}>{x.code}</span> },
+    { key: "severity", label: "Severity", sortable: true, className: "text-dim", render: (x) => x.severity },
+    { key: "msg", label: "Detail", className: "text-dim", render: (x) => x.msg },
+    { key: "next", label: "Next action", render: (x) => x.nextAction },
+]
+
+export function RsiBoard({ b, q, bq, wq }: { b: Board; q: PageQuery; bq: PageQuery; wq: PageQuery }) {
     return (
         <div className="mx-auto max-w-6xl px-6 py-6">
             <OverviewStats />
@@ -58,35 +73,14 @@ export function RsiBoard({ b, q }: { b: Board; q: PageQuery }) {
             )}
             <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">{b.domains.map((d) => <DomainCard key={d.domain} d={d} />)}</div>
             <section className="mb-6">
-                <h2 className="mb-1 text-[13px] font-semibold">Worst-scoring assets first</h2>
-                <table className="w-full text-left text-[12px]">
-                    <thead className="text-[11px] text-muted"><tr><th className="pr-3 font-normal">Asset</th><th className="pr-3 font-normal">Score</th><th className="pr-3 font-normal">Open flags</th><th className="font-normal">Next action</th></tr></thead>
-                    <tbody>
-                        {b.worst.map((w) => (
-                            <tr key={w.subject} className="border-t border-line/60 align-top">
-                                <td className="py-1.5 pr-3">{w.assetId ? <Link href={`/assets/${w.assetId}`} className="hover:underline">{w.subject}</Link> : w.subject}</td>
-                                <td className={`pr-3 tabular-nums ${scoreCls(w.score)}`}>{Math.round(w.score)}{w.before != null && w.before !== w.score && <span className="text-muted"> (was {Math.round(w.before)})</span>}</td>
-                                <td className="pr-3">{w.codes.map((c) => <span key={`${c.code}${c.tier}`} className={`mr-1 inline-block rounded px-1.5 py-px text-[11px] ${sevCls(c.severity)}`}>{c.code}{c.tier ? ` ${c.tier}` : ""}</span>)}</td>
-                                <td className="text-dim">{w.nextAction}</td>
-                            </tr>
-                        ))}
-                        {!b.worst.length && <tr><td colSpan={4} className="py-2 text-dim">No open asset findings{b.lastRefresh ? "." : ": the first scheduled audit refresh has not run yet (nightly rsi refresh)."}</td></tr>}
-                    </tbody>
-                </table>
+                <h2 className="mb-2 text-[13px] font-semibold">Worst-scoring assets first</h2>
+                <DataTable ns="w" cols={WORST_COLS} data={b.worst} rowKey={(w) => w.subject} sort={wq.sort} dir={wq.dir} q={wq.q} searchHint="Search asset"
+                    empty={`No open asset findings${b.lastRefresh ? "." : ": the first scheduled audit refresh has not run yet (nightly rsi refresh)."}`} />
             </section>
-            <section className="mb-6 rounded-lg border border-line p-3">
-                <h2 className="mb-1 text-[13px] font-semibold">Blockers <span className="font-normal text-dim">({b.blockerTotal}{b.blockerTotal > b.blockers.length ? `, newest ${b.blockers.length} shown` : ""}): stale, duplicate and blocked items, each with its next action</span></h2>
-                {b.blockers.length === 0 && <p className="text-[12px] text-dim">No blockers detected.</p>}
-                <table className="w-full text-left text-[12px]"><tbody>
-                    {b.blockers.map((x) => (
-                        <tr key={x.id} className="border-t border-line/60 align-top">
-                            <td className="py-1.5 pr-3"><Link href={x.href} className="hover:underline">{x.subject}</Link></td>
-                            <td className="pr-3"><span className={`rounded px-1.5 py-px text-[11px] ${sevCls(x.severity)}`}>{x.code}</span></td>
-                            <td className="pr-3 text-dim">{x.msg}</td>
-                            <td>{x.nextAction}</td>
-                        </tr>
-                    ))}
-                </tbody></table>
+            <section className="mb-6">
+                <h2 className="mb-1 text-[13px] font-semibold">Blockers <span className="font-normal text-dim">stale, duplicate and blocked items, each with its next action</span></h2>
+                <DataTable ns="b" cols={BLOCKER_COLS} data={b.blockers} rowKey={(x) => x.id} sort={bq.sort} dir={bq.dir} q={bq.q} active={bq.f} searchHint="Search blockers" empty="No blockers detected."
+                    filters={[{ key: "code", label: "Code", options: b.blockerCodes.map((value) => ({ value })) }, { key: "severity", label: "Severity", options: [{ value: "error" }, { value: "warn" }, { value: "info" }] }]} />
             </section>
             <section id="findings" className="mb-6">
                 <h2 className="mb-2 text-[13px] font-semibold">All findings <span className="font-normal text-dim">(search, filter and sort; the database does the work)</span></h2>

@@ -4,14 +4,14 @@ import { useState } from 'react'
 import { PAGE_SIZES, type Paged } from '~/lib/paging'
 
 /** Writes some URL params (empty removes them) and keeps the others; any change except `page` itself returns to page 1. */
-export function useUrlParams() {
+export function useUrlParams(ns = '') {
     const router = useRouter()
     const path = usePathname()
     const sp = useSearchParams()
     const set = (o: Record<string, string>) => {
         const n = new URLSearchParams(sp.toString())
-        for (const [k, v] of Object.entries(o)) v ? n.set(k, v) : n.delete(k)
-        if (!('page' in o)) n.delete('page')
+        for (const [k, v] of Object.entries(o)) v ? n.set(ns + k, v) : n.delete(ns + k)
+        if (!('page' in o)) n.delete(ns + 'page')
         const s = n.toString()
         router.replace(s ? `${path}?${s}` : path, { scroll: false })
     }
@@ -19,8 +19,8 @@ export function useUrlParams() {
 }
 
 /** "rows a-b of N", page-size selector, prev/next and a page jump. Shared by every list. */
-export function Pagination({ p }: { p: Pick<Paged<unknown>, 'total' | 'page' | 'size' | 'pages' | 'from' | 'to'> }) {
-    const { set } = useUrlParams()
+export function Pagination({ p, ns = '' }: { p: Pick<Paged<unknown>, 'total' | 'page' | 'size' | 'pages' | 'from' | 'to'>; ns?: string }) {
+    const { set } = useUrlParams(ns)
     const [jump, setJump] = useState('')
     const go = (n: number) => set({ page: n <= 1 ? '' : String(Math.min(p.pages, n)) })
     const btn = 'rounded border border-line px-2 py-0.5 text-[12px] enabled:hover:bg-hover disabled:opacity-40'
