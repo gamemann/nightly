@@ -5,6 +5,9 @@ import { useEffect, useState } from 'react'
 import { api, type RouterOutputs } from '~/trpc/react'
 import { useDebounced } from './ItemList'
 import { StatusPill, ago } from './pills'
+import { Legend, Panel, Timeline } from './Charts'
+import { Sparkline } from './PerfChart'
+import { COLOR, RUN_STATES, fmtMinutes, perSchedule, timelineOf } from '../../lib/charts.mjs'
 
 type Schedule = RouterOutputs['schedule']['list'][number]
 
@@ -65,11 +68,56 @@ export function Schedules() {
                 </div>
             )}
 
+            {!!list.data?.length && <ScheduleCharts schedules={list.data} />}
+
             {list.isLoading && <div className="p-6 text-center text-muted">Loading…</div>}
             {list.data?.length === 0 && <div className="rounded-lg border border-line p-10 text-center text-muted">No schedules. Nothing starts on its own.</div>}
             <div className="space-y-3">
                 {list.data?.map((s) => <ScheduleCard key={s.id} s={s} paused={!doRun} onStarted={(id) => router.push(`/runs/${id}`)} />)}
             </div>
+        </div>
+    )
+}
+
+const HOURS = 72
+
+/** Next fires of every enabled schedule on one timeline, and how each schedule has been doing. */
+function ScheduleCharts({ schedules }: { schedules: Schedule[] }) {
+    const router = useRouter()
+    const runs = api.run.list.useQuery({}, { refetchInterval: 60_000 })
+    const live = schedules.filter((s) => s.enabled)
+    const fires = timelineOf(live.flatMap((s) => s.next.map((at) => ({ scheduleId: s.id, name: s.name, at }))), { hours: HOURS })
+    const stats = perSchedule((runs.data ?? []).filter((r) => r.schedule))
+    const byId = new Map(stats.map((x) => [x.id, x]))
+    const jump = (id: number | string | undefined) => document.getElementById(`schedule-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    return (
+        <div className="mb-4 grid gap-3 md:grid-cols-2">
+            <Panel title="Next runs" subtitle={`Upcoming starts of enabled schedules, next ${HOURS} hours (local time). Click a dot to jump to its schedule.`}
+                empty={fires.length === 0 && (live.length ? `Nothing is due in the next ${HOURS} hours.` : 'No enabled schedule.')}>
+                <Timeline ariaLabel="Upcoming scheduled runs" hours={HOURS} onEvent={jump}
+                    events={fires.map((f) => ({ key: `${f.scheduleId}-${f.t}`, lane: f.name, id: f.scheduleId, inHours: f.inHours, label: `${f.name}: ${when(new Date(f.t))} (in ${f.inHours < 1 ? `${Math.round(f.inHours * 60)} min` : `${f.inHours.toFixed(1)} h`})` }))} />
+            </Panel>
+            <Panel title="Success per schedule" subtitle="Share of the last 20 runs that completed (ok or findings), rolling over 5. Click a row for its latest run."
+                empty={runs.isSuccess && stats.length === 0 && 'No scheduled run yet.'}
+                legend={<Legend items={RUN_STATES.slice(0, 3).map((s) => ({ label: s.label, color: s.color }))} />}>
+                <ul className="space-y-1">
+                    {schedules.map((s) => {
+                        const x = byId.get(s.id)
+                        const last = x?.strip.at(-1)
+                        return (
+                            <li key={s.id}>
+                                <button type="button" disabled={!last} onClick={() => last && router.push(`/runs/${last.id}`)} title={x ? `${s.name}: ${x.total} runs, median ${fmtMinutes(x.medianMinutes)}` : `${s.name}: no runs yet`}
+                                    className="flex w-full items-center gap-3 rounded px-1 py-0.5 text-left text-[12px] enabled:hover:bg-hover">
+                                    <span className="w-32 shrink-0 truncate text-dim">{s.name}</span>
+                                    <Sparkline values={x?.roll ?? []} w={80} h={22} color={COLOR.info} label={`${s.name} success rate trend, percent`} />
+                                    <span className="flex gap-[2px]" aria-hidden>{x?.strip.slice(-12).map((r) => <span key={r.id} className="h-3 w-1.5 rounded-[1px]" style={{ background: RUN_STATES.find((t) => t.key === r.state)?.color }} />)}</span>
+                                    <span className="ml-auto w-24 shrink-0 text-right tabular-nums text-muted">{x?.rate == null ? 'no runs' : `${Math.round(x.rate * 100)}% of ${Math.min(20, x.total)}`}</span>
+                                </button>
+                            </li>
+                        )
+                    })}
+                </ul>
+            </Panel>
         </div>
     )
 }
@@ -93,7 +141,7 @@ function ScheduleCard({ s, paused, onStarted }: { s: Schedule; paused: boolean; 
     const err = update.error?.data?.zodError?.fieldErrors ?? {}
 
     return (
-        <div className={`rounded-lg border bg-panel/40 ${s.enabled ? 'border-line' : 'border-line/60 opacity-80'}`}>
+        <div id={`schedule-${s.id}`} className={`rounded-lg border bg-panel/40 ${s.enabled ? 'border-line' : 'border-line/60 opacity-80'}`}>
             <div className="flex items-center gap-3 px-4 py-3 max-md:flex-wrap">
                 <button role="switch" aria-checked={s.enabled} title={s.enabled ? 'Enabled' : 'Disabled'} onClick={() => save({ enabled: !s.enabled })}
                     className={`relative h-5 w-9 shrink-0 rounded-full transition ${s.enabled ? 'bg-emerald-500' : 'bg-zinc-700'}`}>
