@@ -117,6 +117,7 @@ const HELP = `nightly -- the nightly run's to-do database (${S.DB_PATH})
   assets refresh                                run rsi_asset_audit.py for every texture tier (setting rsiTiers), ingest and sync findings (tick does this every rsiRefreshHours)
   rsi board|sync|refresh                        the RSI board: findings per domain; sync = stale/duplicate/blocked pass (auto-closes non-owner stale items)
   assets thumbs [id...] [--force] [--limit N] [--wait]   (re)generate the 128x96 webp thumbnails (textures downscaled, models rendered in software, cached beside the audit data, regenerated when the file hash changes); runs detached unless --wait
+  assets history [--pack P] [--limit N] [--json]   audit trend: one row per pack per ingest (oldest first; the history keeps counts and average score per pack, not per kind)
   assets summary                                per-pack counts and average score
   usage ingest [--full] [--dir D] [--no-ch] [--resync]   read Claude Code transcripts (usageDirs setting, default ~/.claude/projects) into the usage tables; pushes to ClickHouse when enabled
   usage summary [--days N] [--source ch]        tokens and estimated cost today/7d/30d/all
@@ -664,7 +665,7 @@ function cmdRsi(forced) {
 }
 
 function cmdAssets() {
-    const sub = pos.shift() ?? die('assets migrate|source|kind|config|scan|ingest|list|show|summary|thumbs')
+    const sub = pos.shift() ?? die('assets migrate|source|kind|config|scan|ingest|list|show|history|summary|thumbs')
     if (sub === 'migrate') { const bak = AS.migrate(db, { backup: true, dbPath: S.DB_PATH }); return out({ ok: true, backup: bak }, () => `assets table ready${bak ? `; database backed up to ${bak}` : ''}`) }
     if (sub === 'refresh') return cmdRsi('refresh')
     if (sub === 'source' || sub === 'sources') return ASC.sourceCmd(db, pos, opt, out, die)
@@ -697,6 +698,10 @@ function cmdAssets() {
             `flags (${d.flags?.length ?? 0}):`, ...(d.flags ?? []).map((f) => `  ${f.severity.padEnd(5)} ${f.code}  ${f.msg}`),
         ].join('\n'))
     }
+    if (sub === 'history') {
+        const rows = AS.history(db, { pack: opt.pack ? String(opt.pack) : undefined, limit: opt.limit ? int(opt.limit, '--limit') : 60 })
+        return out(rows, () => rows.map((r) => `${S.local(r.at)}  ${r.pack.padEnd(24)} ${String(r.total).padStart(5)} assets  ${String(r.pass).padStart(5)} pass  avg ${String(r.avgScore).padStart(3)}`).join('\n') || '(no audit history yet: nightly assets refresh)')
+    }
     if (sub === 'summary') {
         const rows = AS.summary(db, { kind: opt.kind })
         return out(rows, () => rows.map((r) => `${r.pack.padEnd(24)} ${String(r.weapons).padStart(4)} assets  ${r.pass ?? 0} pass  avg ${r.avg_score}  ${r.audited} audited`).join('\n'))
@@ -711,7 +716,7 @@ function cmdAssets() {
         AS.ready(db)
         return TH.generate(db, { force: !!opt.force, limit: Number(opt.limit) || 0, ids: pos.length ? pos.map(Number).filter(Number.isInteger) : null }).then((r) => out(r, () => `${r.total} assets: ${r.made} made, ${r.fresh} up to date, ${r.none} without an image, ${r.error} failed`))
     }
-    die('assets migrate|source|kind|config|scan|ingest|list|show|summary|thumbs')
+    die('assets migrate|source|kind|config|scan|ingest|list|show|history|summary|thumbs')
 }
 
 function cmdPerf() {

@@ -68,6 +68,9 @@ export function Sidebar() {
                     <span className="w-2 text-center text-[11px] text-muted">▸</span><span className="max-md:hidden">Runs &amp; reports</span>
                 </Link>
                 <div className="px-2 pb-0.5 pt-2 text-[11px] uppercase tracking-wide text-muted max-md:hidden"><Link href="/" className="hover:text-fg">RSI</Link></div>
+                <Link href="/rsi" className={link('/rsi', path.startsWith('/rsi'))} title="RSI findings">
+                    <span className="w-2 text-center text-[11px] text-muted">✓</span><span className="max-md:hidden">Findings</span>
+                </Link>
                 <Link href="/perf" className={link('/perf', path.startsWith('/perf'))} title="Performance">
                     <span className="w-2 text-center text-[11px] text-muted">⏱</span><span className="max-md:hidden">Performance</span>
                 </Link>
