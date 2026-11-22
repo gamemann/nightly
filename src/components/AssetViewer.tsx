@@ -2,7 +2,8 @@
 import { useEffect, useRef, useState } from "react"
 import type * as T from "three"
 
-type Opts = { wire: boolean; unlit: boolean; bbox: boolean; grid: boolean; light: string; fly: boolean; collision: boolean; trigger: boolean; entity: boolean }
+type Opts = { wire: boolean; unlit: boolean; bbox: boolean; grid: boolean; light: string; fly: boolean; collision: boolean; trigger: boolean; entity: boolean; view: View }
+type View = "converted" | "original" | "split"
 type Spawn = { x: number; y: number; z: number; yaw: number; team: string }
 const LIGHTS = ["studio", "outdoor", "dark rim", "flat"]
 type Api = { apply: (o: Opts) => void; reset: () => void; spawn: (i: number) => void }
@@ -10,15 +11,18 @@ type Api = { apply: (o: Opts) => void; reset: () => void; spawn: (i: number) => 
 /** three.js viewer: orbit (left drag), pan (right drag), zoom (wheel); wireframe, textured/unlit, lighting presets, bounding box (metres) and grid.
  *  `map` (a converted map GLB): starts in free-fly (click to capture the mouse; W/A/S/D move, mouse look, Shift fast, Space up, Ctrl down,
  *  wheel changes speed, Esc releases), with toggles for the collision / trigger / spawn overlay meshes (nodes named collision_*, trigger_*, entity_*)
- *  and jump-to-spawn from the spawn list in the scene extras. Orbit stays available as a toggle. */
-export function AssetViewer({ url, bbox, textures, map }: { url: string; bbox?: number[]; textures?: { name: string; url: string }[]; map?: boolean }) {
+ *  and jump-to-spawn from the spawn list in the scene extras. Orbit stays available as a toggle.
+ *  `original` (a map's source BSP exported to GLB in the same frame): adds converted / original / split views; the split view draws the
+ *  original on the left and the converted map on the right through ONE camera, so fly and orbit move both at once. */
+export function AssetViewer({ url, bbox, textures, map, original }: { url: string; bbox?: number[]; textures?: { name: string; url: string }[]; map?: boolean; original?: string }) {
     const box = useRef<HTMLDivElement>(null)
     const api = useRef<Api | null>(null)
-    const [o, setO] = useState<Opts>({ wire: false, unlit: false, bbox: !map, grid: !map, light: map ? "outdoor" : "studio", fly: !!map, collision: false, trigger: false, entity: true })
+    const [o, setO] = useState<Opts>({ wire: false, unlit: false, bbox: !map, grid: !map, light: map ? "outdoor" : "studio", fly: !!map, collision: false, trigger: false, entity: true, view: "converted" })
     const [spawns, setSpawns] = useState<Spawn[]>([])
     const [speed, setSpeed] = useState(0)
     const [locked, setLocked] = useState(false)
     const [state, setState] = useState("loading")
+    const [ostate, setOstate] = useState(original ? "loading" : "")
     const optsRef = useRef(o)
     optsRef.current = o
     useEffect(() => { api.current?.apply(o) }, [o])
@@ -42,6 +46,8 @@ export function AssetViewer({ url, bbox, textures, map }: { url: string; bbox?: 
             const controls = new OrbitControls(camera, renderer.domElement)
             controls.enableDamping = true
             let root: T.Object3D | null = null
+            let rootO: T.Object3D | null = null
+            let view: View = "converted"
             let helper: T.Box3Helper | null = null
             let grid: T.GridHelper | null = null
             const sphere = new THREE.Sphere(new THREE.Vector3(), 1)
@@ -86,7 +92,7 @@ export function AssetViewer({ url, bbox, textures, map }: { url: string; bbox?: 
                 camera.position.set(p.x, p.y + 1.7, p.z)
                 fly.yaw = (p.yaw * Math.PI) / 180; fly.pitch = 0; setAngles()
             }
-            const resize = () => { const w = el.clientWidth, h = el.clientHeight; renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix() }
+            const resize = () => { const w = el.clientWidth, h = el.clientHeight; renderer.setSize(w, h); camera.aspect = (view === "split" ? w / 2 : w) / h; camera.updateProjectionMatrix() }
             const ro = new ResizeObserver(resize)
             ro.observe(el)
             resize()
@@ -110,7 +116,8 @@ export function AssetViewer({ url, bbox, textures, map }: { url: string; bbox?: 
                 if (helper) helper.visible = op.bbox
                 if (grid) grid.visible = op.grid
                 setFly(!!map && op.fly)
-                root?.traverse((n) => {
+                if (view !== op.view) { view = op.view; resize() }
+                for (const r of [root, rootO]) r?.traverse((n) => {
                     const m = n as T.Mesh
                     if (map && n.name) { if (n.name.startsWith("collision_")) n.visible = op.collision; else if (n.name.startsWith("trigger_")) n.visible = op.trigger; else if (n.name.startsWith("entity_")) n.visible = op.entity }
                     if (!m.isMesh) return
@@ -127,6 +134,15 @@ export function AssetViewer({ url, bbox, textures, map }: { url: string; bbox?: 
                 })
             }
             api.current = { apply, reset, spawn: toSpawn }
+            if (original) {
+                new GLTFLoader().load(original, (g) => {
+                    if (dead) return
+                    rootO = g.scene; scene.add(rootO); apply(optsRef.current)
+                    let t = 0
+                    rootO.traverse((n) => { const m = n as T.Mesh; if (m.isMesh) t += (m.geometry.index ? m.geometry.index.count : m.geometry.attributes.position.count) / 3 })
+                    setOstate(`ok ${Math.round(t)} tris`)
+                }, undefined, (e) => setOstate(`failed: ${(e as Error).message ?? e}`))
+            }
             // external texture URIs (Textures/colormap.png) are relative to the source file, which the browser cannot see: map them by stem to the file route
             const mgr = new THREE.LoadingManager()
             mgr.setURLModifier((u) => {
@@ -187,7 +203,14 @@ export function AssetViewer({ url, bbox, textures, map }: { url: string; bbox?: 
                     if (k.has("Space")) camera.position.y += v
                     if (k.has("ControlLeft") || k.has("ControlRight")) camera.position.y -= v
                 } else controls.update()
-                renderer.render(scene, camera)
+                const w = el.clientWidth, h = el.clientHeight
+                const show = (c: boolean, orig: boolean) => { if (root) root.visible = c; if (rootO) rootO.visible = orig }
+                if (view === "split") {
+                    renderer.setScissorTest(true)
+                    renderer.setViewport(0, 0, w / 2, h); renderer.setScissor(0, 0, w / 2, h); show(false, true); renderer.render(scene, camera)
+                    renderer.setViewport(w / 2, 0, w / 2, h); renderer.setScissor(w / 2, 0, w / 2, h); show(true, false); renderer.render(scene, camera)
+                    renderer.setScissorTest(false); renderer.setViewport(0, 0, w, h)
+                } else { show(view !== "original", view === "original"); renderer.render(scene, camera) }
             }
             tick()
             cleanup = () => {
@@ -200,16 +223,19 @@ export function AssetViewer({ url, bbox, textures, map }: { url: string; bbox?: 
             }
         })()
         return () => { dead = true; api.current = null; cleanup() }
-    }, [url])
+    }, [url, original])
     const btn = (on: boolean) => `rounded-md px-2 py-0.5 text-[12px] ${on ? "bg-sky-400/20 text-sky-200" : "bg-hover text-dim hover:text-fg"}`
     return (
         <div>
             <div ref={box} data-testid="asset-viewer" className={`relative ${map ? "h-[600px]" : "h-[460px]"} w-full overflow-hidden rounded-lg border border-line bg-[#15161a]`}>
                 {state === "loading" && <div className="absolute inset-0 grid place-items-center text-[12px] text-muted">loading model</div>}
                 {state.startsWith("failed") && <div className="absolute inset-0 grid place-items-center text-[12px] text-red-300">{state}</div>}
+                {original && o.view === "split" && <div className="pointer-events-none absolute inset-y-0 left-1/2 w-px bg-sky-300/60" />}
+                {original && o.view !== "converted" && <div className="pointer-events-none absolute left-2 top-1 text-[11px] text-sky-200">{o.view === "split" ? "original (left) | converted (right)" : "original"}{ostate.startsWith("failed") ? ` ${ostate}` : ""}</div>}
                 <div className="pointer-events-none absolute bottom-1 left-2 text-[11px] text-muted">{map && o.fly ? (locked ? `W/A/S/D move, mouse look, Shift fast, Space up, Ctrl down, wheel speed (${speed.toFixed(1)} m/s), Esc releases` : "click the view to fly (captures the mouse)") : "left drag orbit, right drag pan, wheel zoom"}{bbox?.length === 3 ? ` | bbox ${bbox.map((v) => v.toFixed(2)).join(" x ")} m` : ""}</div>
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                {original && (["converted", "original", "split"] as View[]).map((v) => <button key={v} className={btn(o.view === v)} onClick={() => setO({ ...o, view: v })} data-testid={`view-${v}`}>{v}</button>)}
                 {map && <button className={btn(o.fly)} onClick={() => setO({ ...o, fly: !o.fly })} data-testid="fly-toggle">{o.fly ? "fly camera" : "orbit camera"}</button>}
                 {map && <button className={btn(o.collision)} onClick={() => setO({ ...o, collision: !o.collision })}>collision</button>}
                 {map && <button className={btn(o.trigger)} onClick={() => setO({ ...o, trigger: !o.trigger })}>triggers</button>}
@@ -221,7 +247,7 @@ export function AssetViewer({ url, bbox, textures, map }: { url: string; bbox?: 
                 <button className={btn(o.grid)} onClick={() => setO({ ...o, grid: !o.grid })}>grid</button>
                 <select className="rounded-md border border-line bg-panel px-1.5 py-0.5 text-[12px]" value={o.light} onChange={(e) => setO({ ...o, light: e.target.value })}>{LIGHTS.map((l) => <option key={l}>{l}</option>)}</select>
                 <button className={btn(false)} onClick={() => api.current?.reset()}>reset view</button>
-                <span className="text-[11px] text-muted">{state.startsWith("ok") ? state.slice(3) : ""}</span>
+                <span className="text-[11px] text-muted">{state.startsWith("ok") ? state.slice(3) : ""}{original && ostate.startsWith("ok") ? ` (original ${ostate.slice(3)})` : ""}</span>
             </div>
         </div>
     )
