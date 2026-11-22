@@ -127,6 +127,16 @@ export const perfRouter = router({
         return { points, budgets, markers: regressionMarkers(points, input.metric) }
     }),
 
+    /** Every metric of the newest runs of a scope in one query (oldest first), plus the budgets that apply to the scope:
+     *  what the Trends dashboard shapes into charts, cards, heatmap and diffs (lib/perf-chart.mjs). */
+    trendAll: procedure.input(scope.extend({ limit: z.number().int().min(2).max(1000).default(120) })).query(async ({ ctx, input }) => {
+        const rows = await ctx.db.perfRun.findMany({ where: runWhere(input), orderBy: [{ ranAt: 'desc' }, { id: 'desc' }], take: input.limit, select: { id: true, ranAt: true, commit: true, build: true, label: true, platform: true, role: true, map: true, bots: true, metrics: { select: { name: true, value: true } } } })
+        const runs = rows.reverse().map((r) => ({ id: r.id, ranAt: r.ranAt.toISOString(), commit: r.commit, build: r.build, label: r.label, platform: r.platform, role: r.role, map: r.map, bots: r.bots, metrics: Object.fromEntries(r.metrics.map((m) => [m.name, m.value])) as Record<string, number> }))
+        const game = await ctx.db.perfGame.findUnique({ where: { slug: input.game } })
+        const budgets = json<Budget[]>(game?.budgets ?? '[]', []).filter((b) => (!b.platform || !input.platform || b.platform === input.platform) && (!b.role || !input.role || b.role === input.role) && (!b.map || b.map === input.map) && (b.bots === undefined || b.bots === input.bots))
+        return { runs, budgets }
+    }),
+
     /** Visuals of one run: flame graph, hitch timeline, screenshots. The SVG strings come from lib/perf-viz (all text escaped). */
     viz: procedure.input(z.object({ id: z.number().int() })).query(async ({ ctx, input }) => {
         const r = await ctx.db.perfRun.findUnique({ where: { id: input.id }, include: { funcs: true } })

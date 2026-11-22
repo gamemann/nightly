@@ -4,6 +4,7 @@ import { useMemo, useState } from "react"
 import { api, type RouterOutputs } from "~/trpc/react"
 import { unitLabel, unitOf } from "../../lib/perf.mjs"
 import { ago } from "./pills"
+import { Trends } from "./PerfTrends"
 
 type Game = RouterOutputs["perf"]["games"][number]
 type Func = RouterOutputs["perf"]["run"]["funcs"][number]
@@ -221,7 +222,7 @@ function GameView({ slug }: { slug: string }) {
                 ))}
                 <span className="ml-auto flex flex-wrap gap-2">{sel("platform", "platform")}{sel("role", "role")}{sel("map", "map")}{sel("bots", "bots")}</span>
             </div>
-            {tab === "trends" && <Trends game={slug} scope={scope} metrics={facets.data?.metrics ?? []} />}
+            {tab === "trends" && <Trends game={slug} scope={scope} onTab={setTab} />}
             {tab === "runs" && <Runs game={slug} scope={scope} />}
             {tab === "offenders" && <Offenders game={slug} scope={scope} />}
             {tab === "findings" && <Findings game={slug} />}
@@ -245,57 +246,6 @@ function Budgets({ game }: { game: Game }) {
             </div>
             <div className="mt-4 text-muted">Routing: <code>{JSON.stringify(game.routing)}</code> (edit with <code>nightly perf game set --id {game.slug} --routing JSON</code>)</div>
         </div>
-    )
-}
-
-// ---------- trends ----------
-
-function Trends({ game, scope, metrics }: { game: string; scope: Scope; metrics: string[] }) {
-    if (!metrics.length) return <div className="rounded-lg border border-line px-3 py-6 text-center text-muted">No runs yet. Ingest one: <code>nightly perf ingest report.json --game {game}</code></div>
-    const shown = [...HEAD.filter((m) => metrics.includes(m)), ...metrics.filter((m) => !HEAD.includes(m))].slice(0, 12)
-    return <div className="grid gap-3 md:grid-cols-2">{shown.map((m) => <TrendChart key={m} game={game} metric={m} scope={scope} />)}</div>
-}
-
-function TrendChart({ game, metric, scope }: { game: string; metric: string; scope: Scope }) {
-    const q = api.perf.trend.useQuery({ game, metric, ...scope, limit: 200 })
-    const [hover, setHover] = useState<number | null>(null)
-    const d = q.data
-    const W = 520, H = 150, L = 44, R = 8, T = 8, B = 18
-    const view = useMemo(() => {
-        if (!d || d.points.length === 0) return null
-        const vals = [...d.points.map((p) => p.value), ...d.budgets.map((b) => b.max ?? b.min ?? 0)]
-        let lo = Math.min(...vals), hi = Math.max(...vals)
-        if (lo === hi) { lo -= 1; hi += 1 }
-        const pad = (hi - lo) * 0.08
-        lo = lo >= 0 && lo - pad < 0 ? 0 : lo - pad
-        hi += pad
-        const x = (i: number) => L + (d.points.length === 1 ? (W - L - R) / 2 : (i / (d.points.length - 1)) * (W - L - R))
-        const y = (v: number) => T + (1 - (v - lo) / (hi - lo)) * (H - T - B)
-        return { lo, hi, x, y }
-    }, [d])
-    const u = unitOf(metric)
-    const hp = hover !== null ? d?.points[hover] : null
-    return (
-        <section className="rounded-lg border border-line bg-panel/40 p-3">
-            <div className="flex items-baseline gap-2 text-[12px]">
-                <span className="font-mono text-[13px]">{metric}</span><span className="text-muted">{unitLabel(metric)}</span>
-                {d && d.points.length > 0 && <span className="ml-auto tabular-nums">{f2(d.points[d.points.length - 1].value)} <span className="text-muted">latest of {d.points.length}</span></span>}
-            </div>
-            {q.isLoading && <div className="h-[150px] p-6 text-center text-muted">Loading…</div>}
-            {d && !view && <div className="h-[150px] p-6 text-center text-[12px] text-muted">No runs with this metric in this scope.</div>}
-            {d && view && (
-                <svg viewBox={`0 0 ${W} ${H}`} className="w-full" onMouseLeave={() => setHover(null)}>
-                    {[0, 0.5, 1].map((t) => { const v = view.lo + (view.hi - view.lo) * t; return <g key={t}><line x1={L} x2={W - R} y1={view.y(v)} y2={view.y(v)} stroke="currentColor" opacity={0.08} /><text x={L - 4} y={view.y(v) + 3} textAnchor="end" fontSize={9} fill="currentColor" opacity={0.5}>{f2(v, 1)}</text></g> })}
-                    {d.budgets.map((b, i) => { const v = b.max ?? b.min ?? 0; return <g key={i}><line x1={L} x2={W - R} y1={view.y(v)} y2={view.y(v)} stroke="#f87171" strokeDasharray="4 3" opacity={0.8} /><text x={W - R} y={view.y(v) - 2} textAnchor="end" fontSize={9} fill="#f87171">{b.max !== undefined ? "max" : "min"} {v}</text></g> })}
-                    <polyline fill="none" stroke="#38bdf8" strokeWidth={1.5} points={d.points.map((p, i) => `${view.x(i)},${view.y(p.value)}`).join(" ")} />
-                    {d.markers.map((i) => <g key={i}><line x1={view.x(i)} x2={view.x(i)} y1={T} y2={H - B} stroke="#f59e0b" opacity={0.35} /><circle cx={view.x(i)} cy={view.y(d.points[i].value)} r={4} fill="#f59e0b"><title>regression: {f2(d.points[i].value)} at {d.points[i].commit.slice(0, 9) || `#${d.points[i].id}`}</title></circle></g>)}
-                    {d.points.map((p, i) => <circle key={p.id} cx={view.x(i)} cy={view.y(p.value)} r={hover === i ? 4 : 2} fill="#38bdf8" onMouseEnter={() => setHover(i)} />)}
-                </svg>
-            )}
-            <div className="h-4 text-[11px] text-muted">
-                {hp ? <>#{hp.id} · {f2(hp.value)}{u} · {hp.commit ? <span className="font-mono">{hp.commit.slice(0, 9)}</span> : "no commit"} · {ago(hp.ranAt)} · <Link className="text-sky-300" href={`/perf/${game}/run/${hp.id}`}>open</Link></> : d && d.markers.length > 0 ? <span className="text-amber-300">{d.markers.length} regression marker{d.markers.length === 1 ? "" : "s"} (orange)</span> : null}
-            </div>
-        </section>
     )
 }
 
