@@ -138,6 +138,18 @@ export function AssetViewer({ url, bbox, textures, map }: { url: string; bbox?: 
                 if (dead) return
                 root = gltf.scene
                 scene.add(root)
+                // props whose model is missing arrive as pink boxes (missing_*) with extras.label: pin the label above each as a sprite
+                if (map) {
+                    const boxes: T.Object3D[] = []
+                    root.traverse((n) => { if (n.name.startsWith("missing_") && typeof n.userData?.label === "string") boxes.push(n) })
+                    for (const n of boxes.slice(0, 200)) {
+                        const c = document.createElement("canvas"); c.width = 256; c.height = 48
+                        const cx = c.getContext("2d")!; cx.fillStyle = "rgba(20,20,24,.8)"; cx.fillRect(0, 0, 256, 48); cx.fillStyle = "#ff9ad0"; cx.font = "bold 22px monospace"; cx.textAlign = "center"; cx.fillText(String(n.userData.label).slice(0, 22), 128, 32)
+                        const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false, transparent: true }))
+                        sp.scale.set(2, 0.375, 1); sp.position.y = 1; sp.name = "entity_label"
+                        n.add(sp)
+                    }
+                }
                 const b = new THREE.Box3().setFromObject(root)
                 b.getBoundingSphere(sphere)
                 helper = new THREE.Box3Helper(b, 0x5eead4)
