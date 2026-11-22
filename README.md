@@ -409,7 +409,9 @@ The home page (`/`) is the RSI board: one card per domain (perf, models, texture
 5. Local setup that must not live in this repository (your own pack names, event tables) belongs in a seed script that calls the CLI against your live database.
 
 - **Ingest**: `nightly assets ingest FILE [--require-token|--token-only]`, or `POST /api/assets/ingest`; the audit's `glb/` directory is `NIGHTLY_ASSETS_DIR`.
-- **Inspect**: `nightly assets list [--kind K --pack S --flag F --min-score N --max-score N --q TEXT] [--json]`, `assets show ID`, `assets summary`.
+- **Inspect**: `nightly assets list [--kind K --pack S --flag F --min-score N --max-score N --q TEXT] [--json]`, `assets show ID`, `assets summary`, `assets history [--pack P] [--limit N]` (the audit trend: one row per pack per ingest, oldest first, with total, pass count and average score; the history is kept per pack, not per kind).
+- **Findings page**: `/rsi` lists the findings of the audited assets (models, maps, animations, textures at one tier, sounds), server-paged, with status, verdict (fail, unverified, pass) and the before-to-after score trend; it mirrors `nightly rsi board`.
+- **Map originals converter**: a source's `mapOriginalConverter` (see `lib/map-originals.mjs`) is often a Python script. When it is run by a `python` interpreter, the scan first probes that the modules it imports (`mapOriginalPythonModules`, default `["numpy"]`) can be imported; if not, the scan log gets one line such as `map originals of NAME skipped: converter needs the Python module 'numpy', which python3 cannot import: install it (python3 -m pip install numpy) or point mapOriginalConverter at an interpreter that has it`, and original conversion is skipped for that source instead of failing per map. A converter that reports a missing module mid-scan stops the same way. Fix: install the module for that interpreter, or use an interpreter (for example a virtualenv's `python`) in the converter command, then rescan.
 - Files are served by `/api/assets/file/<id>/<glb|tex|snd>/<index>` (Range supported, only from under a source root).
 
 ## CLI
