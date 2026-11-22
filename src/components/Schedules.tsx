@@ -108,10 +108,10 @@ function ScheduleCharts({ schedules }: { schedules: Schedule[] }) {
                             <li key={s.id}>
                                 <button type="button" disabled={!last} onClick={() => last && router.push(`/runs/${last.id}`)} title={x ? `${s.name}: ${x.total} runs, median ${fmtMinutes(x.medianMinutes)}` : `${s.name}: no runs yet`}
                                     className="flex w-full items-center gap-3 rounded px-1 py-0.5 text-left text-[12px] enabled:hover:bg-hover">
-                                    <span className="w-32 shrink-0 truncate text-dim">{s.name}</span>
-                                    <Sparkline values={x?.roll ?? []} w={80} h={22} color={COLOR.info} label={`${s.name} success rate trend, percent`} />
+                                    <span className="w-24 shrink truncate text-dim">{s.name}</span>
+                                    <Sparkline values={x?.roll ?? []} w={64} h={22} color={COLOR.info} label={`${s.name} success rate trend, percent`} />
                                     <span className="flex gap-[2px]" aria-hidden>{x?.strip.slice(-12).map((r) => <span key={r.id} className="h-3 w-1.5 rounded-[1px]" style={{ background: RUN_STATES.find((t) => t.key === r.state)?.color }} />)}</span>
-                                    <span className="ml-auto w-24 shrink-0 text-right tabular-nums text-muted">{x?.rate == null ? 'no runs' : `${Math.round(x.rate * 100)}% of ${Math.min(20, x.total)}`}</span>
+                                    <span className="ml-auto shrink-0 whitespace-nowrap text-right tabular-nums text-muted">{x?.rate == null ? 'no runs' : `${Math.round(x.rate * 100)}%`}</span>
                                 </button>
                             </li>
                         )

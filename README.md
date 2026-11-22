@@ -308,6 +308,29 @@ loginctl enable-linger $USER
 - **Screenshots**: `nightly perf shot add --run ID frame.png [--name N --note T]` (or `-` for stdin, or `POST /api/perf/shot?run=ID` with a png body and the same Bearer token) attaches a png to a run, for example the frame at the worst hitch. Limits: `perfMaxShotBytes` (5000000) and `perfMaxShotsPerRun` (30), 0 = unlimited.
 - **Reports**: `nightly perf report ID [--out DIR] [--png] [--image-url URL]` writes `perf-run-ID.md` and `.svg` (and `.png`) for READMEs and PRs; the panel serves them at `/api/perf/report/ID?format=md|svg|png`. `nightly perf diff A B [--out DIR] [--png]` does the same for two runs.
 
+## Charts on every tab
+
+Each tab opens with charts built from one small shared kit (`src/components/Charts.tsx`, helpers in `lib/charts.mjs`, tested with `npm test`; no chart library). Every mark has a tooltip and an `aria-label`, bar and cell rows move with the arrow keys, clicks go to the run, card or filter behind the mark, and an empty tab says so instead of drawing an empty frame. The palette (red, blue, amber, green on the dark surface) passed the dataviz validator; outcomes always use the same colour: ok green, findings amber, failed red, running blue, skipped grey.
+
+| Tab | Charts |
+| --- | --- |
+| Runs & reports | runs by day stacked by outcome (click opens that day's newest run), completion, cost and median-time tiles, duration and cost sparklines, weekday-by-hour start heatmap |
+| Schedules | next 72 hours of starts, success-rate sparkline and status strip per schedule |
+| QA | pass and fail per day, health heatmap per game and kind |
+| Assets | score distribution (click filters the table), pass share by pack and kind, most common flags, worst offenders |
+| Reviews | verdict donut (click filters), progress per review, verdicts given per day |
+| Settings and Home | item counts, runs by day, completion and cost |
+
+Screenshots below come from a synthetic database (`python3 scripts/seed-demo.py <dir>`, run the panel with `NIGHTLY_DB=<dir>/nightly.db NIGHTLY_REVIEWS=<dir>/reviews NIGHTLY_SCHEDULER=off`); none of it is real data.
+
+![Runs and reports](docs/charts-runs.png)
+![Schedules](docs/charts-schedules.png)
+![QA](docs/charts-qa.png)
+![Assets](docs/charts-assets.png)
+![Reviews](docs/charts-reviews.png)
+![Settings](docs/charts-settings.png)
+![Home](docs/charts-home.png)
+
 ## RSI board
 
 The home page (`/`) is the RSI board: one card per domain (perf, weapons, textures, animations, sounds, maps) with found, fixed and remeasured counts and the average before/after change, a list of the worst-scoring assets first (each links to `/assets/<id>`), a blockers panel, and the findings per domain. Every finding shows its next action.
