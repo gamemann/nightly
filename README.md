@@ -304,6 +304,11 @@ Generic, DB-driven pages, each with a CLI and a Bearer ingest (`POST /api/ingest
 
 ![Performance tab](docs/perf-tab.png)
 
+**Trends dashboard** (screenshots use synthetic data). Status cards (budgets, latest fps with delta, worst metric, regression count), a worst-offenders strip, one combined p50/p95/p99 frame-time chart with bands and budget lines, grouped collapsible sections, a metric-by-run regression heatmap, a distribution view and a compare-two-runs diff table. Every chart has a hover crosshair and tooltip (value, run, commit, map, bots, platform, change vs previous run and vs budget), a crosshair synced across charts, drag-to-zoom (Esc resets), legend toggles, log and 5-run-average toggles, arrow-key stepping and click-through to the run. Regression markers carry the reason. Data shaping lives in `lib/perf-chart.mjs` (tests: `npm test`); the reusable SVG components (`LineChart`, `Sparkline`, `BarList`, `Heatmap`, `Donut`) are exported from `src/components/PerfChart.tsx` and also used on the RSI board. Colours are the colour-blind-safe Okabe-Ito set.
+
+![Trends before](docs/perf-trends-before.png)
+![Trends after](docs/perf-trends-after.png)
+
 - **Add a game** (no code change): `nightly perf game add --id fc --name "Fatal Contact" --repo fc-game --engine godot --platforms native,web --budget 'fps>=60@platform=native,role=client' --budget 'frame_ms_p95<=33@platform=web' --routing '{"native/client":{"host":"gpu-box","map":"arena","bots":4}}'`, or "Register a game" on `/perf`, or the `perf.addGame` tRPC mutation. `nightly perf game set|list|show` edit and inspect.
 - **Ingest** a dot-profiler perf-report v1 (`gamespice.perf-report`), a legacy `profile-*.json`, a `.folded` stack file or a `.txt` report: `nightly perf ingest report.json --game fc [--platform web --role client --map arena --bots 4 --commit SHA]`. A v1 report may carry its stacks inline (`folded` string), or pass `--folded stacks.folded` (the icicle view and function table then work for v1 reports too); unknown fields, such as a coming v1.1 `baseline` section, are ignored. Over HTTP: `curl -X POST --data-binary @report.json 'http://panel/api/perf/ingest?game=fc&commit=SHA'` with the panel's auth or an ingest token (below); multipart parts `report` + `folded`, or a JSON `{report, folded}` envelope, upload stacks along with it.
 - **Ingest tokens** for runners: `nightly perf token add --name runner-a [--game fc]` (or the Perf tab) prints a secret `nps_...` once; only a sha256 hash and an 8-character prefix are stored. A game-scoped token only ingests that game. Send it as `Authorization: Bearer nps_...`; the CLI reads it from the env var `NIGHTLY_PERF_TOKEN` (never argv). While no active token exists ingest stays open as before; once one does, ingest needs a token (or the panel session). `perfRequireToken=1` demands a token even with none issued. `perf token list|revoke NAME`. The raw files are kept under `data/perf/<game>/<stamp>/`.
@@ -318,6 +323,29 @@ Generic, DB-driven pages, each with a CLI and a Bearer ingest (`POST /api/ingest
 - **Visuals**: the game page charts p50/p95/p99 frame ms, fps, tick ms, draw calls, memory and net kbps over commits with budget lines. A run page shows a flame graph of its call trace (from the v2 `tree`, a `.folded` file or the profiler rows), a hitch timeline and its screenshots. `/perf/diff/<runA>/<runB>` is the differential flame graph (red = slower in B, green = faster, grey = inside the noise band) and each finding in the RSI tab links the run that found it to the run that measured the fix. Offenders carry a per-function history sparkline.
 - **Screenshots**: `nightly perf shot add --run ID frame.png [--name N --note T]` (or `-` for stdin, or `POST /api/perf/shot?run=ID` with a png body and the same Bearer token) attaches a png to a run, for example the frame at the worst hitch. Limits: `perfMaxShotBytes` (5000000) and `perfMaxShotsPerRun` (30), 0 = unlimited.
 - **Reports**: `nightly perf report ID [--out DIR] [--png] [--image-url URL]` writes `perf-run-ID.md` and `.svg` (and `.png`) for READMEs and PRs; the panel serves them at `/api/perf/report/ID?format=md|svg|png`. `nightly perf diff A B [--out DIR] [--png]` does the same for two runs.
+
+## Charts on every tab
+
+Each tab opens with charts built from one small shared kit (`src/components/Charts.tsx`, helpers in `lib/charts.mjs`, tested with `npm test`; no chart library). Every mark has a tooltip and an `aria-label`, bar and cell rows move with the arrow keys, clicks go to the run, card or filter behind the mark, and an empty tab says so instead of drawing an empty frame. The palette (red, blue, amber, green on the dark surface) passed the dataviz validator; outcomes always use the same colour: ok green, findings amber, failed red, running blue, skipped grey.
+
+| Tab | Charts |
+| --- | --- |
+| Runs & reports | runs by day stacked by outcome (click opens that day's newest run), completion, cost and median-time tiles, duration and cost sparklines, weekday-by-hour start heatmap |
+| Schedules | next 72 hours of starts, success-rate sparkline and status strip per schedule |
+| QA | pass and fail per day, health heatmap per game and kind |
+| Assets | score distribution (click filters the table), pass share by pack and kind, most common flags, worst offenders |
+| Reviews | verdict donut (click filters), progress per review, verdicts given per day |
+| Settings and Home | item counts, runs by day, completion and cost |
+
+Screenshots below come from a synthetic database (`python3 scripts/seed-demo.py <dir>`, run the panel with `NIGHTLY_DB=<dir>/nightly.db NIGHTLY_REVIEWS=<dir>/reviews NIGHTLY_SCHEDULER=off`); none of it is real data.
+
+![Runs and reports](docs/charts-runs.png)
+![Schedules](docs/charts-schedules.png)
+![QA](docs/charts-qa.png)
+![Assets](docs/charts-assets.png)
+![Reviews](docs/charts-reviews.png)
+![Settings](docs/charts-settings.png)
+![Home](docs/charts-home.png)
 
 ## RSI board
 

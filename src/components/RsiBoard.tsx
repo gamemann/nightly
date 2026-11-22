@@ -1,4 +1,6 @@
 import Link from "next/link"
+import { BarList, Donut } from "./PerfChart"
+import { OverviewStats } from "./OverviewStats"
 import type { Board, DomainStat, Finding } from "~/server/rsiBoard"
 import { TIERS } from "~/server/rsiBoard"
 
@@ -64,6 +66,7 @@ function DomainSection({ d }: { d: DomainStat }) {
 export function RsiBoard({ b }: { b: Board }) {
     return (
         <div className="mx-auto max-w-6xl px-6 py-6">
+            <OverviewStats />
             <div className="mb-4 flex flex-wrap items-baseline justify-between gap-3">
                 <div>
                     <h1 className="text-[18px] font-semibold tracking-tight">RSI board</h1>
@@ -74,6 +77,12 @@ export function RsiBoard({ b }: { b: Board }) {
                     {TIERS.map((t) => <Link key={t} href={`/?tier=${t}`} className={`rounded px-2 py-0.5 ${b.tier === t ? "bg-hover text-fg" : "text-dim hover:bg-hover/60"}`}>{t}</Link>)}
                 </div>
             </div>
+            {b.domains.some((d) => d.open + d.fixed + d.remeasured > 0) && (
+                <div className="mb-6 grid gap-4 rounded-lg border border-line bg-panel/40 p-3 md:grid-cols-2">
+                    <div><div className="mb-2 text-[13px]">Findings by state</div><Donut parts={[{ key: "found", label: "found (open)", value: b.domains.reduce((a, d) => a + d.open, 0), color: "#d55e00" }, { key: "fixed", label: "fixed, awaiting remeasure", value: b.domains.reduce((a, d) => a + d.fixed, 0), color: "#e69f00" }, { key: "remeasured", label: "remeasured", value: b.domains.reduce((a, d) => a + d.remeasured, 0), color: "#009e73" }]} /></div>
+                    <div><div className="mb-2 text-[13px]">Open findings by domain</div><BarList rows={b.domains.map((d) => ({ key: d.domain, label: d.domain, value: d.open, color: "#d55e00" }))} /></div>
+                </div>
+            )}
             <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">{b.domains.map((d) => <DomainCard key={d.domain} d={d} />)}</div>
             <section className="mb-6">
                 <h2 className="mb-1 text-[13px] font-semibold">Worst-scoring assets first</h2>

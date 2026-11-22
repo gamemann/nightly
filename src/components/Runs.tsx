@@ -5,6 +5,10 @@ import { api } from '~/trpc/react'
 import { useDebounced } from './ItemList'
 import { Markdown } from './Markdown'
 import { StatusPill, ago, fmt } from './pills'
+import { Legend, Panel, HeatGrid, StackedBars, StatTile } from './Charts'
+import { Sparkline } from './PerfChart'
+import { COLOR, RUN_STATES, runSeries, startHeat, statusByDay, successRate, fmtMinutes, fmtUsd } from '../../lib/charts.mjs'
+import { useRouter } from 'next/navigation'
 
 export const dur = (m: number | null) => (m == null ? '' : m >= 60 ? `${Math.floor(m / 60)}h ${Math.round(m % 60)}m` : `${Math.round(m)}m`)
 const usd = (c: number | null) => (c == null ? '' : `$${c.toFixed(2)}`)
@@ -33,6 +37,7 @@ export function RunList() {
                 <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Escape' && setQ('')}
                     placeholder="Search reports and logs…" className="input w-64 max-md:w-40" />
             </div>
+            {!dq && !runs.isLoading && <RunCharts runs={rows} />}
             <div className="overflow-hidden rounded-lg border border-line bg-panel/40">
                 {runs.isLoading && <div className="p-6 text-center text-muted">Loading…</div>}
                 {!runs.isLoading && rows.length === 0 && <div className="p-10 text-center text-muted">{dq ? 'No run mentions that.' : 'No runs yet.'}</div>}
@@ -51,6 +56,52 @@ export function RunList() {
                     </Link>
                 ))}
             </div>
+        </div>
+    )
+}
+
+type ListRun = { id: number; startedAt: Date | string; status: string; minutes: number | null; costUsd: number | null }
+const DAYS = 30
+
+/** Status over time, duration and cost trend, and when runs start. Built from the list the page already loaded. */
+function RunCharts({ runs }: { runs: ListRun[] }) {
+    const router = useRouter()
+    const now = Date.now()
+    const days = statusByDay(runs, { days: DAYS, now })
+    const recent = runs.filter((r) => Date.parse(String(r.startedAt)) >= now - DAYS * 86_400_000)
+    const rate = successRate(recent)
+    const mins = runSeries(runs, 'minutes')
+    const cost = runSeries(runs, 'costUsd')
+    const heat = startHeat(recent.map((r) => r.startedAt), { offsetMin: -new Date().getTimezoneOffset() })
+    const names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+    const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0)
+    const counts = (k: string) => days.reduce((n, d) => n + (d.segments[k] ?? 0), 0)
+    return (
+        <div className="mb-4 grid gap-3 lg:grid-cols-3">
+            <div className="lg:col-span-2">
+                <Panel title="Runs by day" subtitle={`Outcome of every run per day (UTC), last ${DAYS} days. Click a day to open its newest run.`} empty={recent.length === 0 && `No runs in the last ${DAYS} days.`}
+                    legend={<Legend items={RUN_STATES.filter((s) => counts(s.key) > 0).map((s) => ({ label: s.label, color: s.color, count: counts(s.key) }))} />}>
+                    <StackedBars ariaLabel="Runs per day by status" unit="runs"
+                        bars={days.map((d) => ({ key: d.key, label: d.key.slice(5), id: d.ids[0], segments: RUN_STATES.map((s) => ({ key: s.key, label: s.label, value: d.segments[s.key], color: s.color })) }))}
+                        onBar={(b) => b.id != null && router.push(`/runs/${Math.max(...days.find((d) => d.key === b.key)!.ids)}`)} />
+                </Panel>
+            </div>
+            <div className="grid grid-cols-2 gap-3 content-start">
+                <StatTile label="Completed" value={rate == null ? '-' : `${Math.round(rate * 100)}%`} note={`of ${recent.filter((r) => r.status !== 'running').length} runs, ${DAYS} days`} />
+                <StatTile label="Runs" value={recent.length} note={`${DAYS} days`} />
+                <StatTile label="Cost" value={fmtUsd(sum(recent.map((r) => r.costUsd ?? 0)))} note={`${DAYS} days, USD`} />
+                <StatTile label="Median time" value={fmtMinutes(mins.length ? [...mins].map((m) => m.v).sort((a, b) => a - b)[Math.floor(mins.length / 2)] : null)} note="per run, last 30 runs" />
+            </div>
+            <Panel title="Duration" subtitle="Minutes per run, last 30 runs. Rising means the runner is doing more or stalling." empty={mins.length < 2 && 'Needs two finished runs.'}>
+                <div className="flex items-center gap-3"><Sparkline values={mins.map((m) => m.v)} w={220} h={40} color={COLOR.info} label="Run duration in minutes" /><span className="text-[11px] text-dim tabular-nums">latest {fmtMinutes(mins.at(-1)?.v)}</span></div>
+            </Panel>
+            <Panel title="Cost" subtitle="USD per run, last 30 runs with a recorded cost." empty={cost.length < 2 && 'Needs two runs with a cost.'}>
+                <div className="flex items-center gap-3"><Sparkline values={cost.map((m) => m.v)} w={220} h={40} color={COLOR.info} label="Run cost in dollars" /><span className="text-[11px] text-dim tabular-nums">latest {fmtUsd(cost.at(-1)?.v)}</span></div>
+            </Panel>
+            <Panel title="When runs start" subtitle={`Runs started per weekday and hour, local time, last ${DAYS} days.`} empty={heat.total === 0 && 'No runs to place.'}>
+                <HeatGrid ariaLabel="Run starts by weekday and hour" labelWidth={32} max={heat.max} cols={Array.from({ length: 24 }, (_, h) => `${String(h).padStart(2, '0')}:00`)}
+                    rows={names.map((n, i) => ({ key: n, label: n, cells: heat.grid[i].map((v, h) => ({ key: String(h), value: v, tip: `${n} ${String(h).padStart(2, '0')}:00, ${v} ${v === 1 ? 'run' : 'runs'}` })) }))} />
+            </Panel>
         </div>
     )
 }
