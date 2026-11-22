@@ -2,6 +2,8 @@
 import { useState } from "react"
 import { api, type RouterOutputs } from "~/trpc/react"
 import { ago } from "./pills"
+import { HeatGrid, Legend, Panel, StackedBars } from "./Charts"
+import { COLOR, qaAreaGrid, qaTrend } from "../../lib/charts.mjs"
 
 type Run = RouterOutputs["qa"]["list"][number]
 const TREND = 30
@@ -18,6 +20,7 @@ export function Qa() {
             <p className="mt-0.5 mb-4 text-[12px] text-muted">Fuzz sweeps, visual checks, suites and the nightly frame-time budget pushed from the game machine, newest run per game and kind with the last {TREND} as a trend.</p>
             {list.isLoading && <div className="p-6 text-center text-muted">Loading…</div>}
             {list.data && keys.length === 0 && <div className="mb-6 rounded-lg border border-line px-3 py-6 text-center text-muted">No QA runs yet. Post one (see below).</div>}
+            {rows.length > 0 && <QaOverview rows={rows} />}
             <div className="space-y-4">
                 {keys.map((k) => {
                     const [game, kind] = k.split("\u0000")
@@ -30,13 +33,41 @@ export function Qa() {
     )
 }
 
+const DAYS = 30
+const cardId = (game: string, kind: string) => `qa-${game}-${kind}`.replace(/[^\w-]/g, "_")
+const jump = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" })
+
+/** Pass/fail over time across everything, and one heatmap row per game and kind. Click-through scrolls to that card. */
+function QaOverview({ rows }: { rows: Run[] }) {
+    const trend = qaTrend(rows, { days: DAYS })
+    const grid = qaAreaGrid(rows, { days: 14 })
+    const pass = trend.reduce((n, d) => n + d.pass, 0)
+    const fail = trend.reduce((n, d) => n + d.fail, 0)
+    const byId = new Map(rows.map((r) => [r.id, r]))
+    return (
+        <div className="mb-4 grid gap-3 lg:grid-cols-2">
+            <Panel title="Pass and fail by day" subtitle={`QA runs per day (UTC) across all games, last ${DAYS} days. Click a day to jump to the newest run's card.`} empty={pass + fail === 0 && `No QA run in the last ${DAYS} days.`}
+                legend={<Legend items={[{ label: "pass", color: COLOR.good, count: pass }, { label: "fail", color: COLOR.bad, count: fail }]} />}>
+                <StackedBars ariaLabel="QA runs per day, pass and fail" unit="runs"
+                    bars={trend.map((d) => ({ key: d.key, label: d.key.slice(5), id: d.ids[0], segments: [{ key: "pass", label: "pass", value: d.pass, color: COLOR.good }, { key: "fail", label: "fail", value: d.fail, color: COLOR.bad }] }))}
+                    onBar={(b) => { const r = byId.get(Number(b.id)); if (r) jump(cardId(r.game, r.kind)) }} />
+            </Panel>
+            <Panel title="Health by area" subtitle="Share of runs passing per game and kind and day, last 14 days (UTC). Outlined cell: nothing ran. Click to jump to the card."
+                legend={<Legend items={[{ label: "all passed", color: COLOR.good }, { label: "half or more passed", color: COLOR.warn }, { label: "mostly failed", color: COLOR.bad }]} />}>
+                <HeatGrid ratio ariaLabel="QA pass share per area and day" cols={grid.cols} labelWidth={150} onCell={(row) => { const r = grid.rows.find((x) => x.key === row); if (r) jump(cardId(r.game, r.kind)) }}
+                    rows={grid.rows.map((r) => ({ key: r.key, label: `${r.game} ${r.kind}`, cells: r.cells.map((c) => ({ key: c.key, value: c.rate, id: c.total ? c.key : undefined, tip: `${r.game} ${r.kind}, ${c.key}: ${c.total ? `${c.pass} of ${c.total} passed` : "no run"}` })) }))} />
+            </Panel>
+        </div>
+    )
+}
+
 function Card({ game, kind, runs }: { game: string; kind: string; runs: Run[] }) {
     const [open, setOpen] = useState<string | null>(null)
     const [sel, setSel] = useState(runs[0].id)
     const run = runs.find((r) => r.id === sel) ?? runs[0]
     const rate = Math.round((runs.filter((r) => r.ok).length / runs.length) * 100)
     return (
-        <section className="rounded-lg border border-line bg-panel/40 p-4">
+        <section id={cardId(game, kind)} className="scroll-mt-4 rounded-lg border border-line bg-panel/40 p-4">
             <div className="flex flex-wrap items-center gap-2">
                 <span className="font-mono text-[13px] font-medium">{game}</span>
                 <span className="rounded bg-hover px-1.5 text-[11px] text-dim">{kind}</span>
