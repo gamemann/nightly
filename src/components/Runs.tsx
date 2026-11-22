@@ -2,7 +2,7 @@
 import Link from 'next/link'
 import { Suspense, useEffect, useRef, useState } from 'react'
 import { api } from '~/trpc/react'
-import { DataTable, type Column } from './DataTable'
+import { DataTable, ListControls, type Column } from './DataTable'
 import { Pagination, useUrlParams } from './Pagination'
 import { parsePage } from '~/lib/paging'
 import { Markdown } from './Markdown'
@@ -225,16 +225,24 @@ function Gallery({ files }: { files: { path: string; size: number }[] }) {
     )
 }
 
-/** The notes this run left on items, paged (state in the `n` URL params). */
+const NOTE_SPEC = { sorts: ['id', 'item'], sort: 'id', dir: 'asc', filters: ['status'] } as const
+
+/** The notes this run left on items, paged, searchable, filterable by item status and sortable (state in the `n` URL params). */
 function RunNotes({ id }: { id: number }) {
     const { sp } = useUrlParams('n')
-    const pq = parsePage(sp, { sorts: [], sort: '' }, 'n')
-    const q = api.run.notes.useQuery({ id, page: pq.page, size: pq.size }, { placeholderData: (p) => p })
-    const p = q.data
-    if (!p || p.total === 0) return null
+    const pq = parsePage(sp, NOTE_SPEC, 'n')
+    const q = api.run.notes.useQuery({ id, page: pq.page, size: pq.size, sort: pq.sort, dir: pq.dir, q: pq.q || undefined, f: pq.f }, { placeholderData: (p) => p })
+    const p = q.data?.page
+    const filtered = !!pq.q || Object.keys(pq.f).length > 0
+    if (!p || (p.total === 0 && !filtered)) return null
     return (
         <section className="mt-6">
             <span className="label">Items touched · {p.total}</span>
+            <div className="mt-2">
+                <ListControls ns="n" q={pq.q} active={pq.f} sort={pq.sort} dir={pq.dir} sorts={[{ key: 'id', label: 'order recorded' }, { key: 'item', label: 'item' }]} searchHint="Search note or item"
+                    filters={[{ key: 'status', label: 'Item status', options: (q.data?.facets.status ?? []).map((value) => ({ value })) }]} />
+            </div>
+            {p.total === 0 && <div className="rounded-lg border border-line px-3 py-6 text-center text-muted">Nothing matches.</div>}
             <ul className="mt-2 space-y-2">
                 {p.rows.map((n) => (
                     <li key={n.id} className="rounded-lg border border-line bg-panel/40 px-3.5 py-2.5">

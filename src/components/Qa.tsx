@@ -3,33 +3,41 @@ import { useState } from "react"
 import { api, type RouterOutputs } from "~/trpc/react"
 import { ago } from "./pills"
 import { parsePage } from "~/lib/paging"
-import { DataTable, type Column } from "./DataTable"
+import { DataTable, ListControls, type Column } from "./DataTable"
 import { Pagination, useUrlParams } from "./Pagination"
 import { HeatGrid, Legend, Panel, StackedBars } from "./Charts"
 import { COLOR, qaAreaGrid, qaTrend } from "../../lib/charts.mjs"
 
-type Run = RouterOutputs["qa"]["cards"]["rows"][number]["runs"][number]
+type Run = RouterOutputs["qa"]["cards"]["page"]["rows"][number]["runs"][number]
 type Slim = RouterOutputs["qa"]["overview"][number]
 const TREND = 30
+const CARD_SPEC = { sorts: ["game", "kind", "ranAt"], sort: "game", dir: "asc", filters: ["game", "kind", "result"] } as const
+const CARD_SORTS = [{ key: "game", label: "game" }, { key: "kind", label: "kind" }, { key: "ranAt", label: "latest run" }]
 const imgUrl = (r: Run, f: string) => `/attachments/qa-${r.id}/${encodeURIComponent(f)}`
 const badge = (ok: boolean) => (ok ? "bg-emerald-400/15 text-emerald-300" : "bg-red-400/15 text-red-300")
 
 export function Qa() {
     const { sp } = useUrlParams("c")
-    const q = parsePage(sp, { sorts: [], sort: "" }, "c")
-    const cards = api.qa.cards.useQuery({ page: q.page, size: q.size, runs: TREND }, { refetchInterval: 30_000, placeholderData: (p) => p })
+    const q = parsePage(sp, CARD_SPEC, "c")
+    const cards = api.qa.cards.useQuery({ page: q.page, size: q.size, sort: q.sort, dir: q.dir, q: q.q || undefined, f: q.f, runs: TREND }, { refetchInterval: 30_000, placeholderData: (p) => p })
     const overview = api.qa.overview.useQuery({ days: DAYS }, { refetchInterval: 30_000 })
     return (
         <div className="mx-auto max-w-6xl px-6 py-5 max-md:px-3">
             <h1 className="text-[15px] font-semibold tracking-tight">QA</h1>
             <p className="mt-0.5 mb-4 text-[12px] text-muted">Fuzz sweeps, visual checks, suites and the nightly frame-time budget pushed from the game machine, newest run per game and kind with the last {TREND} as a trend.</p>
             {cards.isLoading && <div className="p-6 text-center text-muted">Loading…</div>}
-            {cards.data && cards.data.total === 0 && <div className="mb-6 rounded-lg border border-line px-3 py-6 text-center text-muted">No QA runs yet. Post one (see below).</div>}
+            {cards.data && cards.data.page.total === 0 && !q.q && Object.keys(q.f).length === 0 && <div className="mb-6 rounded-lg border border-line px-3 py-6 text-center text-muted">No QA runs yet. Post one (see below).</div>}
             {overview.data && overview.data.length > 0 && <QaOverview rows={overview.data} />}
+            {cards.data && (cards.data.page.total > 0 || q.q || Object.keys(q.f).length > 0) && (
+                <ListControls ns="c" q={q.q} active={q.f} sort={q.sort} dir={q.dir} sorts={CARD_SORTS} searchHint="Search game or kind"
+                    filters={[{ key: "game", label: "Game", options: cards.data.facets.game.map((value) => ({ value })) }, { key: "kind", label: "Kind", options: cards.data.facets.kind.map((value) => ({ value })) },
+                        { key: "result", label: "Latest", options: [{ value: "pass" }, { value: "fail" }] }]} />
+            )}
+            {cards.data && cards.data.page.total === 0 && (q.q || Object.keys(q.f).length > 0) && <div className="mb-4 rounded-lg border border-line px-3 py-6 text-center text-muted">No card matches.</div>}
             <div className="space-y-4">
-                {cards.data?.rows.map((c) => c.kind === "perf" ? <PerfCard key={`${c.game}\u0000${c.kind}`} game={c.game} runs={c.runs} /> : <Card key={`${c.game}\u0000${c.kind}`} game={c.game} kind={c.kind} runs={c.runs} />)}
+                {cards.data?.page.rows.map((c) => c.kind === "perf" ? <PerfCard key={`${c.game}\u0000${c.kind}`} game={c.game} runs={c.runs} /> : <Card key={`${c.game}\u0000${c.kind}`} game={c.game} kind={c.kind} runs={c.runs} />)}
             </div>
-            {cards.data && cards.data.total > cards.data.size && <Pagination p={cards.data} ns="c" />}
+            {cards.data && cards.data.page.total > 0 && <Pagination p={cards.data.page} ns="c" />}
             <QaHistory />
             <Docs />
         </div>

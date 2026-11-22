@@ -9,7 +9,7 @@ import { z } from 'zod'
 import type { Prisma, PrismaClient } from '../../generated/prisma/client'
 import { cronError, nextFires } from '../../lib/cron.mjs'
 import { OWNER, CADENCES, KINDS, LIVE_MINUTES, OPEN_STATUSES, STATUSES, isDue, slugify } from '~/lib/constants'
-import { offsetOf, paged } from '~/lib/paging'
+import { likeEsc, offsetOf, paged } from '~/lib/paging'
 import { pageIn } from './pageInput'
 import { AUTH_KEYS, PRIVATE_SETTINGS, forgetAuth, hashPassword, newSecret } from './auth'
 import { ATTACH_DIR, MEDIA_DIR, MEDIA_EXT } from './media'
@@ -304,15 +304,21 @@ const runRouter = router({
         if (!r) throw new TRPCError({ code: 'NOT_FOUND' })
         return r
     }),
-    /** The notes a run left on items, a page at a time (oldest first). */
+    /** The notes a run left on items, a page at a time: search (note text, item key or title), item-status filter, sort by id (oldest first by default) or item key. */
     notes: procedure.input(pageIn.extend({ id: z.number() })).query(async ({ ctx, input }) => {
-        const where = { runId: input.id }
+        const w: object[] = [{ runId: input.id }]
+        const q = input.q?.trim()
+        if (q) w.push({ OR: [{ body: { contains: q } }, { item: { key: { contains: q } } }, { item: { title: { contains: q } } }] })
+        if (input.f.status) w.push({ item: { status: input.f.status } })
+        const where = { AND: w }
         const total = await ctx.db.note.count({ where })
-        const rows = await ctx.db.note.findMany({
-            where, orderBy: { id: 'asc' }, skip: offsetOf(total, input), take: input.size,
-            include: { item: { select: { key: true, title: true, status: true } } },
-        })
-        return paged(rows, total, input)
+        const dir = input.sort ? input.dir : 'asc'
+        const orderBy = input.sort === 'item' ? [{ item: { key: dir } }, { id: 'asc' as const }] : [{ id: dir }]
+        const [rows, statuses] = await Promise.all([
+            ctx.db.note.findMany({ where, orderBy, skip: offsetOf(total, input), take: input.size, include: { item: { select: { key: true, title: true, status: true } } } }),
+            ctx.db.item.groupBy({ by: ['status'], where: { notes: { some: { runId: input.id } } } }),
+        ])
+        return { page: paged(rows, total, input), facets: { status: statuses.map((x) => x.status).sort() } }
     }),
     /** Frames under the media dir for one local day (YYYY-MM-DD), as paths for /media/. */
     media: procedure.input(z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) })).query(async ({ input }) => {
@@ -371,9 +377,11 @@ const scheduleRouter = router({
         const error = cronError(input.cron)
         return { error, next: error ? [] : nextFires(input.cron, new Date(), 3) }
     }),
-    /** The prompts a schedule can start with. */
-    prompts: procedure.query(async ({ ctx }) =>
-        (await ctx.db.prompt.findMany({ where: { kind: 'prompt' }, orderBy: { name: 'asc' }, select: { name: true } })).map((p) => p.name)),
+    /** The prompts a schedule can start with, matching a typed search, at most one page (the picker is a search box, not a full list). */
+    prompts: procedure.input(z.object({ q: z.string().optional(), size: z.number().int().min(1).max(1000).default(100) }).optional()).query(async ({ ctx, input }) => {
+        const q = input?.q?.trim()
+        return (await ctx.db.prompt.findMany({ where: { kind: 'prompt', ...(q ? { name: { contains: q } } : {}) }, orderBy: { name: 'asc' }, take: input?.size ?? 100, select: { name: true } })).map((p) => p.name)
+    }),
     create: procedure.input(scheduleInput.partial().extend({ name: z.string().trim().min(1) })).mutation(({ ctx, input }) =>
         ctx.db.schedule.create({ data: { cron: '0 7 * * *', ...input } })),
     update: procedure.input(z.object({ id: z.number(), patch: scheduleInput.partial() })).mutation(({ ctx, input }) =>
@@ -391,13 +399,6 @@ const scheduleRouter = router({
 const promptName = z.string().trim().regex(/^[\w.-]{1,80}$/, 'letters, digits, . _ - (e.g. deploy.md)')
 
 const promptRouter = router({
-    list: procedure.query(async ({ ctx }) => {
-        const [rows, schedules] = await Promise.all([
-            ctx.db.prompt.findMany({ orderBy: [{ kind: 'asc' }, { name: 'asc' }], select: { id: true, name: true, kind: true, body: true, updatedAt: true } }),
-            ctx.db.schedule.findMany({ select: { name: true, prompt: true } }),
-        ])
-        return rows.map(({ body, ...p }) => ({ ...p, size: body.length, codeLike: body.startsWith('#!'), usedBy: schedules.filter((s) => s.prompt === p.name).map((s) => s.name) }))
-    }),
     /** The sidebar list of prompts or jobs: search (name, body), sort and paging in SQL. */
     page: procedure.input(pageIn.extend({ kind: z.enum(['prompt', 'script']) })).query(async ({ ctx, input }) => {
         const q = input.q?.trim()
@@ -509,11 +510,24 @@ const qaRouter = router({
         const [games, kinds] = await Promise.all([ctx.db.qaRun.groupBy({ by: ['game'] }), ctx.db.qaRun.groupBy({ by: ['kind'] })])
         return { page: paged(rows, total, input), games: games.map((g) => g.game).sort(), kinds: kinds.map((k) => k.kind).sort() }
     }),
-    /** Every (game, kind) pair, paged; each carries its newest runs (the card shows the last 30 as a trend). */
+    /** Every (game, kind) pair, paged; each carries its newest runs (the card shows the last 30 as a trend). Search (game, kind),
+     *  game/kind/latest-result filters and sort (game, kind, latest run) happen in SQL. */
     cards: procedure.input(pageIn.extend({ runs: z.number().int().min(1).max(200).default(30) })).query(async ({ ctx, input }) => {
-        const keys = (await ctx.db.qaRun.groupBy({ by: ['game', 'kind'] })).sort((a, b) => a.game.localeCompare(b.game) || a.kind.localeCompare(b.kind))
-        const off = offsetOf(keys.length, input)
-        const slice = keys.slice(off, off + input.size)
+        const w: string[] = []
+        const args: unknown[] = []
+        const q = input.q?.trim()
+        if (q) { w.push(`(game LIKE ? ESCAPE '\\' OR kind LIKE ? ESCAPE '\\')`); args.push(`%${likeEsc(q)}%`, `%${likeEsc(q)}%`) }
+        if (input.f.game) { w.push('game = ?'); args.push(input.f.game) }
+        if (input.f.kind) { w.push('kind = ?'); args.push(input.f.kind) }
+        const having = input.f.result === 'pass' ? 'HAVING latestOk = 1' : input.f.result === 'fail' ? 'HAVING latestOk = 0' : ''
+        const inner = `SELECT game, kind, MAX(ranAt) latest, (SELECT r2.ok FROM QaRun r2 WHERE r2.game = r.game AND r2.kind = r.kind ORDER BY r2.ranAt DESC, r2.id DESC LIMIT 1) latestOk
+            FROM QaRun r ${w.length ? `WHERE ${w.join(' AND ')}` : ''} GROUP BY game, kind ${having}`
+        const total = Number((await ctx.db.$queryRawUnsafe<{ n: number | bigint }[]>(`SELECT COUNT(*) n FROM (${inner})`, ...args))[0]?.n ?? 0)
+        const col = { game: 'game', kind: 'kind', ranAt: 'latest' }[input.sort as 'game'] ?? 'game'
+        const dir = input.sort ? (input.dir === 'desc' ? 'DESC' : 'ASC') : 'ASC'
+        const slice = await ctx.db.$queryRawUnsafe<{ game: string; kind: string }[]>(
+            `SELECT game, kind FROM (${inner}) ORDER BY ${col} ${dir}, game ASC, kind ASC LIMIT ? OFFSET ?`, ...args, input.size, offsetOf(total, input))
+        const [games, kinds] = await Promise.all([ctx.db.qaRun.groupBy({ by: ['game'] }), ctx.db.qaRun.groupBy({ by: ['kind'] })])
         const cards = await Promise.all(slice.map(async (k) => {
             const rows = await ctx.db.qaRun.findMany({ where: { game: k.game, kind: k.kind }, orderBy: { ranAt: 'desc' }, take: input.runs })
             return {
@@ -527,7 +541,7 @@ const qaRouter = router({
                 })),
             }
         }))
-        return paged(cards, keys.length, input)
+        return { page: paged(cards, total, input), facets: { game: games.map((g) => g.game).sort(), kind: kinds.map((k) => k.kind).sort() } }
     }),
     /** Slim rows (no failures, images or summaries) for the last N days: what the two overview charts count. */
     overview: procedure.input(z.object({ days: z.number().int().min(1).max(365).default(30) })).query(({ ctx, input }) =>

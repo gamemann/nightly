@@ -26,7 +26,7 @@ function PromptsInner({ name, kind = 'prompt' }: { name?: string; kind?: 'prompt
     const list = api.prompt.page.useQuery({ kind, page: lq.page, size: lq.size, sort: lq.sort, dir: lq.dir, q: lq.q || undefined, f: {} }, { placeholderData: (p) => p })
     const keepQs = sp.toString() ? `?${sp.toString()}` : ''
     const create = api.prompt.save.useMutation({
-        onSuccess: (p) => { void utils.prompt.page.invalidate(); void utils.prompt.list.invalidate(); router.push(`${base}/${encodeURIComponent(p.name)}`) },
+        onSuccess: (p) => { void utils.prompt.page.invalidate(); router.push(`${base}/${encodeURIComponent(p.name)}`) },
     })
     const rows = list.data?.rows ?? []
     useEffect(() => {
@@ -92,11 +92,11 @@ function PromptEditor({ name, base: root }: { name: string; base: string }) {
         if (p && text !== null && text === base && p.body !== base) { setText(p.body); setBase(p.body) }
     }, [p, text, base])
 
-    const invalidate = () => Promise.all([utils.prompt.get.invalidate({ name }), utils.prompt.list.invalidate(), utils.prompt.page.invalidate()])
+    const invalidate = () => Promise.all([utils.prompt.get.invalidate({ name }), utils.prompt.page.invalidate()])
     const save = api.prompt.save.useMutation({
         onSuccess: async (r) => { clearDraft(draftId); setBase(r.body); setText(r.body); setNote(''); await invalidate() },
     })
-    const del = api.prompt.delete.useMutation({ onSuccess: async () => { await Promise.all([utils.prompt.list.invalidate(), utils.prompt.page.invalidate()]); router.push(root) } })
+    const del = api.prompt.delete.useMutation({ onSuccess: async () => { await Promise.all([utils.prompt.page.invalidate()]); router.push(root) } })
 
     const dirty = text !== null && text !== base
     const changedElsewhere = !!p && p.body !== base

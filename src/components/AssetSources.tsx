@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { useState } from 'react'
 import { api } from '~/trpc/react'
 import { Pagination, useUrlParams } from './Pagination'
+import { ListControls } from './DataTable'
 import { parsePage } from '../lib/paging'
 
 const box = 'rounded-md border border-line bg-panel px-2 py-1 text-[12px]'
@@ -18,8 +19,8 @@ export function AssetSources() {
     const utils = api.useUtils()
     const sU = useUrlParams('s')
     const kU = useUrlParams('k')
-    const sq = parsePage(sU.sp, { sorts: ['name'], sort: '' }, 's')
-    const kq = parsePage(kU.sp, { sorts: ['key'], sort: '' }, 'k')
+    const sq = parsePage(sU.sp, { sorts: ['name', 'type', 'lastScanAt'], sort: '', filters: ['type', 'enabled'] }, 's')
+    const kq = parsePage(kU.sp, { sorts: ['key', 'label', 'sort'], sort: '' }, 'k')
     const sources = api.assets.sources.useQuery(sq, { placeholderData: (p) => p })
     const kinds = api.assets.kinds.useQuery(kq, { placeholderData: (p) => p })
     const [msg, setMsg] = useState('')
@@ -43,12 +44,18 @@ export function AssetSources() {
                 <input className={`${box} min-w-64 flex-1`} placeholder="root directory on the server" value={n.root} onChange={(e) => setN({ ...n, root: e.target.value })} />
                 <button className={btn} disabled={!n.name || !n.root} onClick={() => add.mutate(n, { onSuccess: () => setN({ ...n, name: '', root: '' }) })}>Add source</button>
             </div>
+            <ListControls ns="s" q={sq.q} active={sq.f} sort={sq.sort || 'type'} dir={sq.dir} searchHint="Search name, root or repo"
+                sorts={[{ key: 'type', label: 'type' }, { key: 'name', label: 'name' }, { key: 'lastScanAt', label: 'last scan' }]}
+                filters={[{ key: 'type', label: 'Type', options: [{ value: 'pack' }, { value: 'game' }] }, { key: 'enabled', label: 'State', options: [{ value: 'on', label: 'enabled' }, { value: 'off', label: 'disabled' }] }]} />
             {sources.data?.rows.map((s) => <SourceRow key={s.name} s={s as Src} onSave={(p) => upd.mutate({ name: s.name, ...p })} onScan={() => scan.mutate({ names: [s.name] })} onRm={(purge) => rm.mutate({ name: s.name, purge })} />)}
-            {sources.data?.rows.length === 0 && <p className="mb-4 text-[12px] text-muted">No sources yet. Add the first one above, for example a game checkout with its models under assets/.</p>}
+            {sources.data?.rows.length === 0 && (sq.q || Object.keys(sq.f).length > 0) && <p className="mb-4 text-[12px] text-muted">No source matches.</p>}
+            {sources.data?.rows.length === 0 && !sq.q && Object.keys(sq.f).length === 0 && <p className="mb-4 text-[12px] text-muted">No sources yet. Add the first one above, for example a game checkout with its models under assets/.</p>}
             {sources.data && <Pagination p={sources.data} ns="s" />}
             {!!sources.data?.rows.length && <button className={`${btn} mb-6 mt-2`} onClick={() => scan.mutate({})}>Scan all enabled</button>}
             <h2 className="mb-2 mt-4 text-[13px] font-semibold">Kinds and budgets</h2>
             <p className="mb-2 text-[12px] text-muted">The kind decides which audit checks and limits apply. <code className="font-mono">match</code> is a regex on the model path; the budget is JSON (min_tris, max_tris, min_tex, max_tex, required_clips, require_skin, max_size, and more).</p>
+            <ListControls ns="k" q={kq.q} sort={kq.sort || 'sort'} dir={kq.dir} searchHint="Search key, label or match" sorts={[{ key: 'sort', label: 'order' }, { key: 'key', label: 'key' }, { key: 'label', label: 'label' }]} />
+            {kinds.data?.rows.length === 0 && kq.q && <p className="mb-2 text-[12px] text-muted">No kind matches.</p>}
             {kinds.data?.rows.map((k) => <KindRow key={k.key} k={k as Kind} onSave={(p) => kSave.mutate({ key: k.key, ...p })} onRm={() => kRm.mutate({ key: k.key })} />)}
             {kinds.data && <Pagination p={kinds.data} ns="k" />}
             <NewKind onAdd={(p) => kSave.mutate(p)} />
