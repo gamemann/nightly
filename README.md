@@ -4,6 +4,33 @@ Initially, one simple cron job ran *every night* to manage tasks and track the p
 
 Companion repo: the scripts, systemd units, offload helpers and agent instruction files that run my own fleet on top of nightly are public in [nightly-env](https://github.com/gamemann/nightly-env).
 
+## What RSI means here
+
+RSI is recursive self-improvement, the loop nightly is built around: **find, fix, remeasure**. An audit or benchmark finds a problem (a model with too many triangles, a texture over budget, a frame-time regression, a failing visual check) and records it as a *finding*. A fix item goes into the queue and an agent works it. When the next audit runs and the flag has cleared, the finding closes as *remeasured*, keeping its before and after scores, so every fix is checked by a measurement instead of an opinion. The RSI board on the home page counts findings per domain (perf, models, textures, animations, sounds, maps) in those three states, lists the worst assets first and shows what is blocking progress. See [RSI board](#rsi-board) and [RSI board and audit output](#rsi-board-and-audit-output) for the commands and settings.
+
+The screenshots below are the live panel at 1280px with real numbers; host names, paths and addresses are scrubbed, and the pages that show private task text are left out.
+
+![RSI board: findings by state and domain, runs by day](./docs/panel-rsi-board.png)
+*RSI board: findings by state and domain, with the runs-by-day chart above.*
+
+![Reviews: verdicts, progress per review, server-paged list](./docs/panel-reviews.png)
+*Reviews: verdict totals, progress per review and a searchable, sortable, paged list.*
+
+![QA: pass and fail by day, health by area, per-card budgets](./docs/panel-qa.png)
+*QA: pass and fail per day, a health grid per game and kind, and the over-budget metrics of the newest perf run.*
+
+![Schedules: next runs timeline and success per schedule](./docs/panel-schedules.png)
+*Schedules: upcoming starts, success per schedule and the paged schedule list.*
+
+![Assets: score distribution and pass share by pack and kind](./docs/panel-assets.png)
+*Assets: score distribution, pass share by pack and kind, and the most common quality flags.*
+
+![Performance: games with budgets and findings](./docs/panel-perf.png)
+*Performance: per-game budgets, regressions and the findings table.*
+
+![Usage: tokens over time and where they go](./docs/panel-usage.png)
+*Usage: tokens over time and where the spend goes.*
+
 ![Queue](./images/preview01.png)
 *Queue: prioritised to-dos with status lists and per-game sections.*
 
