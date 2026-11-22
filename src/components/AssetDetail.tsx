@@ -107,7 +107,7 @@ export function AssetDetail({ d, reviews }: { d: DetailData; reviews: ReviewHit[
                 {(x.animations ?? []).length ? (
                     <table className="w-full text-[12.5px]"><thead><tr className="border-b border-line text-left text-dim"><th className="px-2 py-1 font-medium">Clip</th><th className="px-2 py-1 font-medium">Length</th><th className="px-2 py-1 font-medium">Tracks</th><th className="px-2 py-1 font-medium">Mag travel</th><th className="px-2 py-1 font-medium">Flags</th></tr></thead>
                         <tbody>{x.animations!.map((a) => (
-                            <tr key={a.name} className="border-b border-line/50"><td className="px-2 py-1">{a.name}</td><td className="px-2 py-1 tabular-nums">{a.length.toFixed(2)} s</td><td className="px-2 py-1 tabular-nums">{a.tracks}</td><td className="px-2 py-1 tabular-nums">{a.mag_displacement == null ? "-" : `${a.mag_displacement.toFixed(3)} m`}</td>
+                            <tr key={a.name} className="border-b border-line/50"><td className="px-2 py-1">{a.name}</td><td className="px-2 py-1 tabular-nums">{a.length == null ? "-" : `${a.length.toFixed(2)} s`}</td><td className="px-2 py-1 tabular-nums">{a.tracks}</td><td className="px-2 py-1 tabular-nums">{a.mag_displacement == null ? "-" : `${a.mag_displacement.toFixed(3)} m`}</td>
                                 <td className="px-2 py-1">{(a.flags ?? []).map((f) => <span key={f} className={`mr-1 rounded px-1 text-[10.5px] ${/static|no_tracks/.test(f) ? "bg-amber-400/15 text-amber-300" : "bg-hover text-dim"}`}>{f}</span>)}</td></tr>))}</tbody></table>
                 ) : <div className="text-[12px] text-muted">The model carries no animation clips.</div>}
                 <ReviewMedia reviews={reviews} slots={["filmstrip", "clip", "image", "screenshot"]} />
@@ -117,7 +117,7 @@ export function AssetDetail({ d, reviews }: { d: DetailData; reviews: ReviewHit[
                 {(x.sounds ?? []).length ? (
                     <div className="space-y-2">{x.sounds!.map((s, i) => (
                         <div key={i} className="rounded-lg border border-line bg-panel/40 p-2">
-                            <div className="mb-1 flex flex-wrap items-baseline gap-x-3 text-[12px]"><span className="font-medium">{s.name}</span><span className="tabular-nums text-dim">{s.len.toFixed(2)} s, {s.rate} Hz{s.channels ? `, ${s.channels} ch` : ""}, {kb(s.bytes)}</span></div>
+                            <div className="mb-1 flex flex-wrap items-baseline gap-x-3 text-[12px]"><span className="font-medium">{s.name}</span><span className="tabular-nums text-dim">{(s.len ?? 0).toFixed(2)} s, {s.rate} Hz{s.channels ? `, ${s.channels} ch` : ""}, {kb(s.bytes)}</span></div>
                             <Waveform src={fileUrl(d.id, "snd", i)} />
                             <audio controls preload="none" src={fileUrl(d.id, "snd", i)} className="mt-1 h-8 w-full" />
                         </div>))}</div>
