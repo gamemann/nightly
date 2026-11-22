@@ -5,6 +5,8 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useMemo, useState } from "react"
 import { api } from "~/trpc/react"
+import { DEFAULT_SIZE, PAGE_SIZES } from "~/lib/paging"
+import { useUrlParams } from "./Pagination"
 import { unitOf } from "../../lib/perf.mjs"
 import { FRAME_PERCENTILES, PALETTE, SECTIONS, budgetsFor, colorOf, dateFull, diffRuns, fmt, fmtPct, heatmap, histogram, infoOf, limitOf, lowData, pointDeltas, regressionReasons, sectionOf, seriesOf, statusCards, summarise, worstMetrics, type RunRow, type Summary } from "../../lib/perf-chart.mjs"
 import { BarList, Heatmap, LineChart, Sparkline, useChartSync, type ChartSeries, type ChartSync } from "./PerfChart"
@@ -25,7 +27,9 @@ function Card({ label, children, sub, tone }: { label: string; children: React.R
 }
 
 export function Trends({ game, scope, onTab }: { game: string; scope: Scope; onTab?: (t: "offenders") => void }) {
-    const q = api.perf.trendAll.useQuery({ game, ...scope, limit: 200 })
+    const { sp, set } = useUrlParams("t")
+    const win = (PAGE_SIZES as readonly number[]).includes(Number(sp.get("twin"))) ? Number(sp.get("twin")) : DEFAULT_SIZE
+    const q = api.perf.trendAll.useQuery({ game, ...scope, limit: win }, { placeholderData: (p) => p })
     const router = useRouter()
     const sync = useChartSync()
     const [shut, setShut] = useState<Set<string>>(new Set())
@@ -47,6 +51,12 @@ export function Trends({ game, scope, onTab }: { game: string; scope: Scope; onT
 
     return (
         <div className="space-y-4">
+            <label className="flex items-center gap-1.5 text-[12px] text-dim">window
+                <select className="rounded border border-line bg-panel px-1 py-0.5" value={win} onChange={(e) => set({ win: e.target.value === String(DEFAULT_SIZE) ? "" : e.target.value })} aria-label="runs in the trend window">
+                    {PAGE_SIZES.map((n) => <option key={n} value={n}>newest {n} runs</option>)}
+                </select>
+                <span className="text-muted">{runs.length} loaded</span>
+            </label>
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
                 <Card label="Budgets" tone={cards.budgets.checked === 0 ? undefined : cards.budgets.pass ? "ok" : "bad"} sub={cards.budgets.checked === 0 ? "No budget covers this scope. Set some on the budgets tab." : cards.budgets.pass ? `${cards.budgets.checked} metrics within budget` : `Over: ${cards.budgets.failing.join(", ")}`}>
                     {cards.budgets.checked === 0 ? <span className="text-muted">none</span> : cards.budgets.pass ? <span className="text-emerald-300">{"✓"} pass</span> : <span className="text-red-300">{"✗"} {cards.budgets.failing.length} failing</span>}

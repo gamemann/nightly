@@ -4,8 +4,10 @@ import { api, type RouterOutputs } from '~/trpc/react'
 import { OWNER } from '~/lib/constants'
 import { ago } from './pills'
 import { Pagination, useUrlParams } from './Pagination'
+import { DataTable, type Column } from './DataTable'
 import { parsePage } from '~/lib/paging'
 
+const CLAIM_SPEC = { sorts: ['createdAt', 'scope', 'agent'], sort: 'createdAt', dir: 'asc', filters: ['agent', 'state'] } as const
 const MSG_SPEC = { sorts: ['id'], sort: 'id', dir: 'desc', filters: ['author', 'hide'] } as const
 
 type Board = RouterOutputs['agent']['board']
@@ -36,7 +38,7 @@ export function Agents() {
                             <span className="label">Live · {b.live.length}</span>
                             <div className="mt-2 space-y-2">
                                 {b.live.length === 0 && <div className="rounded-lg border border-line px-3 py-4 text-center text-[12px] text-muted">Nobody is on the board.</div>}
-                                {b.live.map((a) => <AgentCard key={a.id} a={a} claims={b.claims.filter((c) => c.agentId === a.id)} />)}
+                                {b.live.map((a) => <AgentCard key={a.id} a={a} claims={b.claims.filter((c) => c.agentId === a.id)} total={b.claimCounts[a.id] ?? 0} />)}
                             </div>
                         </section>
                         <Unregistered />
@@ -45,7 +47,7 @@ export function Agents() {
                                 <span className="label">Gone quiet · {b.quiet.length}</span>
                                 <p className="mt-1 text-[11px] text-muted">Silent for over an hour without leaving (stale). Their claims no longer block; they leave the board after {b.leftHours} h without a heartbeat.</p>
                                 <div className="mt-2 space-y-2">
-                                    {b.quiet.map((a) => <AgentCard key={a.id} a={a} claims={b.claims.filter((c) => c.agentId === a.id)} quiet />)}
+                                    {b.quiet.map((a) => <AgentCard key={a.id} a={a} claims={b.claims.filter((c) => c.agentId === a.id)} total={b.claimCounts[a.id] ?? 0} quiet />)}
                                 </div>
                             </section>
                         )}
@@ -67,11 +69,12 @@ export function Agents() {
                     </aside>
                 </div>
             )}
+            {b && <Suspense><Claims /></Suspense>}
         </div>
     )
 }
 
-function AgentCard({ a, claims, quiet }: { a: Agent; claims: Board['claims']; quiet?: boolean }) {
+function AgentCard({ a, claims, total, quiet }: { a: Agent; claims: Board['claims']; total: number; quiet?: boolean }) {
     const utils = api.useUtils()
     const release = api.agent.release.useMutation({ onSuccess: () => utils.agent.board.invalidate() })
     const end = api.agent.end.useMutation({ onSuccess: () => Promise.all([utils.agent.board.invalidate(), utils.agent.liveCount.invalidate()]) })
@@ -95,6 +98,7 @@ function AgentCard({ a, claims, quiet }: { a: Agent; claims: Board['claims']; qu
                                 onClick={() => confirm(`Release ${a.name}'s claim on ${c.scope}? It will not be told.`) && release.mutate({ id: c.id })}>release</button>
                         </li>
                     ))}
+                    {total > claims.length && <li className="text-[10.5px] text-muted">+{total - claims.length} more in the claims table</li>}
                 </ul>
             )}
             {quiet && (
@@ -102,6 +106,36 @@ function AgentCard({ a, claims, quiet }: { a: Agent; claims: Board['claims']; qu
                     onClick={() => confirm(`End ${a.name}? Its claims are released.`) && end.mutate({ id: a.id })}>end session</button>
             )}
         </div>
+    )
+}
+
+function Claims() {
+    const utils = api.useUtils()
+    const { sp } = useUrlParams('c')
+    const cq = parsePage(sp, CLAIM_SPEC, 'c')
+    const res = api.agent.claims.useQuery({ page: cq.page, size: cq.size, sort: cq.sort, dir: cq.dir, q: cq.q || undefined, f: cq.f }, { refetchInterval: 8000, placeholderData: (p) => p })
+    const release = api.agent.release.useMutation({ onSuccess: () => Promise.all([utils.agent.board.invalidate(), utils.agent.claims.invalidate()]) })
+    const data = res.data?.page
+    if (!data) return null
+    type Row = (typeof data.rows)[number]
+    const cols: Column<Row>[] = [
+        { key: 'scope', label: 'Claim', sortable: true, className: 'font-mono', render: (r) => <span title={r.note || undefined}>{r.scope}</span> },
+        { key: 'agent', label: 'Agent', sortable: true, className: 'font-mono text-dim', render: (r) => r.agent },
+        { key: 'createdAt', label: 'Held since', sortable: true, className: 'whitespace-nowrap text-muted', render: (r) => ago(r.createdAt) },
+        { key: 'state', label: 'State', className: 'text-muted', render: (r) => (r.stale ? 'stale' : 'live') },
+        { key: 'act', label: '', className: 'text-right', render: (r) => (
+            <button className="text-[11px] text-muted hover:text-red-300" disabled={release.isPending}
+                onClick={() => confirm(`Release ${r.agent}'s claim on ${r.scope}? It will not be told.`) && release.mutate({ id: r.id })}>release</button>
+        ) },
+    ]
+    return (
+        <section className="mt-5">
+            <span className="label">Claims · {data.total}</span>
+            <div className="mt-2">
+                <DataTable cols={cols} data={data} rowKey={(r) => r.id} sort={cq.sort} dir={cq.dir} q={cq.q} active={cq.f} ns="c" searchHint="Search path, note or agent"
+                    filters={[{ key: 'agent', label: 'Agent', options: (res.data?.facets.agent ?? []).map((value) => ({ value })) }, { key: 'state', label: 'State', options: [{ value: 'live' }, { value: 'stale' }] }]} />
+            </div>
+        </section>
     )
 }
 

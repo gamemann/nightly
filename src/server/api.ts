@@ -17,6 +17,7 @@ import { assetsRouter } from './assetsRouter'
 import { gameRouter } from './gameRouter'
 import { perfRouter } from './perfRouter'
 import { usageRouter } from './usageRouter'
+import { reviewRouter } from './reviewRouter'
 import { modelSibling } from './models'
 import { procedure, router } from './trpc'
 
@@ -533,15 +534,22 @@ const qaRouter = router({
         ctx.db.qaRun.findMany({ where: { ranAt: { gte: new Date(Date.now() - (input.days + 1) * 86_400_000) } }, orderBy: { ranAt: 'desc' }, select: { id: true, game: true, kind: true, ranAt: true, ok: true } })),
 })
 
+const CLAIMS_PER_AGENT = 3
+const CLAIM_SORTS = ['createdAt', 'scope', 'agent'] as const
+
 const agentRouter = router({
     board: procedure.query(async ({ ctx }) => {
-        const [agents, recent, claims] = await Promise.all([
+        const [agents, recent, claimRows, counts] = await Promise.all([
             ctx.db.agent.findMany({ where: { endedAt: null }, orderBy: { startedAt: 'asc' } }),
             ctx.db.agent.findMany({
                 where: { endedAt: { gte: new Date(Date.now() - 24 * 3600_000) } }, orderBy: { endedAt: 'desc' }, take: 20,
             }),
-            ctx.db.claim.findMany({ where: { releasedAt: null }, orderBy: { createdAt: 'asc' }, include: { agent: { select: { name: true, kind: true, lastSeenAt: true, endedAt: true } } } }),
+            // The first CLAIMS_PER_AGENT open claims of each agent (a window function); the full list is the paged `claims` query.
+            ctx.db.$queryRawUnsafe<{ id: number; agentId: number; scope: string; note: string; createdAt: string | number }[]>(
+                `SELECT id, agentId, scope, note, createdAt FROM (SELECT id, agentId, scope, note, createdAt, ROW_NUMBER() OVER (PARTITION BY agentId ORDER BY createdAt, id) rn FROM Claim WHERE releasedAt IS NULL) WHERE rn <= ? ORDER BY createdAt, id`, CLAIMS_PER_AGENT),
+            ctx.db.claim.groupBy({ by: ['agentId'], where: { releasedAt: null }, _count: { _all: true } }),
         ])
+        const claims = claimRows.map((c) => ({ ...c, createdAt: new Date(c.createdAt) }))
         const since = liveSince()
         // Silent past agentLeftHours (default 12) counts as left even before `nightly agent sweep` retires the row.
         const leftHrs = Number((await ctx.db.setting.findUnique({ where: { key: 'agentLeftHours' } }))?.value) || 12
@@ -551,8 +559,26 @@ const agentRouter = router({
             live: agents.filter((a) => a.lastSeenAt >= since),
             quiet: agents.filter((a) => a.lastSeenAt < since && a.lastSeenAt >= gone),
             ended: recent,
-            claims: claims.map((c) => ({ ...c, stale: !!c.agent.endedAt || c.agent.lastSeenAt < since })),
+            claims,
+            claimCounts: Object.fromEntries(counts.map((c) => [c.agentId, c._count._all])) as Record<number, number>,
         }
+    }),
+    /** Every open claim, paged: search scope/note/agent, filter by agent or staleness (an agent that left or went quiet), sort in SQL. */
+    claims: procedure.input(pageIn).query(async ({ ctx, input }) => {
+        const since = liveSince()
+        const w: object[] = [{ releasedAt: null }]
+        if (input.f.agent) w.push({ agent: { name: input.f.agent } })
+        if (input.f.state === 'stale') w.push({ OR: [{ agent: { endedAt: { not: null } } }, { agent: { lastSeenAt: { lt: since } } }] })
+        if (input.f.state === 'live') w.push({ agent: { endedAt: null, lastSeenAt: { gte: since } } })
+        const q = input.q?.trim()
+        if (q) w.push({ OR: [{ scope: { contains: q } }, { note: { contains: q } }, { agent: { name: { contains: q } } }] })
+        const where = { AND: w }
+        const total = await ctx.db.claim.count({ where })
+        const key = (CLAIM_SORTS as readonly string[]).includes(input.sort) ? input.sort : 'createdAt'
+        const orderBy = key === 'agent' ? [{ agent: { name: input.dir } }, { id: 'asc' as const }] : [{ [key]: input.dir }, { id: 'asc' as const }]
+        const rows = await ctx.db.claim.findMany({ where, orderBy, skip: offsetOf(total, input), take: input.size, include: { agent: { select: { name: true, kind: true, lastSeenAt: true, endedAt: true } } } })
+        const names = (await ctx.db.agent.findMany({ where: { endedAt: null, claims: { some: { releasedAt: null } } }, select: { name: true }, distinct: ['name'] })).map((a) => a.name).sort()
+        return { page: paged(rows.map((c) => ({ id: c.id, scope: c.scope, note: c.note, createdAt: c.createdAt, agent: c.agent.name, stale: !!c.agent.endedAt || c.agent.lastSeenAt < since })), total, input), facets: { agent: names } }
     }),
     /** The message log, newest page first (each page is returned oldest-first for reading); search, author filter and hide-board are SQL. */
     messages: procedure.input(pageIn).query(async ({ ctx, input }) => {
@@ -621,5 +647,5 @@ const authRouter = router({
         })),
 })
 
-export const appRouter = router({ perf: perfRouter, usage: usageRouter, item: itemRouter, note: noteRouter, run: runRouter, schedule: scheduleRouter, prompt: promptRouter, attachment: attachmentRouter, qa: qaRouter, agent: agentRouter, setting: settingRouter, auth: authRouter, game: gameRouter, feed: feedRouter, assets: assetsRouter })
+export const appRouter = router({ perf: perfRouter, usage: usageRouter, item: itemRouter, note: noteRouter, run: runRouter, schedule: scheduleRouter, prompt: promptRouter, attachment: attachmentRouter, qa: qaRouter, agent: agentRouter, setting: settingRouter, auth: authRouter, game: gameRouter, feed: feedRouter, assets: assetsRouter, review: reviewRouter })
 export type AppRouter = typeof appRouter

@@ -124,6 +124,7 @@ model Claim {
   releasedAt DateTime?
 
   @@index([releasedAt])
+  @@index([agentId, releasedAt])
 }
 
 /// to: an agent name, or null for everyone. agentId is null for the owner (the panel) and the system.
@@ -137,6 +138,7 @@ model Message {
   createdAt DateTime @default(now())
 
   @@index([createdAt])
+  @@index([author])
 }
 
 model Setting {
@@ -188,6 +190,7 @@ model QaRun {
   createdAt   DateTime @default(now())
 
   @@index([game, kind, ranAt])
+  @@index([ranAt])
 }
 
 /// A pinned note on a picture or its 3D model. target is an attachment file name of itemKey
@@ -468,6 +471,7 @@ model Release {
   at         DateTime
 
   @@unique([repo, version, channel])
+  @@index([at])
 }
 
 model CrashGroup {
@@ -483,6 +487,7 @@ model CrashGroup {
   at          DateTime
 
   @@unique([game, signature, version, platform], map: "CrashGroup_key")
+  @@index([at])
 }
 
 model WebBudget {
@@ -505,6 +510,7 @@ model WebSample {
   at     DateTime
 
   @@index([game, metric, at], map: "WebSample_game_metric_at")
+  @@index([at])
 }
 
 model Playtest {
@@ -516,6 +522,8 @@ model Playtest {
   tags   String   @default("")
   text   String   @default("")
   at     DateTime
+
+  @@index([at])
 }
 
 model ContentStat {

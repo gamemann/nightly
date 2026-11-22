@@ -7,7 +7,7 @@ import type { PrismaClient } from '../../generated/prisma/client'
 
 /** Verdicts live in one review.json per review, not in the database, so listing, filtering and paging reviews needs an index of
  *  their counts. It is rebuilt per request from the review items (one query) plus a stat of each file; a file is only re-read when
- *  its mtime or size changed. Only the rows of the requested page load their full weapons. */
+ *  its mtime or size changed. The weapons of a review are paged by the `review.weapons` query when a card opens. */
 type Counts = { total: number; good: number; wrong: number; todo: number }
 type Info = { mtime: number; size: number; counts: Counts; events: { verdict: string; at: string }[] }
 const cache = new Map<string, Info>()
@@ -45,7 +45,7 @@ export async function reviewPage(db: PrismaClient, sp: Record<string, string | s
     const off = offsetOf(shown.length, q)
     const slice = shown.slice(off, off + q.size)
     const bodies = new Map((await db.item.findMany({ where: { key: { in: slice.map((r) => r.key) } }, select: { key: true, body: true } })).map((b) => [b.key, b.body]))
-    const rows = slice.map(({ events: _e, mtime: _m, size: _s, ...r }) => ({ ...r, body: bodies.get(r.key) ?? '', weapons: load(r.key).weapons as Record<string, ReviewWeapon> }))
+    const rows = slice.map(({ events: _e, mtime: _m, size: _s, ...r }) => ({ ...r, body: bodies.get(r.key) ?? '' }))
     const charts = {
         parts: verdictParts(all) as { key: string; label: string; value: number }[],
         progress: (reviewProgress(all) as { key: string; title: string; judged: number; good: number; wrong: number; todo: number; total: number }[]).slice(0, 8),
