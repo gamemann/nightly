@@ -8,7 +8,10 @@ import { z } from 'zod'
 import { OPEN_STATUSES } from '~/lib/constants'
 import { type Budget, compareFunctions, compareMetrics, evaluateBudgets, regressionMarkers } from '../../lib/perf.mjs'
 import { bestFolded, diffFlameSvg, diffRows, flameSvg, hitchSvg, hitchesFromReport, sparklineSvg } from '../../lib/perf-viz.mjs'
+import { pageIn, type PageIn } from './pageInput'
 import { procedure, router } from './trpc'
+import { PERF_SPECS } from '~/lib/feedSpecs'
+import { offsetOf, paged, type PageSpec } from '~/lib/paging'
 
 // Reads go through Prisma. Every write is `bin/nightly perf ...`: one writer, one place for the rules (budget breaches, dedupe, size limits).
 const execp = promisify(execFile)
@@ -68,6 +71,21 @@ const scope = z.object({ game: z.string(), platform: z.string().optional(), role
 
 function runWhere(i: z.infer<typeof scope>) {
     return { game: i.game, ...(i.platform ? { platform: i.platform } : {}), ...(i.role ? { role: i.role } : {}), ...(i.map !== undefined ? { map: i.map } : {}), ...(i.bots !== undefined ? { bots: i.bots } : {}) }
+}
+
+type FindingDelegate = { groupBy(a: { by: string[]; where?: object }): Promise<Record<string, unknown>[]> }
+/** where/orderBy for the perf finding tables: scoped game, facet filters, text search, whitelisted sort. */
+async function perfWhere(d: unknown, spec: PageSpec, search: string[], input: PageIn & { game?: string }, ...facetKeys: string[]) {
+    const w: object[] = []
+    if (input.game) w.push({ game: input.game })
+    for (const k of spec.filters ?? []) if (input.f[k]) w.push({ [k]: input.f[k] })
+    const q = input.q?.trim()
+    if (q) w.push({ OR: search.map((c) => ({ [c]: { contains: q } })) })
+    const sort = spec.sorts.includes(input.sort) ? input.sort : spec.sort
+    const facets: Record<string, string[]> = {}
+    const scope = input.game ? { game: input.game } : {}
+    await Promise.all([...(input.game ? [] : ['game']), ...facetKeys].map(async (k) => { facets[k] = (await (d as FindingDelegate).groupBy({ by: [k], where: scope })).map((r) => String(r[k])).sort() }))
+    return { where: w.length ? { AND: w } : {}, orderBy: [{ [sort]: input.dir }, { id: 'desc' as const }], facets }
 }
 
 export const perfRouter = router({
@@ -188,24 +206,29 @@ export const perfRouter = router({
         return { runs: ids.length, rows: rows.map((r) => ({ name: r.name, grp: r.grp, addon: r.addon, selfMs: r._avg.selfMs ?? 0, totalMs: r._avg.totalMs ?? 0, seen: r._count._all, share: total ? (r._avg.selfMs ?? 0) / total : 0, itemKey: itemOf(r.name)?.itemKey ?? '', rsi: itemOf(r.name)?.state ?? '' })) }
     }),
 
-    /** Findings with the status of the queue item each is linked to. */
-    findings: procedure.input(z.object({ game: z.string().optional() })).query(async ({ ctx, input }) => {
-        const f = await ctx.db.perfFinding.findMany({ where: input.game ? { game: input.game } : {}, orderBy: { updatedAt: 'desc' }, take: 200 })
+    /** Findings with the status of the queue item each is linked to; paged, sorted, filtered and searched in SQL. */
+    findings: procedure.input(pageIn.extend({ game: z.string().optional() })).query(async ({ ctx, input }) => {
+        const { where, orderBy, facets } = await perfWhere(ctx.db.perfFinding, PERF_SPECS.findings, ['metric', 'game', 'itemKey', 'fn'], input, 'status')
+        const total = await ctx.db.perfFinding.count({ where })
+        const f = await ctx.db.perfFinding.findMany({ where, orderBy, skip: offsetOf(total, input), take: input.size })
         const items = await ctx.db.item.findMany({ where: { key: { in: f.map((x) => x.itemKey).filter(Boolean) } }, select: { key: true, status: true, title: true } })
-        return f.map((x) => ({ ...x, item: items.find((i) => i.key === x.itemKey) ?? null, itemOpen: OPEN.has(items.find((i) => i.key === x.itemKey)?.status ?? '') }))
+        return { page: paged(f.map((x) => ({ ...x, item: items.find((i) => i.key === x.itemKey) ?? null, itemOpen: OPEN.has(items.find((i) => i.key === x.itemKey)?.status ?? '') })), total, input), facets }
     }),
 
-    /** The RSI loop per game: every finding with its state (found, fixed, remeasured, dismissed) and the before/after delta. */
-    rsi: procedure.input(z.object({ game: z.string().optional() })).query(async ({ ctx, input }) => {
-        const f = await ctx.db.perfFinding.findMany({ where: input.game ? { game: input.game } : {}, orderBy: [{ game: 'asc' }, { updatedAt: 'desc' }], take: 500 })
+    /** The RSI loop per game: every finding with its state (found, fixed, remeasured, dismissed) and the before/after delta; paged in SQL. */
+    rsi: procedure.input(pageIn.extend({ game: z.string().optional() })).query(async ({ ctx, input }) => {
+        const { where, orderBy, facets } = await perfWhere(ctx.db.perfFinding, PERF_SPECS.rsi, ['metric', 'game', 'itemKey', 'fn', 'note'], input, 'state', 'kind')
+        const total = await ctx.db.perfFinding.count({ where })
+        const f = await ctx.db.perfFinding.findMany({ where, orderBy, skip: offsetOf(total, input), take: input.size })
         const items = await ctx.db.item.findMany({ where: { key: { in: f.map((x) => x.itemKey).filter(Boolean) } }, select: { key: true, status: true, title: true } })
-        return f.map((x) => {
+        const rows = f.map((x) => {
             const it = items.find((i) => i.key === x.itemKey)
             const delta = x.beforeValue != null && x.afterValue != null ? x.afterValue - x.beforeValue : null
             return { id: x.id, game: x.game, kind: x.kind, metric: x.metric, fn: x.fn, state: x.state, value: x.value, limit: x.limit, note: x.note, itemKey: x.itemKey, itemStatus: it?.status ?? '', itemTitle: it?.title ?? '',
                 before: x.beforeValue, after: x.afterValue, delta, pct: delta != null && x.beforeValue ? (delta / Math.abs(x.beforeValue)) * 100 : null, runId: x.runId, remeasuredRunId: x.remeasuredRunId,
                 updatedAt: x.updatedAt, cycles: json<unknown[]>(x.history, []).length }
         })
+        return { page: paged(rows, total, input), facets }
     }),
 
     /** Ingest tokens (hash and secret never leave the database). */

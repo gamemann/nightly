@@ -12,8 +12,10 @@ export type Finding = {
 }
 export type DomainStat = { domain: Domain; open: number; fixed: number; remeasured: number; total: number; delta: number | null; deltaUnit: string; note: string }
 export type WorstAsset = { assetId: number | null; subject: string; score: number; before: number | null; codes: { code: string; tier: string; severity: string }[]; nextAction: string; states: string[] }
-export type Board = { tier: string; domains: DomainStat[]; worst: WorstAsset[]; blockers: Finding[]; blockerTotal: number; findings: Paged<Finding>; lastRefresh: string; toolMissing: boolean }
+export type Board = { tier: string; domains: DomainStat[]; worst: Paged<WorstAsset>; blockers: Paged<Finding>; blockerCodes: string[]; findings: Paged<Finding>; lastRefresh: string; toolMissing: boolean }
 
+export const BLOCKER_SPEC: PageSpec = { sorts: ["subject", "code", "severity", "id"], sort: "id", dir: "desc", filters: ["code", "severity"] }
+export const WORST_SPEC: PageSpec = { sorts: ["score", "subject"], sort: "score", dir: "asc" }
 export const FINDING_SPEC: PageSpec = { sorts: ["subject", "domain", "code", "severity", "state", "after"], sort: "severity", filters: ["domain", "state", "severity", "status"] }
 const SORT_SQL: Record<string, string> = { subject: "subject COLLATE NOCASE", domain: "domain", code: "code", severity: "CASE severity WHEN 'error' THEN 0 WHEN 'warn' THEN 1 WHEN 'info' THEN 2 ELSE 3 END", state: "state", after: "COALESCE(after, 0)" }
 
@@ -37,24 +39,38 @@ const toFinding = (r: Raw): Finding => ({ ...r, id: Number(r.id), href: r.domain
 const nn = (v: unknown) => Number(v ?? 0)
 
 /** Everything the home page shows: per-domain RSI state (SQL aggregates), worst-scoring assets, blockers and one page of findings. */
-export async function loadBoard(tierParam: string | undefined, q: PageQuery): Promise<Board> {
+export async function loadBoard(tierParam: string | undefined, q: PageQuery, bq: PageQuery, wq: PageQuery): Promise<Board> {
     const tier = (TIERS as readonly string[]).includes(tierParam ?? "") ? (tierParam as string) : "high"
     const w: string[] = [], a: unknown[] = [tier]
     for (const k of ["domain", "state", "severity", "status"]) if (q.f[k]) { w.push(`${k} = ?`); a.push(q.f[k]) }
     if (q.q) { w.push("(subject LIKE ? ESCAPE '\\' OR code LIKE ? ESCAPE '\\' OR msg LIKE ? ESCAPE '\\')"); a.push(...[0, 1, 2].map(() => `%${likeEsc(q.q)}%`)) }
     const where = w.length ? `WHERE ${w.join(" AND ")}` : ""
-    const [stats, totalRow, worstRows, blockerRows, blockerCount, last] = await Promise.all([
+    const wlike = wq.q ? ` AND subject LIKE ? ESCAPE '\\'` : ""
+    const wargs: unknown[] = wq.q ? [tier, `%${likeEsc(wq.q)}%`] : [tier]
+    const wbase = `FROM RsiFinding WHERE domain NOT IN ('process') AND status = 'open' AND (domain != 'textures' OR tier = ?)${wlike}`
+    const bwhere = {
+        domain: "process", status: "open",
+        ...(bq.f.code ? { code: bq.f.code } : {}), ...(bq.f.severity ? { severity: bq.f.severity } : {}),
+        ...(bq.q ? { OR: [{ subject: { contains: bq.q } }, { code: { contains: bq.q } }, { msg: { contains: bq.q } }] } : {}),
+    }
+    const [stats, totalRow, worstTotal, blockerCount, blockerCodes, last, noTool] = await Promise.all([
         db.$queryRawUnsafe<{ domain: string; total: unknown; open: unknown; fixed: unknown; remeasured: unknown; delta: number | null }[]>(
             `WITH f AS (${UNION}) SELECT domain, COUNT(*) total, SUM(status = 'open' AND state = 'found') open, SUM(state = 'fixed') fixed, SUM(state = 'remeasured') remeasured,
                AVG(CASE WHEN state = 'remeasured' AND before IS NOT NULL AND after IS NOT NULL THEN after - before END) delta FROM f GROUP BY domain`, tier),
         db.$queryRawUnsafe<{ c: unknown }[]>(`WITH f AS (${UNION}) SELECT COUNT(*) c FROM f ${where}`, ...a),
-        db.$queryRawUnsafe<{ subject: string; assetId: number | null; score: number; before: number | null }[]>(
-            `SELECT subject, MIN(assetId) assetId, MIN(COALESCE(afterScore, 100)) score, MIN(beforeScore) before FROM RsiFinding
-             WHERE domain NOT IN ('process') AND status = 'open' AND (domain != 'textures' OR tier = ?) GROUP BY subject ORDER BY score, subject LIMIT 15`, tier),
-        db.rsiFinding.findMany({ where: { domain: "process", status: "open" }, orderBy: { id: "desc" }, take: 50 }),
-        db.rsiFinding.count({ where: { domain: "process", status: "open" } }),
+        db.$queryRawUnsafe<{ c: unknown }[]>(`SELECT COUNT(DISTINCT subject) c ${wbase}`, ...wargs),
+        db.rsiFinding.count({ where: bwhere }),
+        db.rsiFinding.groupBy({ by: ["code"], where: { domain: "process", status: "open" } }),
         db.setting.findUnique({ where: { key: "rsiLastRefreshAt" } }),
+        db.rsiFinding.count({ where: { domain: "process", status: "open", code: "NO_AUDIT_TOOL" } }),
     ])
+    const wTotal = nn(worstTotal[0].c)
+    const worstSort = wq.sort === "subject" ? "subject COLLATE NOCASE" : "score"
+    const worstRows = await db.$queryRawUnsafe<{ subject: string; assetId: number | null; score: number; before: number | null }[]>(
+        `SELECT subject, MIN(assetId) assetId, MIN(COALESCE(afterScore, 100)) score, MIN(beforeScore) before ${wbase} GROUP BY subject ORDER BY ${worstSort} ${wq.dir === "desc" ? "DESC" : "ASC"}, subject LIMIT ? OFFSET ?`,
+        ...wargs, wq.size, offsetOf(wTotal, wq))
+    const bcol = { subject: "subject", code: "code", severity: "severity", id: "id" }[bq.sort] ?? "id"
+    const blockerRows = await db.rsiFinding.findMany({ where: bwhere, orderBy: [{ [bcol]: bq.dir }, { id: "desc" }], skip: offsetOf(blockerCount, bq), take: bq.size })
     const total = nn(totalRow[0].c)
     const off = offsetOf(total, q)
     const rows = await db.$queryRawUnsafe<Raw[]>(
@@ -75,5 +91,5 @@ export async function loadBoard(tierParam: string | undefined, q: PageQuery): Pr
         id: r.id, domain: "process", subject: r.subject, assetId: null, code: r.code, tier: "", severity: r.severity, msg: r.msg, nextAction: r.nextAction, state: r.state, status: r.status, before: null, after: null, itemKey: r.subject,
         href: r.code === "NO_AUDIT_TOOL" ? "/assets" : `/item/${r.subject}`,
     }))
-    return { tier, domains, worst, blockers, blockerTotal: blockerCount, findings: paged(rows.map(toFinding), total, q), lastRefresh: last?.value ?? "", toolMissing: blockers.some((b) => b.code === "NO_AUDIT_TOOL") }
+    return { tier, domains, worst: paged(worst, wTotal, wq), blockers: paged(blockers, blockerCount, bq), blockerCodes: blockerCodes.map((c) => c.code).sort(), findings: paged(rows.map(toFinding), total, q), lastRefresh: last?.value ?? "", toolMissing: noTool > 0 }
 }

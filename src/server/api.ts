@@ -10,6 +10,7 @@ import type { Prisma, PrismaClient } from '../../generated/prisma/client'
 import { cronError, nextFires } from '../../lib/cron.mjs'
 import { OWNER, CADENCES, KINDS, LIVE_MINUTES, OPEN_STATUSES, STATUSES, isDue, slugify } from '~/lib/constants'
 import { offsetOf, paged } from '~/lib/paging'
+import { pageIn } from './pageInput'
 import { AUTH_KEYS, PRIVATE_SETTINGS, forgetAuth, hashPassword, newSecret } from './auth'
 import { ATTACH_DIR, MEDIA_DIR, MEDIA_EXT } from './media'
 import { assetsRouter } from './assetsRouter'
@@ -127,7 +128,7 @@ const itemRouter = router({
     get: procedure.input(keyInput).query(async ({ ctx, input }) => {
         const it = await ctx.db.item.findUnique({
             where: { key: input.key },
-            include: { notes: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], include: { run: { select: { id: true, startedAt: true } } } } },
+            include: { _count: { select: { notes: true } } },
         })
         if (!it) throw new TRPCError({ code: 'NOT_FOUND', message: `no item ${input.key}` })
         let attachments: { file: string; note: string; by: string; at: string; bytes: number }[] = []
@@ -217,6 +218,18 @@ const itemRouter = router({
 })
 
 const noteRouter = router({
+    /** One item's notes, newest page first (each page is returned oldest-first as a timeline); search and author filter in SQL. */
+    list: procedure.input(pageIn.extend({ key: z.string() })).query(async ({ ctx, input }) => {
+        const w: object[] = [{ item: { key: input.key } }]
+        if (input.f.author) w.push({ author: input.f.author })
+        const q = input.q?.trim()
+        if (q) w.push({ OR: [{ body: { contains: q } }, { author: { contains: q } }] })
+        const where = { AND: w }
+        const total = await ctx.db.note.count({ where })
+        const rows = await ctx.db.note.findMany({ where, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], skip: offsetOf(total, input), take: input.size, include: { run: { select: { id: true, startedAt: true } } } })
+        const authors = (await ctx.db.note.groupBy({ by: ['author'], where: { item: { key: input.key } } })).map((r) => r.author).sort()
+        return { page: paged(rows.reverse(), total, input), facets: { author: authors } }
+    }),
     add: procedure
         .input(z.object({ key: z.string(), body: z.string().trim().min(1), author: z.string().default(OWNER) }))
         .mutation(async ({ ctx, input }) => {
@@ -363,6 +376,19 @@ const promptRouter = router({
         ])
         return rows.map(({ body, ...p }) => ({ ...p, size: body.length, codeLike: body.startsWith('#!'), usedBy: schedules.filter((s) => s.prompt === p.name).map((s) => s.name) }))
     }),
+    /** The sidebar list of prompts or jobs: search (name, body), sort and paging in SQL. */
+    page: procedure.input(pageIn.extend({ kind: z.enum(['prompt', 'script']) })).query(async ({ ctx, input }) => {
+        const q = input.q?.trim()
+        const where = { kind: input.kind, ...(q ? { OR: [{ name: { contains: q } }, { body: { contains: q } }] } : {}) }
+        const sort = ['name', 'updatedAt'].includes(input.sort) ? input.sort : 'name'
+        const dir = input.sort ? input.dir : 'asc'
+        const total = await ctx.db.prompt.count({ where })
+        const [rows, schedules] = await Promise.all([
+            ctx.db.prompt.findMany({ where, orderBy: [{ [sort]: dir }, { id: 'asc' }], skip: offsetOf(total, input), take: input.size, select: { id: true, name: true, kind: true, body: true, updatedAt: true } }),
+            ctx.db.schedule.findMany({ select: { name: true, prompt: true } }),
+        ])
+        return paged(rows.map(({ body, ...p }) => ({ ...p, size: body.length, codeLike: body.startsWith('#!'), usedBy: schedules.filter((x) => x.prompt === p.name).map((x) => x.name) })), total, input)
+    }),
     /** A job script's linked schedules and the most recent run of any of them. */
     job: procedure.input(z.object({ name: z.string() })).query(async ({ ctx, input }) => {
         const schedules = await ctx.db.schedule.findMany({ where: { prompt: input.name }, select: { id: true, name: true } })
@@ -476,13 +502,12 @@ const qaRouter = router({
 
 const agentRouter = router({
     board: procedure.query(async ({ ctx }) => {
-        const [agents, recent, claims, messages] = await Promise.all([
+        const [agents, recent, claims] = await Promise.all([
             ctx.db.agent.findMany({ where: { endedAt: null }, orderBy: { startedAt: 'asc' } }),
             ctx.db.agent.findMany({
                 where: { endedAt: { gte: new Date(Date.now() - 24 * 3600_000) } }, orderBy: { endedAt: 'desc' }, take: 20,
             }),
             ctx.db.claim.findMany({ where: { releasedAt: null }, orderBy: { createdAt: 'asc' }, include: { agent: { select: { name: true, kind: true, lastSeenAt: true, endedAt: true } } } }),
-            ctx.db.message.findMany({ orderBy: { id: 'desc' }, take: 200 }),
         ])
         const since = liveSince()
         // Silent past agentLeftHours (default 12) counts as left even before `nightly agent sweep` retires the row.
@@ -494,8 +519,20 @@ const agentRouter = router({
             quiet: agents.filter((a) => a.lastSeenAt < since && a.lastSeenAt >= gone),
             ended: recent,
             claims: claims.map((c) => ({ ...c, stale: !!c.agent.endedAt || c.agent.lastSeenAt < since })),
-            messages: messages.reverse(),
         }
+    }),
+    /** The message log, newest page first (each page is returned oldest-first for reading); search, author filter and hide-board are SQL. */
+    messages: procedure.input(pageIn).query(async ({ ctx, input }) => {
+        const w: object[] = []
+        if (input.f.author) w.push({ author: input.f.author })
+        if (input.f.hide) w.push({ author: { not: 'board' } })
+        const q = input.q?.trim()
+        if (q) w.push({ OR: [{ body: { contains: q } }, { author: { contains: q } }, { to: { contains: q } }] })
+        const where = w.length ? { AND: w } : {}
+        const total = await ctx.db.message.count({ where })
+        const rows = await ctx.db.message.findMany({ where, orderBy: { id: 'desc' }, skip: offsetOf(total, input), take: input.size })
+        const authors = (await ctx.db.message.groupBy({ by: ['author'] })).map((r) => r.author).sort()
+        return { page: paged(rows.reverse(), total, input), facets: { author: authors } }
     }),
     liveCount: procedure.query(({ ctx }) => ctx.db.agent.count({ where: { endedAt: null, lastSeenAt: { gte: liveSince() } } })),
     post: procedure.input(z.object({ body: z.string().trim().min(1).max(4000), to: z.string().trim().optional() })).mutation(({ ctx, input }) =>
