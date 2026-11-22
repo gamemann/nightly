@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS {db}.usage_message (
     ver           UInt64
 ) ENGINE = ReplacingMergeTree(ver)
 PARTITION BY toYYYYMM(ts)
-ORDER BY (session_id, agent_id, msg_key);
+ORDER BY msg_key;
 
 CREATE TABLE IF NOT EXISTS {db}.usage_tool (
     tool_use_id   String,
@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS {db}.usage_tool (
     ver           UInt64
 ) ENGINE = ReplacingMergeTree(ver)
 PARTITION BY toYYYYMM(ts)
-ORDER BY (session_id, agent_id, tool_use_id);
+ORDER BY tool_use_id;
 
 CREATE TABLE IF NOT EXISTS {db}.usage_event (
     event_key     String,
@@ -58,4 +58,4 @@ CREATE TABLE IF NOT EXISTS {db}.usage_event (
     ver           UInt64
 ) ENGINE = ReplacingMergeTree(ver)
 PARTITION BY toYYYYMM(ts)
-ORDER BY (session_id, kind, event_key);
+ORDER BY event_key;

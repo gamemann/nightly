@@ -18,10 +18,13 @@ import * as PG from '../lib/perf-gate.mjs'
 import * as PV from '../lib/perf-viz.mjs'
 import * as AS from '../lib/assets.mjs'
 import * as RSI from '../lib/rsi.mjs'
+import * as US from '../lib/usage-store.mjs'
+import * as UQ from '../lib/usage-query.mjs'
+import * as UC from '../lib/usage-ch.mjs'
 import { syncBlockers } from '../lib/rsi-blockers.mjs'
 
 const argv = process.argv.slice(2)
-const BOOL = new Set(['json', 'all', 'top', 'due', 'help', 'h', 'dryRun', 'force', 'peek', 'strict', 'register', 'noFindings', 'noBudgets', 'noBaseline', 'requireToken', 'tokenOnly', 'png', 'disable', 'enable'])
+const BOOL = new Set(['json', 'all', 'top', 'due', 'help', 'h', 'dryRun', 'force', 'peek', 'strict', 'register', 'noFindings', 'noBudgets', 'noBaseline', 'requireToken', 'tokenOnly', 'png', 'disable', 'enable', 'full', 'noCh', 'resync'])
 
 const multi = {}
 function parse(args) {
@@ -105,6 +108,11 @@ const HELP = `nightly -- the nightly run's to-do database (${S.DB_PATH})
   assets refresh                                run rsi_asset_audit.py for every texture tier (setting rsiTiers), ingest and sync findings (tick does this every rsiRefreshHours)
   rsi board|sync|refresh                        the RSI board: findings per domain; sync = stale/duplicate/blocked pass (auto-closes non-owner stale items)
   assets summary                                per-pack counts and average score
+  usage ingest [--full] [--dir D] [--no-ch] [--resync]   read Claude Code transcripts (usageDirs setting, default ~/.claude/projects) into the usage tables; pushes to ClickHouse when enabled
+  usage summary [--days N] [--source ch]        tokens and estimated cost today/7d/30d/all
+  usage top <project|session|agent_type|model|skill|tool|branch> [--days N] [--limit N] [--source ch]   biggest consumers
+  usage cost [--days N]                         estimated cost by model     usage insights [--days N]   where the tokens go, with suggestions
+  usage status | usage ch-setup                 what is configured / create the ClickHouse database and tables (never prints the password)
   perf migrate                                  create/upgrade the perf tables (backs up the database to data/backup/ first)
   perf token add --name N [--game G]            ingest token for one runner/game; the secret is printed once, only its hash is kept
   perf token list | perf token revoke NAME      (HTTP ingest needs "Authorization: Bearer <token>" once a token exists)
@@ -398,6 +406,54 @@ function cmdPrompt() {
     die('prompt list | show <name> | set <name> | history <name>')
 }
 
+const fmtTok = (n) => (n >= 1e9 ? (n / 1e9).toFixed(2) + 'B' : n >= 1e6 ? (n / 1e6).toFixed(2) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : String(Math.round(n)))
+const usd = (x) => '$' + (x ?? 0).toFixed(2)
+
+async function cmdUsage() {
+    const sub = pos.shift() ?? die('usage ingest|summary|top|cost|insights|status|ch-setup')
+    US.ensure(db)
+    const prices = US.prices(db)
+    const days = opt.days === undefined ? 0 : int(opt.days, '--days')
+    const since = days ? Date.now() - days * 86_400_000 : 0
+    let be = { dialect: 'sqlite', q: async (sql) => db.prepare(sql).all() }
+    if (opt.source === 'ch') { const c = US.chConfigFrom(db); be = { dialect: 'ch', db: c.db, q: (sql) => UC.chQuery(c, sql) } }
+    if (sub === 'ingest') {
+        const st = await US.ingest(db, { full: !!opt.full, dirsOverride: opt.dir ? [String(opt.dir)] : undefined, ch: !opt.noCh, resync: !!opt.resync })
+        return out(st, () => `${st.changed}/${st.files} files changed in ${st.dirs} dirs; ${st.messages} messages, ${st.tools} tool rows, ${st.events} events` +
+            (st.unreadable ? `; ${st.unreadable} unreadable (check usageDirs and permissions)` : '') + (st.ch ? `; clickhouse +${Object.values(st.ch).reduce((a, b) => a + b, 0)} rows` : '') + (st.chError ? `\nclickhouse failed (rows stay queued): ${st.chError}` : ''))
+    }
+    if (sub === 'status') {
+        const cfg = UC.publicConfig(US.chConfigFrom(db))
+        const n = (t) => db.prepare(`SELECT COUNT(*) n FROM ${t}`).get().n
+        const st = { dirs: US.dirs(db), messages: n('usage_message'), tools: n('usage_tool'), events: n('usage_event'), files: n('usage_file'), lastIngestAt: S.getSetting(db, 'usageLastIngestAt'), clickhouse: cfg }
+        return out(st, () => `dirs: ${st.dirs.join(', ')}\nrows: ${st.messages} messages, ${st.tools} tool calls, ${st.events} events from ${st.files} files; last ingest ${st.lastIngestAt ?? 'never'}\n` +
+            `clickhouse: ${cfg.enabled ? 'enabled' : 'off'} ${cfg.url} db ${cfg.db} user ${cfg.user} password ${cfg.passwordSet ? `set (env ${cfg.passwordEnv})` : `NOT set (env ${cfg.passwordEnv})`}`)
+    }
+    if (sub === 'ch-setup') {
+        const n = await US.ensureCh(US.chConfigFrom(db))
+        return out({ ok: true, statements: n }, () => `clickhouse schema ready (${n} statements)`)
+    }
+    if (sub === 'summary') {
+        const t = await UQ.totals(be, prices)
+        return out(t, () => ['today', '7d', '30d', 'all'].map((k) => `${k.padEnd(6)} ${fmtTok(t[k].total).padStart(8)} tokens  ${String(t[k].messages).padStart(7)} msgs  ${usd(t[k].cost).padStart(10)}  (in ${fmtTok(t[k].input)}, out ${fmtTok(t[k].output)}, cache read ${fmtTok(t[k].cache_read)}, cache write ${fmtTok(t[k].cache_5m + t[k].cache_1h)})`).join('\n') + '\ncost is an estimate from the usagePrices table')
+    }
+    if (sub === 'top') {
+        const dim = pos.shift() ?? die('usage top <project|session|agent_type|model|skill|tool|branch>')
+        const r = await UQ.breakdown(be, prices, dim, { since })
+        const lim = opt.limit ? int(opt.limit, '--limit') : 15
+        return out({ ...r, rows: r.rows.slice(0, lim) }, () => r.rows.slice(0, lim).map((x) => `${clip(String(x.key), 38).padEnd(38)} ${fmtTok(x.total).padStart(8)} ${String(Math.round(x.share * 100)).padStart(3)}%` + (dim === 'tool' ? `  ${x.calls} calls, largest ${fmtTok(x.biggest)} (estimated)` : `  ${usd(x.cost).padStart(9)}`)).join('\n') || '(no data; run `nightly usage ingest`)')
+    }
+    if (sub === 'cost') {
+        const r = await UQ.breakdown(be, prices, 'model', { since })
+        return out(r, () => r.rows.map((x) => `${clip(x.key, 38).padEnd(38)} ${usd(x.cost).padStart(10)} ${fmtTok(x.total).padStart(8)} tokens`).join('\n') + `\ntotal ${usd(r.cost)} (estimate)`)
+    }
+    if (sub === 'insights') {
+        const r = await UQ.insights(be, prices, { since, pollMin: US.setting(db, 'usagePollMin'), bigResultTokens: US.setting(db, 'usageBigResultTokens') })
+        return out(r, () => r.map((i) => `[${i.level}] ${i.title}\n    ${i.detail}\n    -> ${i.suggestion}`).join('\n') || '(no data)')
+    }
+    die(`unknown usage subcommand "${sub}"`)
+}
+
 function cmdSchedule() {
     const sub = pos.shift() ?? 'list'
     if (sub !== 'list') die('schedule list   (schedules are edited in the panel)')
@@ -409,10 +465,11 @@ function cmdSchedule() {
         `${s.prompt.padEnd(12)} ${s.error ? `BAD: ${s.error}` : `next ${S.local(s.next)}`}`).join('\n') || '(no schedules)')
 }
 
-function cmdTick() {
+async function cmdTick() {
     const lines = R.tick(db, new Date(), { dryRun: !!opt.dryRun })
     if (!opt.dryRun) { try { const m = PR.maybeSchedule(db); if (m) lines.push(m) } catch (e) { lines.push(`perf schedule: ${e.message}`) }
-        try { lines.push(...RSI.tickHook(db)) } catch (e) { lines.push(`rsi: ${e.message}`) } }
+        try { lines.push(...RSI.tickHook(db)) } catch (e) { lines.push(`rsi: ${e.message}`) }
+        try { lines.push(...await US.tickHook(db)) } catch (e) { lines.push(`usage: ${e.message}`) } }
     if (J) return out(lines, () => '')
     if (lines.length) process.stdout.write(lines.join('\n') + '\n')
 }
@@ -771,7 +828,7 @@ try {
     db = S.open()
     const table = { list: cmdList, ls: cmdList, show: cmdShow, add: cmdAdd, set: cmdSet, note: cmdNote, attach: cmdAttach, attachments: cmdAttachments, review: cmdReview, reviews: cmdReview, checks: cmdChecks,
         checked: cmdChecked, run: cmdRun, get: cmdGet, 'set-setting': cmdSetSetting, brief: cmdBrief,
-        prompt: cmdPrompt, prompts: cmdPrompt, schedule: cmdSchedule, schedules: cmdSchedule, tick: cmdTick, start: cmdStart, exec: cmdExec, agent: cmdAgent, account: cmdAccount, accounts: cmdAccount, perf: cmdPerf, assets: cmdAssets, rsi: cmdRsi }
+        prompt: cmdPrompt, prompts: cmdPrompt, schedule: cmdSchedule, schedules: cmdSchedule, tick: cmdTick, start: cmdStart, exec: cmdExec, agent: cmdAgent, account: cmdAccount, accounts: cmdAccount, perf: cmdPerf, assets: cmdAssets, rsi: cmdRsi, usage: cmdUsage }
     const fn = table[cmd] ?? die(`unknown command "${cmd}" (try: nightly help)`)
     await fn()
 } catch (e) {
