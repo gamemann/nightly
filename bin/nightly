@@ -35,6 +35,9 @@ case $cmd in
         exec 9>"$lockdir/nightly-exec-${2:-x}.lock"
         flock -n 9 || { echo "nightly: run ${2:-?} is already being executed" >&2; exit 0; }
         limit=0 ;;
+    assets|rsi)
+        # scan/refresh walk every pack and run the audit tool: minutes, not seconds. Still bounded.
+        case ${2:-} in scan|refresh) limit=${NIGHTLY_LONG_TIMEOUT:-3600} ;; esac ;;
 esac
 if [ "$limit" != 0 ] && command -v timeout >/dev/null 2>&1; then
     exec timeout --kill-after=5 "$limit" "$node" --no-warnings "$here/nightly.mjs" "$@"
