@@ -8,7 +8,7 @@ import { z } from 'zod'
 import { OPEN_STATUSES } from '~/lib/constants'
 import { type Budget, compareFunctions, compareMetrics, evaluateBudgets, regressionMarkers } from '../../lib/perf.mjs'
 import { bestFolded, diffFlameSvg, diffRows, flameSvg, hitchSvg, hitchesFromReport, sparklineSvg } from '../../lib/perf-viz.mjs'
-import { runsQuery } from '../../lib/list-query.mjs'
+import { pageList, runsQuery } from '../../lib/list-query.mjs'
 import { pageIn, type PageIn } from './pageInput'
 import { procedure, router } from './trpc'
 import { PERF_SPECS } from '~/lib/feedSpecs'
@@ -66,6 +66,14 @@ async function storedFolded(r: FoldRun) {
     return { folded: bestFolded({ stacks, report, funcs: r.funcs }) as string, report }
 }
 const json = <T,>(s: string, d: T): T => { try { return JSON.parse(s) as T } catch { return d } }
+
+/** One overview card: the game row plus its last run, run count and open findings. */
+async function gameCard(db: typeof import('./db').db, g: Awaited<ReturnType<typeof import('./db').db.perfGame.findMany>>[number], findings: { game: string }[]) {
+    const last = await db.perfRun.findFirst({ where: { game: g.slug }, orderBy: [{ ranAt: 'desc' }, { id: 'desc' }], select: { id: true, ranAt: true, commit: true } })
+    const runs = await db.perfRun.count({ where: { game: g.slug } })
+        return { ...g, platforms: g.platforms.split(',').filter(Boolean), budgets: json<Budget[]>(g.budgets, []), routing: json<Record<string, unknown>>(g.routing, {}), addons: json<Record<string, string>>(g.addons, {}), last, runs, open: findings.filter((f) => f.game === g.slug).length }
+}
+
 const PERF_DIR = () => process.env.NIGHTLY_PERF_DIR || path.join(path.dirname(process.env.NIGHTLY_DB || path.join(process.cwd(), 'data', 'nightly.db')), 'perf')
 const OPEN = new Set<string>(OPEN_STATUSES)
 const scope = z.object({ game: z.string(), platform: z.string().optional(), role: z.string().optional(), map: z.string().optional(), bots: z.number().optional() })
@@ -91,13 +99,17 @@ async function perfWhere(d: unknown, spec: PageSpec, search: string[], input: Pa
 
 export const perfRouter = router({
     /** Every registered game with its newest run and open findings. */
+    /** The overview cards: search name, slug, owner or repo, sort, filter by enabled, paged; the per-game stats are only computed for the page. */
+    gamesPage: procedure.input(pageIn).query(async ({ ctx, input }) => {
+        const all = await ctx.db.perfGame.findMany({ orderBy: { slug: 'asc' } })
+        const r = pageList(all, input, { search: ['name', 'slug', 'owner', 'repo'], fallback: 'slug', filters: { state: (g) => (g.enabled ? 'enabled' : 'disabled') },
+            sorts: { slug: (g) => g.slug, name: (g) => g.name.toLowerCase() } })
+        const findings = await ctx.db.perfFinding.findMany({ where: { status: 'open', game: { in: r.rows.map((g) => g.slug) } } })
+        return paged(await Promise.all(r.rows.map((g) => gameCard(ctx.db, g, findings))), r.total, input)
+    }),
     games: procedure.query(async ({ ctx }) => {
         const [games, findings] = await Promise.all([ctx.db.perfGame.findMany({ orderBy: { slug: 'asc' } }), ctx.db.perfFinding.findMany({ where: { status: 'open' } })])
-        return Promise.all(games.map(async (g) => {
-            const last = await ctx.db.perfRun.findFirst({ where: { game: g.slug }, orderBy: [{ ranAt: 'desc' }, { id: 'desc' }], select: { id: true, ranAt: true, commit: true } })
-            const runs = await ctx.db.perfRun.count({ where: { game: g.slug } })
-            return { ...g, platforms: g.platforms.split(',').filter(Boolean), budgets: json<Budget[]>(g.budgets, []), routing: json<Record<string, unknown>>(g.routing, {}), addons: json<Record<string, string>>(g.addons, {}), last, runs, open: findings.filter((f) => f.game === g.slug).length }
-        }))
+        return Promise.all(games.map((g) => gameCard(ctx.db, g, findings)))
     }),
 
     /** Distinct map/bots/platform/role combinations seen for a game (filter menus) and the metric names. */
@@ -231,7 +243,12 @@ export const perfRouter = router({
     }),
 
     /** Ingest tokens (hash and secret never leave the database). */
-    tokens: procedure.query(({ ctx }) => ctx.db.perfToken.findMany({ orderBy: { name: 'asc' }, select: { id: true, name: true, prefix: true, game: true, createdAt: true, lastUsedAt: true, revokedAt: true } })),
+    tokens: procedure.input(pageIn).query(async ({ ctx, input }) => {
+        const all = await ctx.db.perfToken.findMany({ orderBy: { name: 'asc' }, select: { id: true, name: true, prefix: true, game: true, createdAt: true, lastUsedAt: true, revokedAt: true } })
+        const r = pageList(all, input, { search: ['name', 'game', 'prefix'], fallback: 'name', filters: { state: (t) => (t.revokedAt ? 'revoked' : 'active') },
+            sorts: { name: (t) => t.name.toLowerCase(), game: (t) => t.game, lastUsedAt: (t) => t.lastUsedAt?.getTime() ?? 0, createdAt: (t) => t.createdAt.getTime() } })
+        return { ...paged(r.rows, r.total, input), anyActive: all.some((t) => !t.revokedAt), any: all.length > 0 }
+    }),
 
     // ---- writes (via the CLI) ----
     /** Returns {token} once: it is the only time the secret exists in clear. */

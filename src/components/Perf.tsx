@@ -4,8 +4,8 @@ import { Suspense, useMemo, useState } from "react"
 import { api, type RouterOutputs } from "~/trpc/react"
 import { unitLabel, unitOf } from "../../lib/perf.mjs"
 import { ago } from "./pills"
-import { DataTable, type Column } from "./DataTable"
-import { useUrlParams } from "./Pagination"
+import { DataTable, ListControls, type Column } from "./DataTable"
+import { Pagination, useUrlParams } from "./Pagination"
 import { PERF_SPECS } from "~/lib/feedSpecs"
 import { parsePage, type Paged } from "~/lib/paging"
 import { Trends } from "./PerfTrends"
@@ -41,15 +41,20 @@ function Shell({ crumbs, children }: { crumbs: [string, string][]; children: Rea
 // ---------- overview ----------
 
 function Overview() {
-    const games = api.perf.games.useQuery(undefined, { refetchInterval: 30_000 })
+    const { sp } = useUrlParams("g")
+    const q = parsePage(sp, PERF_SPECS.games, "g")
+    const games = api.perf.gamesPage.useQuery({ page: q.page, size: q.size, sort: q.sort, dir: q.dir, q: q.q || undefined, f: q.f }, { refetchInterval: 30_000, placeholderData: (p) => p })
+    const slugs = api.perf.games.useQuery()
     const [adding, setAdding] = useState(false)
     return (
         <>
             <p className="mt-0.5 mb-4 text-[12px] text-muted">Benchmarks, profiler stacks, budgets and regressions per game. Runs arrive from <code>nightly perf ingest</code>, the HTTP endpoint or the nightly <code>perf run</code>.</p>
             {games.isLoading && <div className="p-6 text-center text-muted">Loading…</div>}
             {games.error && <div className="rounded border border-red-400/40 p-3 text-red-300">{games.error.message} (run <code>nightly perf migrate</code> if the perf tables are missing)</div>}
+            <ListControls ns="g" q={q.q} active={q.f} searchHint="Search game, owner, repo" sorts={[{ key: "slug", label: "slug" }, { key: "name", label: "name" }]} sort={q.sort} dir={q.dir}
+                filters={[{ key: "state", label: "State", options: [{ value: "enabled" }, { value: "disabled" }] }]} />
             <div className="grid gap-3 md:grid-cols-2">
-                {games.data?.map((g) => (
+                {games.data?.rows.map((g) => (
                     <Link key={g.slug} href={`/perf/${g.slug}`} className="rounded-lg border border-line bg-panel/40 p-4 hover:bg-hover">
                         <div className="flex items-center gap-2">
                             <span className="text-[13px] font-medium">{g.name}</span>
@@ -61,7 +66,8 @@ function Overview() {
                     </Link>
                 ))}
             </div>
-            {games.data?.length === 0 && <div className="rounded-lg border border-line px-3 py-6 text-center text-muted">No games registered yet.</div>}
+            {games.data?.total === 0 && <div className="rounded-lg border border-line px-3 py-6 text-center text-muted">{q.q || Object.keys(q.f).length ? "No game matches." : "No games registered yet."}</div>}
+            {games.data && <Pagination p={games.data} ns="g" />}
             <div className="mt-4">
                 <button className={btn} onClick={() => setAdding(!adding)}>{adding ? "Cancel" : "Register a game"}</button>
                 {adding && <AddGame done={() => { setAdding(false); void games.refetch() }} />}
@@ -69,7 +75,7 @@ function Overview() {
             <h2 className="mt-6 mb-2 text-[13px] font-medium">Findings and fixes</h2>
             <Suspense><Rsi /></Suspense>
             <h2 className="mt-6 mb-2 text-[13px] font-medium">Ingest tokens</h2>
-            <Tokens games={games.data?.map((g) => g.slug) ?? []} />
+            <Tokens games={slugs.data?.map((g) => g.slug) ?? []} />
         </>
     )
 }
@@ -146,32 +152,30 @@ function Rsi({ game }: { game?: string }) {
 }
 
 /** Ingest tokens: per runner and/or per game. The secret is shown once; only its hash is stored. */
+type TokenRow = RouterOutputs["perf"]["tokens"]["rows"][number]
 function Tokens({ games }: { games: string[] }) {
     const utils = api.useUtils()
-    const list = api.perf.tokens.useQuery()
+    const { sp } = useUrlParams("t")
+    const q = parsePage(sp, PERF_SPECS.tokens, "t")
+    const list = api.perf.tokens.useQuery({ page: q.page, size: q.size, sort: q.sort, dir: q.dir, q: q.q || undefined, f: q.f }, { placeholderData: (p) => p })
     const [name, setName] = useState("")
     const [game, setGame] = useState("")
     const [fresh, setFresh] = useState<{ name: string; token: string } | null>(null)
     const add = api.perf.tokenAdd.useMutation({ onSuccess: (t) => { setFresh({ name: t.name, token: t.token }); setName(""); void utils.perf.tokens.invalidate() } })
     const revoke = api.perf.tokenRevoke.useMutation({ onSuccess: () => void utils.perf.tokens.invalidate() })
-    const rows = list.data ?? []
+    const data = list.data
+    const cols: Column<TokenRow>[] = [
+        { key: "name", label: "Name", sortable: true, className: "font-mono", render: (t) => t.name },
+        { key: "prefix", label: "Token", className: "font-mono text-muted", render: (t) => `${t.prefix}...` },
+        { key: "game", label: "Game", sortable: true, render: (t) => t.game || "any game" },
+        { key: "lastUsedAt", label: "Last used", sortable: true, className: "text-muted", render: (t) => (t.revokedAt ? "revoked" : t.lastUsedAt ? ago(t.lastUsedAt) : "never") },
+        { key: "act", label: "", className: "text-right", render: (t) => (!t.revokedAt && <button className={btn} disabled={revoke.isPending} onClick={() => revoke.mutate({ name: t.name })}>Revoke</button>) },
+    ]
     return (
         <div className="text-[12px]">
-            <p className="mb-2 text-muted">{rows.some((t) => !t.revokedAt) ? "HTTP ingest needs a token: Authorization: Bearer <token>." : "No token yet: HTTP ingest is open. Making the first one closes it to runners without a token."}</p>
-            {rows.length > 0 && (
-                <table className="mb-2 w-full">
-                    <thead className="text-left text-muted"><tr><th className="py-1">Name</th><th>Token</th><th>Game</th><th>Last used</th><th /></tr></thead>
-                    <tbody>
-                        {rows.map((t) => (
-                            <tr key={t.id} className="border-t border-line">
-                                <td className="py-1 font-mono">{t.name}</td><td className="font-mono text-muted">{t.prefix}...</td><td>{t.game || "any game"}</td>
-                                <td className="text-muted">{t.revokedAt ? "revoked" : t.lastUsedAt ? ago(t.lastUsedAt) : "never"}</td>
-                                <td className="text-right">{!t.revokedAt && <button className={btn} disabled={revoke.isPending} onClick={() => revoke.mutate({ name: t.name })}>Revoke</button>}</td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            )}
+            <p className="mb-2 text-muted">{data?.anyActive ? "HTTP ingest needs a token: Authorization: Bearer <token>." : "No token yet: HTTP ingest is open. Making the first one closes it to runners without a token."}</p>
+            {data?.any && <div className="mb-2"><DataTable ns="t" cols={cols} data={data} rowKey={(t) => t.id} sort={q.sort} dir={q.dir} q={q.q} active={q.f} searchHint="Search name, game, prefix"
+                filters={[{ key: "state", label: "State", options: [{ value: "active" }, { value: "revoked" }] }]} /></div>}
             <div className="flex flex-wrap items-center gap-2">
                 <input className={input} placeholder="runner or game name" value={name} onChange={(e) => setName(e.target.value)} />
                 <select className={input} value={game} onChange={(e) => setGame(e.target.value)}><option value="">any game</option>{games.map((g) => <option key={g} value={g}>{g}</option>)}</select>

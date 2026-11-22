@@ -14,6 +14,8 @@ export type FeedName = keyof typeof FEED_SPECS
 export const PERF_SPECS = {
     findings: { sorts: ['updatedAt', 'game', 'metric', 'status'], sort: 'updatedAt', dir: 'desc', filters: ['game', 'status'] },
     rsi: { sorts: ['updatedAt', 'game', 'kind', 'state', 'value'], sort: 'updatedAt', dir: 'desc', filters: ['game', 'state', 'kind'] },
+    games: { sorts: ['slug', 'name'], sort: 'slug', dir: 'asc', filters: ['state'] },
+    tokens: { sorts: ['name', 'game', 'lastUsedAt', 'createdAt'], sort: 'name', dir: 'asc', filters: ['state'] },
     runs: { sorts: ['ranAt', 'id', 'commit', 'label', 'platform', 'map'], sort: 'ranAt', dir: 'desc' },
 } as const satisfies Record<string, PageSpec>
 
