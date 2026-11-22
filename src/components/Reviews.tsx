@@ -3,6 +3,7 @@ import { useRouter } from "next/navigation"
 import { gameLabel } from "~/lib/games"
 import { useEffect, useMemo, useState } from "react"
 import { Pagination, useUrlParams } from "./Pagination"
+import { ListControls } from "./DataTable"
 import { api } from "~/trpc/react"
 import { parsePage } from "~/lib/paging"
 import type { reviewPage } from "~/server/reviewIndex"
@@ -57,35 +58,18 @@ export function Reviews({ data }: { data: Data }) {
     const { set } = useUrlParams()
     const { page, games, charts, query } = data
     const reviews = page.rows
-    const state = (query.f.state ?? "") as "" | "todo" | "wrong" | "good"
-    const game = query.f.game ?? ""
     const [open, setOpen] = useState<Set<string>>(new Set())
-    const [text, setText] = useState(query.q)
-    useEffect(() => setText(query.q), [query.q])
-    useEffect(() => { if (text === query.q) return; const t = setTimeout(() => set({ q: text }), 300); return () => clearTimeout(t) }, [text]) // eslint-disable-line react-hooks/exhaustive-deps
     const part = (k: string) => charts.parts.find((p) => p.key === k)?.value ?? 0
     const setState = (v: string) => set({ state: v })
     const toggle = (k: string) => setOpen((o) => { const n = new Set(o); if (!n.delete(k)) n.add(k); return n })
-    const chip = (on: boolean) => `rounded-md px-2 py-0.5 text-[12px] ${on ? "bg-hover text-fg" : "text-dim hover:bg-hover/60"}`
     return (
         <div className="mx-auto max-w-6xl px-6 py-5 max-md:px-3">
             <h1 className="text-[15px] font-semibold tracking-tight">Reviews</h1>
             <p className="mt-0.5 mb-3 text-[12px] text-muted">Animation clips, filmstrips and sounds waiting for a look. Verdict good / still wrong with a note that builders read back with <code className="font-mono">nightly review open KEY</code>. Task tickets in review status are under Review in the sidebar.</p>
             {data.totalReviews > 0 && <ReviewCharts charts={charts} onState={setState} onOpen={(k) => { set({ q: k, state: "", game: "" }); setOpen((o) => new Set(o).add(k)) }} />}
-            <div className="mb-3 flex flex-wrap items-center gap-1.5">
-                <button className={chip(state === "")} onClick={() => setState("")}>All {part("good") + part("wrong") + part("todo")}</button>
-                <button className={chip(state === "todo")} onClick={() => setState("todo")}>Not reviewed <span className="text-dim">{part("todo")}</span></button>
-                <button className={chip(state === "good")} onClick={() => setState("good")}>Good <span className="text-emerald-300">{part("good")}</span></button>
-                <button className={chip(state === "wrong")} onClick={() => setState("wrong")}>Still wrong <span className="text-red-300">{part("wrong")}</span></button>
-                <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Search title or key" aria-label="search reviews" className="ml-auto w-48 rounded-md border border-line bg-panel px-2 py-0.5 text-[12px] outline-none focus:border-sky-400/60" />
-                <select value={query.sort} onChange={(e) => set({ sort: e.target.value === "updated" ? "" : e.target.value, dir: "" })} aria-label="sort reviews" className="rounded-md border border-line bg-panel px-2 py-0.5 text-[12px]">
-                    {SORTS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-                </select>
-                <select value={game} onChange={(e) => set({ game: e.target.value })} className="rounded-md border border-line bg-panel px-2 py-0.5 text-[12px]">
-                    <option value="">All games</option>
-                    {games.map((g) => <option key={g.game} value={g.game}>{gameLabel(g.game)} ({g.count})</option>)}
-                </select>
-            </div>
+            <ListControls q={query.q} active={query.f} sort={query.sort} dir={query.dir} sorts={SORTS.map(([key, label]) => ({ key, label }))} searchHint="Search title or key"
+                filters={[{ key: "state", label: "Verdict", options: [{ value: "todo", label: `not reviewed (${part("todo")})` }, { value: "good", label: `good (${part("good")})` }, { value: "wrong", label: `still wrong (${part("wrong")})` }] },
+                    { key: "game", label: "Game", options: games.map((g) => ({ value: g.game, label: `${gameLabel(g.game)} (${g.count})` })) }]} />
             {reviews.length === 0 && <div className="mb-6 rounded-lg border border-line px-3 py-6 text-center text-muted">{data.totalReviews ? "No reviews match." : "No reviews yet. File one (see below)."}</div>}
             <div className="space-y-2">
                 {reviews.map((r) => (
@@ -116,16 +100,13 @@ const WEAPON_SPEC = { sorts: ["id"], sort: "id", dir: "asc", filters: ["verdict"
 
 function ReviewCard({ r }: { r: Data["page"]["rows"][number] }) {
     const ns = `w.${r.key}.`
-    const { sp, set } = useUrlParams(ns)
+    const { sp } = useUrlParams(ns)
     const router = useRouter()
     const utils = api.useUtils()
     const wq = parsePage(sp, WEAPON_SPEC, ns)
-    const [text, setText] = useState(wq.q)
-    useEffect(() => { if (text === wq.q) return; const t = setTimeout(() => set({ q: text }), 300); return () => clearTimeout(t) }, [text]) // eslint-disable-line react-hooks/exhaustive-deps
     const res = api.review.weapons.useQuery({ key: r.key, page: wq.page, size: wq.size, sort: wq.sort, dir: wq.dir, q: wq.q || undefined, f: wq.f }, { placeholderData: (p) => p })
     const data = res.data
     const c = r.counts
-    const sel = "rounded-md border border-line bg-panel px-2 py-1 text-[12px]"
     return (
         <section className="rounded-lg border border-line">
             <header className="flex flex-wrap items-baseline gap-3 border-b border-line px-4 py-2.5">
@@ -135,11 +116,9 @@ function ReviewCard({ r }: { r: Data["page"]["rows"][number] }) {
             </header>
             {r.body && <p className="border-b border-line px-4 py-2 text-[12px] text-dim">{r.body}</p>}
             {c.total > 0 && (
-                <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-2">
-                    <input className={`${sel} w-56`} placeholder="Search entry id or title" aria-label="search entries" value={text} onChange={(e) => setText(e.target.value)} />
-                    <select className={sel} aria-label="verdict" value={wq.f.verdict ?? ""} onChange={(e) => set({ verdict: e.target.value })}>
-                        <option value="">all verdicts</option><option value="todo">not reviewed</option><option value="good">good</option><option value="wrong">still wrong</option>
-                    </select>
+                <div className="border-b border-line px-4 pt-2">
+                    <ListControls ns={ns} q={wq.q} active={wq.f} searchHint="Search entry id or title"
+                        filters={[{ key: "verdict", label: "Verdict", options: [{ value: "todo", label: "not reviewed" }, { value: "good" }, { value: "wrong", label: "still wrong" }] }]} />
                 </div>
             )}
             <div className="divide-y divide-line">

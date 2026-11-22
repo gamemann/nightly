@@ -2,6 +2,7 @@ import { statSync } from 'node:fs'
 import { classify } from '../../lib/classify.mjs'
 import { load, jsonPath, type ReviewWeapon } from '../../lib/review.mjs'
 import { offsetOf, paged, parsePage, type PageSpec } from '~/lib/paging'
+import { filterReviews } from '../../lib/review-list.mjs'
 import { reviewProgress, verdictParts, verdictsByDay } from '../../lib/charts.mjs'
 import type { PrismaClient } from '../../generated/prisma/client'
 
@@ -35,13 +36,7 @@ export async function reviewPage(db: PrismaClient, sp: Record<string, string | s
     const all = items.map((i) => ({ key: i.key, title: i.title, createdAt: i.createdAt.toISOString(), updatedAt: i.updatedAt.toISOString(), game: classify(i.repos, i.key, i.title, known) as string, ...info(i.key) }))
     const gameCount = new Map<string, number>()
     for (const r of all) gameCount.set(r.game, (gameCount.get(r.game) ?? 0) + 1)
-    const needle = q.q.toLowerCase()
-    const state = q.f.state as 'todo' | 'good' | 'wrong' | undefined
-    const shown = all.filter((r) => (!q.f.game || r.game === q.f.game) && (!state || r.counts[state] > 0) && (!needle || r.title.toLowerCase().includes(needle) || r.key.toLowerCase().includes(needle)))
-    const judged = (r: (typeof all)[number]) => (r.counts.total ? (r.counts.good + r.counts.wrong) / r.counts.total : 0)
-    const val: Record<string, (r: (typeof all)[number]) => string | number> = { updated: (r) => r.updatedAt, created: (r) => r.createdAt, title: (r) => r.title.toLowerCase(), game: (r) => r.game, entries: (r) => r.counts.total, progress: judged }
-    const f = val[q.sort], sgn = q.dir === 'asc' ? 1 : -1
-    shown.sort((a, b) => (f(a) < f(b) ? -1 : f(a) > f(b) ? 1 : 0) * sgn || (a.key < b.key ? -1 : 1))
+    const shown = filterReviews(all, { q: q.q, game: q.f.game, state: q.f.state, sort: q.sort, dir: q.dir })
     const off = offsetOf(shown.length, q)
     const slice = shown.slice(off, off + q.size)
     const bodies = new Map((await db.item.findMany({ where: { key: { in: slice.map((r) => r.key) } }, select: { key: true, body: true } })).map((b) => [b.key, b.body]))
