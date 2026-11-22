@@ -2,13 +2,14 @@ import { mkdir, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { db } from "~/server/db"
 import { ATTACH_DIR } from "~/server/media"
+import { gateSync } from "~/server/feedRouter"
 
 // QA ingest: game machines push fuzz / visual / suite results here (scripts/qa-post.sh).
 // Behind the same optional password as the rest of the panel (proxy.ts); no extra secret.
 //   { kind: "fuzz"|"visual"|"suite", game, commit?, timestamp?, ok?,
 //     summary: { total, failed, ...anything }, failures: [{ name, repro?, reasons?: string[] }],
 //     attachments?: [{ name: "x.png", data: <base64>, note? }] }
-const KINDS = new Set(["fuzz", "visual", "suite", "perf"])
+const KINDS = new Set(["fuzz", "visual", "suite", "perf", "netchaos"])
 const KEEP = 200
 const MAX_IMAGE = 6_000_000
 const MAX_VIDEO = 30_000_000
@@ -21,7 +22,7 @@ export async function POST(req: Request) {
     try { b = await req.json() } catch { return Response.json({ error: "body is not JSON" }, { status: 400 }) }
     const kind = text(b.kind, 20)
     const game = text(b.game, 80).replace(/[^\w.-]/g, "_")
-    if (!KINDS.has(kind) || !game) return Response.json({ error: "kind (fuzz|visual|suite|perf) and game are required" }, { status: 400 })
+    if (!KINDS.has(kind) || !game) return Response.json({ error: "kind (fuzz|visual|suite|perf|netchaos) and game are required" }, { status: 400 })
     const sum = (b.summary && typeof b.summary === "object" ? b.summary : {}) as Record<string, unknown>
     // fuzz summaries say pairs/failed, visual ones maps/ok: accept those names as well.
     const total = num(sum.total) ?? num(sum.pairs) ?? num(sum.maps) ?? 0
@@ -57,5 +58,8 @@ export async function POST(req: Request) {
     const old = await db.qaRun.findMany({ where: { game, kind }, orderBy: { ranAt: "desc" }, skip: KEEP, select: { id: true } })
     for (const o of old) await rm(path.join(ATTACH_DIR, `qa-${o.id}`), { recursive: true, force: true })
     if (old.length) await db.qaRun.deleteMany({ where: { id: { in: old.map((o) => o.id) } } })
-    return Response.json({ id: row.id, ok, total, failed: failedCount, images: images.length }, { status: 201 })
+    // Gate kinds open/close one RSI finding per failing check; `infra: true` in the body means the job itself broke (no verdict, nothing is changed).
+    let gate: unknown = null
+    if (kind === "visual" || kind === "netchaos" || kind === "perf") gate = await gateSync(kind, game, failures, b.infra === true)
+    return Response.json({ id: row.id, ok, total, failed: failedCount, images: images.length, gate }, { status: 201 })
 }

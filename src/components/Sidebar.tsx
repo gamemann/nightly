@@ -67,25 +67,25 @@ export function Sidebar() {
                 <Link href="/runs" className={link('/runs', path.startsWith('/runs'))} title="Runs & reports">
                     <span className="w-2 text-center text-[11px] text-muted">▸</span><span className="max-md:hidden">Runs &amp; reports</span>
                 </Link>
-                <Link href="/screenshots" className={link('/screenshots', path === '/screenshots')} title="Screenshots">
-                    <span className="w-2 text-center text-[11px] text-muted">▣</span><span className="max-md:hidden">Screenshots</span>
-                </Link>
-                <Link href="/qa" className={link('/qa', path === '/qa')} title="QA">
-                    <span className="w-2 text-center text-[11px] text-muted">✓</span><span className="max-md:hidden">QA</span>
-                </Link>
+                <div className="px-2 pb-0.5 pt-2 text-[11px] uppercase tracking-wide text-muted max-md:hidden"><Link href="/" className="hover:text-fg">RSI</Link></div>
                 <Link href="/perf" className={link('/perf', path.startsWith('/perf'))} title="Performance">
                     <span className="w-2 text-center text-[11px] text-muted">⏱</span><span className="max-md:hidden">Performance</span>
                 </Link>
                 <Link href="/assets" className={link('/assets', path.startsWith('/assets'))} title="Assets (RSI)">
                     <span className="w-2 text-center text-[11px] text-muted">◆</span><span className="max-md:hidden">Assets</span>
                 </Link>
-                <Link href="/reviews" className={link('/reviews', path === '/reviews')} title="Reviews">
-                    <span className="w-2 text-center text-[11px] text-muted">◉</span><span className="max-md:hidden">Reviews</span>
+                <Link href="/reviews" className={link('/reviews', path.startsWith('/reviews'))} title="Reviews, media evidence and QA">
+                    <span className="w-2 text-center text-[11px] text-muted">◉</span><span className="max-md:hidden">Reviews &amp; QA</span>
                 </Link>
+                <div className="px-2 pb-0.5 pt-2 text-[11px] uppercase tracking-wide text-muted max-md:hidden">Health</div>
+                {([['/releases', 'Releases', '⇪'], ['/crashes', 'Crashes', '✖'], ['/web', 'Web checks', '◎'], ['/playtests', 'Playtests', '☺'], ['/content', 'Content', '▤']] as const).map(([h, l, i]) => (
+                    <Link key={h} href={h} className={link(h, path === h)} title={l}><span className="w-2 text-center text-[11px] text-muted">{i}</span><span className="max-md:hidden">{l}</span></Link>
+                ))}
+                <div className="px-2 pb-0.5 pt-2 text-[11px] uppercase tracking-wide text-muted max-md:hidden">Automation</div>
                 <Link href="/schedules" className={link('/schedules', path === '/schedules')} title="Schedules">
                     <span className="w-2 text-center text-[11px] text-muted">◷</span><span className="max-md:hidden">Schedules</span>
                 </Link>
-                <Link href="/prompts" className={link('/prompts', path.startsWith('/prompts'))} title="Prompts">
+                <Link href="/prompts" className={link('/prompts', path.startsWith('/prompts'))} title="Prompts and jobs">
                     <span className="w-2 text-center text-[11px] text-muted">¶</span><span className="max-md:hidden">Prompts</span>
                 </Link>
                 <Link href="/settings" className={link('/settings', path === '/settings')} title="Settings">

@@ -1,3 +1,4 @@
+import { feedRouter } from './feedRouter'
 import { execFile } from 'node:child_process'
 import { suggestRepos } from '../../lib/classify.mjs'
 import { readFile, readdir, stat } from 'node:fs/promises'
@@ -467,5 +468,5 @@ const authRouter = router({
         })),
 })
 
-export const appRouter = router({ perf: perfRouter, item: itemRouter, note: noteRouter, run: runRouter, schedule: scheduleRouter, prompt: promptRouter, attachment: attachmentRouter, qa: qaRouter, agent: agentRouter, setting: settingRouter, auth: authRouter, game: gameRouter })
+export const appRouter = router({ perf: perfRouter, item: itemRouter, note: noteRouter, run: runRouter, schedule: scheduleRouter, prompt: promptRouter, attachment: attachmentRouter, qa: qaRouter, agent: agentRouter, setting: settingRouter, auth: authRouter, game: gameRouter, feed: feedRouter })
 export type AppRouter = typeof appRouter

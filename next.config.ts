@@ -17,6 +17,11 @@ const config: NextConfig = {
     env: { NEXT_PUBLIC_NIGHTLY_OWNER: process.env.NIGHTLY_OWNER ?? '' },
     serverExternalPackages: ['better-sqlite3', '@prisma/adapter-better-sqlite3'],
     allowedDevOrigins: devOrigins,
+    // Screenshots and QA moved into the Reviews page (tabs); old links keep working.
+    redirects: async () => [
+        { source: '/screenshots', destination: '/reviews?tab=media', permanent: true },
+        { source: '/qa', destination: '/reviews?tab=qa', permanent: true },
+    ],
 }
 
 export default config

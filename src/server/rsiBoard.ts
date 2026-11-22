@@ -1,6 +1,6 @@
 import { db } from "~/server/db"
 
-export const DOMAINS = ["perf", "weapons", "textures", "animations", "sounds", "maps"] as const
+export const DOMAINS = ["perf", "weapons", "textures", "animations", "sounds", "maps", "visual", "netchaos", "web", "content"] as const
 export type Domain = (typeof DOMAINS)[number]
 export const TIERS = ["low", "medium", "high"] as const
 const SEV = { error: 0, warn: 1, info: 2 } as Record<string, number>
@@ -13,6 +13,9 @@ export type DomainStat = { domain: Domain; open: number; fixed: number; remeasur
 export type WorstAsset = { assetId: number | null; subject: string; score: number; before: number | null; codes: { code: string; tier: string; severity: string }[]; nextAction: string; states: string[] }
 export type Board = { tier: string; domains: DomainStat[]; worst: WorstAsset[]; blockers: Finding[]; lastRefresh: string; toolMissing: boolean }
 
+/** Gate and feed domains link to the page that shows the evidence, not the asset browser. */
+const DOMAIN_HREF: Record<string, string> = { visual: "/reviews", netchaos: "/reviews", web: "/web", content: "/content" }
+
 const NO_AUDITOR: Record<string, string> = {
     maps: "No map census data yet: run perf_bench --mesh-census on a map (logs in the rsiCensusDir setting) and `nightly rsi refresh`.",
 }
@@ -24,7 +27,7 @@ export async function loadBoard(tierParam?: string): Promise<Board> {
     const asset: Finding[] = rows.filter((r) => r.domain !== "process" && (r.domain !== "textures" || r.tier === tier)).map((r) => ({
         id: r.id, domain: r.domain, subject: r.subject, assetId: r.assetId, code: r.code, tier: r.tier, severity: r.severity, msg: r.msg, nextAction: r.nextAction,
         state: r.status === "resolved" ? "remeasured" : r.state, status: r.status, before: r.beforeScore, after: r.afterScore, itemKey: r.itemKey,
-        href: r.assetId ? `/assets/${r.assetId}` : "/assets",
+        href: r.assetId ? `/assets/${r.assetId}` : DOMAIN_HREF[r.domain] ?? "/assets",
     }))
     const perfF: Finding[] = perf.map((p) => ({
         id: p.id, domain: "perf", subject: `${p.game}`, assetId: null, code: p.metric, tier: "", severity: p.status === "open" ? "warn" : "info", msg: p.note, nextAction: p.itemKey ? `Fix agent works ${p.itemKey}` : "Queue a fix item from this finding",
