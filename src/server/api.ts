@@ -1,3 +1,4 @@
+import { feedRouter } from './feedRouter'
 import { execFile } from 'node:child_process'
 import { suggestRepos } from '../../lib/classify.mjs'
 import { readFile, readdir, stat } from 'node:fs/promises'
@@ -311,7 +312,15 @@ const promptRouter = router({
             ctx.db.prompt.findMany({ orderBy: [{ kind: 'asc' }, { name: 'asc' }], select: { id: true, name: true, kind: true, body: true, updatedAt: true } }),
             ctx.db.schedule.findMany({ select: { name: true, prompt: true } }),
         ])
-        return rows.map(({ body, ...p }) => ({ ...p, size: body.length, usedBy: schedules.filter((s) => s.prompt === p.name).map((s) => s.name) }))
+        return rows.map(({ body, ...p }) => ({ ...p, size: body.length, codeLike: body.startsWith('#!'), usedBy: schedules.filter((s) => s.prompt === p.name).map((s) => s.name) }))
+    }),
+    /** A job script's linked schedules and the most recent run of any of them. */
+    job: procedure.input(z.object({ name: z.string() })).query(async ({ ctx, input }) => {
+        const schedules = await ctx.db.schedule.findMany({ where: { prompt: input.name }, select: { id: true, name: true } })
+        const lastRun = schedules.length
+            ? await ctx.db.run.findFirst({ where: { scheduleId: { in: schedules.map((s) => s.id) } }, orderBy: { startedAt: 'desc' }, select: { id: true, status: true, startedAt: true } })
+            : null
+        return { schedules, lastRun }
     }),
     get: procedure.input(z.object({ name: z.string() })).query(async ({ ctx, input }) => {
         const p = await ctx.db.prompt.findUnique({
@@ -405,9 +414,13 @@ const agentRouter = router({
             ctx.db.message.findMany({ orderBy: { id: 'desc' }, take: 200 }),
         ])
         const since = liveSince()
+        // Silent past agentLeftHours (default 12) counts as left even before `nightly agent sweep` retires the row.
+        const leftHrs = Number((await ctx.db.setting.findUnique({ where: { key: 'agentLeftHours' } }))?.value) || 12
+        const gone = new Date(Date.now() - leftHrs * 3600_000)
         return {
+            leftHours: leftHrs,
             live: agents.filter((a) => a.lastSeenAt >= since),
-            quiet: agents.filter((a) => a.lastSeenAt < since),
+            quiet: agents.filter((a) => a.lastSeenAt < since && a.lastSeenAt >= gone),
             ended: recent,
             claims: claims.map((c) => ({ ...c, stale: !!c.agent.endedAt || c.agent.lastSeenAt < since })),
             messages: messages.reverse(),
@@ -467,5 +480,5 @@ const authRouter = router({
         })),
 })
 
-export const appRouter = router({ perf: perfRouter, item: itemRouter, note: noteRouter, run: runRouter, schedule: scheduleRouter, prompt: promptRouter, attachment: attachmentRouter, qa: qaRouter, agent: agentRouter, setting: settingRouter, auth: authRouter, game: gameRouter })
+export const appRouter = router({ perf: perfRouter, item: itemRouter, note: noteRouter, run: runRouter, schedule: scheduleRouter, prompt: promptRouter, attachment: attachmentRouter, qa: qaRouter, agent: agentRouter, setting: settingRouter, auth: authRouter, game: gameRouter, feed: feedRouter })
 export type AppRouter = typeof appRouter

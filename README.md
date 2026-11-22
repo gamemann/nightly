@@ -263,7 +263,7 @@ Sidebar: Queue · In progress · Review · Blocked · Issues · Checks · Done �
 
 **Reviews** (`/reviews`, kind `review`): per-weapon animation filmstrips and looping clips (before/after) and audio with waveform and licence line, each weapon with a verdict (good / still wrong) and a note. Files live under `data/reviews/<key>/<weapon>/` (`NIGHTLY_REVIEWS`) with a `review.json`; no database table. Builders file with `scripts/review-post.sh new KEY "Title"`, then `media KEY WEAPON FILE --slot filmstrip|clip|audio|image [--variant before|after] [--label L] [--title T] [--licence L] [--source URL] [--waveform W.png]` (same `QA_URL`/`QA_USER`/`QA_PASSWORD` as `qa-post.sh`; audio gets a waveform drawn for it if none is given; the same slot, variant and label replaces). You set the verdicts on the page. Builders read them back with `scripts/review-post.sh open KEY` (weapons not yet good, with notes) or, on the machine that runs the panel, `nightly review open|show|list KEY`; fix the weapons marked wrong, re-post the media as `after`, and the verdict history is kept.
 
-**Perf budget** (`/qa`, kind `perf`): the `Perf budget` schedule (03:30) has the prompt `perf-budget.md`, whose first line is a shebang. `run.sh` runs a prompt like that as a job, not a Claude run (no plan-usage gate, no agent): it ssh-es to the game machine, runs the game repository's `tools/perf_budget.sh --post` (frame-time percentiles, worst stall, load time, peak RSS and pack size per map on the GPU box, against a committed baseline) and the run is ok or failed by the exit code. The script posts through `scripts/qa-post.sh perf`; the page draws a trend chart per metric and map (last 30 runs, baseline and budget dashed, over-budget runs red). Any other job is a new prompt with a shebang plus a schedule.
+**Perf budget** (`/qa`, kind `perf`): the `Perf budget` schedule (03:30) has the job script `perf-budget.sh` (kind `script`, first line a shebang). `run.sh` runs a prompt like that as a job, not a Claude run (no plan-usage gate, no agent): it routes through the work user's `hv` wrapper (heavy queue, GPU boxes), runs the game repository's `tools/perf_budget.sh --post` (frame-time percentiles, worst stall, load time, peak RSS and pack size per map on the GPU box, against a committed baseline) and the run is ok or failed by the exit code. The script posts through `scripts/qa-post.sh perf`; the page draws a trend chart per metric and map (last 30 runs, baseline and budget dashed, over-budget runs red). Any other job is a new prompt with a shebang plus a schedule.
 
 **Screenshots** are read from `NIGHTLY_MEDIA` (default `archive/screenshots`, laid out `<YYYY-MM-DD>/…`) and served at `/media/…`; a report's `![](screenshots/<date>/x.png)` renders inline.
 
@@ -281,6 +281,22 @@ systemctl --user daemon-reload && systemctl --user enable --now nightly-panel
 # Keep it running when you are not logged in.
 loginctl enable-linger $USER
 ```
+
+## Jobs / Scripts
+
+A prompt is text an agent is told; a **job** is a runnable script (kind `script`, name ends `.sh`, first line `#!`). `/prompts` lists prompts (with a markdown preview), `/jobs` lists jobs. A prompt whose body starts with `#!` shows a `script` badge. A schedule runs a job with no agent, and the Schedules page shows a `job` or `agent` badge per schedule.
+
+- Exit code contract: `0` ok, `1` findings (the check ran and found problems: run status `findings`, amber, the gates open RSI findings), anything else `failed` (infrastructure or a broken script).
+- The job page shows the last run of its schedules, the linked schedule(s), the contract and a **Run now** button (same as `nightly start <schedule>`).
+- Host, repository path and command are the first lines of the script (`REPO=`, `CMD=`), so they are edited on the Jobs page, never baked into the panel. `nightly prompt rename <old> <new> [--kind script]` keeps the history and the schedules' links.
+
+## Health feeds and gates
+
+Generic, DB-driven pages, each with a CLI and a Bearer ingest (`POST /api/ingest/<kind>`, token from `nightly perf token add`): Releases (`/releases`, `nightly release`), Crashes (`/crashes`, `nightly crash`), Web checks (`/web`, bundle size, web vitals, uptime with budgets, `nightly web`), Playtests (`/playtests`, `nightly playtest`), Content (`/content`, `nightly content`). Failing checks raise RSI findings. The perf, visual and netchaos gates (`lib/gates.mjs`) open one RSI finding per failing check and close it when a later run passes; the finding says to re-baseline only if the change is intended.
+
+## Agents liveness
+
+`nightly agent join|heartbeat|leave` (or `POST /api/agents/heartbeat` with the ingest token) registers any runner. An agent is live for an hour after its last heartbeat, then stale, then left after the setting `agentLeftHours` (default 12). The Agents page lists a "Running (unregistered)" section from the setting `agentSourceCmd` (a command printing one agent per line) or `agentSourceFile`.
 
 ## Performance tab
 

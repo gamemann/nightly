@@ -403,3 +403,82 @@ model RsiFinding {
   @@unique([subject, code, tier])
   @@index([domain, status])
 }
+
+/// Project-health feeds (lib/feeds.mjs creates the tables; written only by `nightly releases|crash|web|playtest|content`).
+model Release {
+  id         Int      @id @default(autoincrement())
+  game       String   @default("")
+  repo       String
+  version    String
+  channel    String   @default("stable")
+  commit     String   @default("")
+  ci         String   @default("unknown")
+  deployedTo String   @default("")
+  changelog  String   @default("")
+  rollback   String   @default("")
+  at         DateTime
+
+  @@unique([repo, version, channel])
+}
+
+model CrashGroup {
+  id          Int      @id @default(autoincrement())
+  game        String
+  signature   String
+  version     String   @default("")
+  platform    String   @default("")
+  count       Int      @default(1)
+  sample      String   @default("")
+  status      String   @default("open")
+  firstSeenAt DateTime
+  at          DateTime
+
+  @@unique([game, signature, version, platform], map: "CrashGroup_key")
+}
+
+model WebBudget {
+  id     Int    @id @default(autoincrement())
+  game   String
+  metric String
+  max    Float
+  unit   String @default("")
+
+  @@unique([game, metric], map: "WebBudget_key")
+}
+
+model WebSample {
+  id     Int      @id @default(autoincrement())
+  game   String
+  metric String
+  value  Float
+  url    String   @default("")
+  commit String   @default("")
+  at     DateTime
+
+  @@index([game, metric, at], map: "WebSample_game_metric_at")
+}
+
+model Playtest {
+  id     Int      @id @default(autoincrement())
+  game   String
+  build  String   @default("")
+  tester String   @default("")
+  rating Int?
+  tags   String   @default("")
+  text   String   @default("")
+  at     DateTime
+}
+
+model ContentStat {
+  id       Int      @id @default(autoincrement())
+  game     String
+  category String   @default("")
+  name     String
+  metric   String
+  value    Float
+  min      Float?
+  max      Float?
+  at       DateTime
+
+  @@unique([game, category, name, metric], map: "ContentStat_key")
+}

@@ -19,9 +19,11 @@ import * as PV from '../lib/perf-viz.mjs'
 import * as AS from '../lib/assets.mjs'
 import * as RSI from '../lib/rsi.mjs'
 import { syncBlockers } from '../lib/rsi-blockers.mjs'
+import { agentLive } from '../lib/cli-agents.mjs'
+import { FEED_COMMANDS, FEED_HELP, runFeedCommand } from '../lib/cli-feeds.mjs'
 
 const argv = process.argv.slice(2)
-const BOOL = new Set(['json', 'all', 'top', 'due', 'help', 'h', 'dryRun', 'force', 'peek', 'strict', 'register', 'noFindings', 'noBudgets', 'noBaseline', 'requireToken', 'tokenOnly', 'png', 'disable', 'enable'])
+const BOOL = new Set(['json', 'all', 'top', 'due', 'help', 'h', 'dryRun', 'force', 'peek', 'strict', 'register', 'noFindings', 'noBudgets', 'noBaseline', 'requireToken', 'tokenOnly', 'png', 'disable', 'enable', 'infra', 'leave'])
 
 const multi = {}
 function parse(args) {
@@ -95,6 +97,7 @@ const HELP = `nightly -- the nightly run's to-do database (${S.DB_PATH})
 
   prompt list | show <name> | history <name>    the agent's prompts and the runner script (show prints the body)
   prompt set <name> [--file F | stdin] [--note N] [--by B] [--kind prompt|script]
+  prompt rename <old> <new> [--kind script]     keep history and schedule links; a script is a job (no agent)
 
   schedule list                                 when the runner starts (edit in the panel)
   assets migrate                                create the assets (RSI) table (backs up the database to data/backup/ first)
@@ -122,6 +125,7 @@ const HELP = `nightly -- the nightly run's to-do database (${S.DB_PATH})
   perf nightly [--game X] [--dry-run]            the scheduled run: every routing entry of every enabled game
   perf runs [--game X] [--limit N] | perf compare <runA> <runB> | perf findings [--game X]
   perf finding add --game X --metric M [--item KEY | --title T]   link a perf finding to a queue item
+${FEED_HELP}
   tick [--dry-run]                              crontab, every minute: fire the schedules due now
   start <schedule-id|name>                      fire one schedule now (ignores doRun); prints the run id
 
@@ -137,6 +141,9 @@ const HELP = `nightly -- the nightly run's to-do database (${S.DB_PATH})
   agent inbox <name> [--peek]                   messages for you since you last looked
   agent board                                   who is live, what they hold, recent messages
   agent leave <name> [--note N]                 releases everything
+  agent heartbeat <name> [--task T] [--kind K] [--repos a,b] [--leave]   register-or-refresh from any runner (HTTP: POST /api/agents/heartbeat)
+  agent sweep | running                         retire agents silent past the agentLeftHours setting (12h) | list running agents that never registered
+                                                (settings agentSourceCmd = a command, or agentSourceFile = a file; JSON array or "name task" lines)
 
   account status | pick | env | add <name>      which Claude account a run or session uses (scripts/claude-acct); set up in .env
       [--strict] [--exclude a,b]                pick/env only: exit 1 if no account is under its limits / leave these out
@@ -391,11 +398,16 @@ function cmdPrompt() {
         const r = P.set(db, name, body, { kind: opt.kind, author: opt.by ?? 'session', note: opt.note ? String(opt.note) : '' })
         return out(r, () => (r.changed ? `saved ${name}` : `${name} unchanged`))
     }
+    if (sub === 'rename') {
+        const to = pos.shift() ?? die('prompt rename <old> <new> [--kind script|prompt]')
+        const r = P.rename(db, name, to, { kind: opt.kind })
+        return out(r, () => `renamed ${name} -> ${to} (${r.kind}, ${r.schedules} schedule(s) updated)`)
+    }
     if (sub === 'history') {
         const rows = P.history(db, name)
         return out(rows, () => rows.map((v) => `#${String(v.id).padEnd(5)} ${S.local(v.createdAt)}  ${v.author.padEnd(9)} ${String(v.size).padStart(6)} B  ${v.note}`).join('\n'))
     }
-    die('prompt list | show <name> | set <name> | history <name>')
+    die('prompt list | show <name> | set <name> | rename <old> <new> | history <name>')
 }
 
 function cmdSchedule() {
@@ -450,6 +462,7 @@ function cmdAgent() {
             '', 'RECENT MESSAGES', ...(b.messages.length ? b.messages.map(msgLine) : ['(none)']),
         ].join('\n'))
     }
+    if (agentLive(sub, { db, pos, opt, out, die })) return
     const name = pos.shift() ?? die(`agent ${sub} <name> ...`)
     if (sub === 'join') {
         const a = A.join(db, name, { kind: opt.kind ?? 'session', task: opt.task, repos: csv(opt.repos)?.join(', '), runId: opt.run ? int(opt.run, '--run') : undefined })
@@ -772,6 +785,7 @@ try {
     const table = { list: cmdList, ls: cmdList, show: cmdShow, add: cmdAdd, set: cmdSet, note: cmdNote, attach: cmdAttach, attachments: cmdAttachments, review: cmdReview, reviews: cmdReview, checks: cmdChecks,
         checked: cmdChecked, run: cmdRun, get: cmdGet, 'set-setting': cmdSetSetting, brief: cmdBrief,
         prompt: cmdPrompt, prompts: cmdPrompt, schedule: cmdSchedule, schedules: cmdSchedule, tick: cmdTick, start: cmdStart, exec: cmdExec, agent: cmdAgent, account: cmdAccount, accounts: cmdAccount, perf: cmdPerf, assets: cmdAssets, rsi: cmdRsi }
+    for (const c of [...FEED_COMMANDS, 'feed', 'gates']) table[c] = () => runFeedCommand(c, { db, pos, opt, out, die, readStdin })
     const fn = table[cmd] ?? die(`unknown command "${cmd}" (try: nightly help)`)
     await fn()
 } catch (e) {

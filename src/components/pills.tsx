@@ -9,6 +9,7 @@ const STATUS_STYLE: Record<string, string> = {
     wontfix: 'text-zinc-400 bg-zinc-400/10 ring-zinc-400/20',
     running: 'text-amber-300 bg-amber-400/10 ring-amber-400/25',
     ok: 'text-emerald-300 bg-emerald-400/10 ring-emerald-400/20',
+    findings: 'text-amber-300 bg-amber-400/10 ring-amber-400/25',
     failed: 'text-red-300 bg-red-400/10 ring-red-400/25',
     skipped: 'text-zinc-400 bg-zinc-400/10 ring-zinc-400/20',
 }

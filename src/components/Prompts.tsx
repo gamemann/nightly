@@ -8,54 +8,53 @@ import { Markdown } from './Markdown'
 import { MarkdownEditor } from './MarkdownEditor'
 import { ago, fmt } from './pills'
 
-export function Prompts({ name }: { name?: string }) {
+export function Prompts({ name, kind = 'prompt' }: { name?: string; kind?: 'prompt' | 'script' }) {
+    const base = kind === 'script' ? '/jobs' : '/prompts'
+    const noun = kind === 'script' ? 'Jobs / Scripts' : 'Prompts'
     const router = useRouter()
     const utils = api.useUtils()
     const list = api.prompt.list.useQuery()
     const create = api.prompt.save.useMutation({
-        onSuccess: (p) => { void utils.prompt.list.invalidate(); router.push(`/prompts/${encodeURIComponent(p.name)}`) },
+        onSuccess: (p) => { void utils.prompt.list.invalidate(); router.push(`${base}/${encodeURIComponent(p.name)}`) },
     })
+    const rows = list.data?.filter((p) => p.kind === kind) ?? []
     useEffect(() => {
-        if (!name && list.data?.length) router.replace(`/prompts/${encodeURIComponent(list.data[0].name)}`)
-    }, [name, list.data, router])
+        if (!name && rows.length) router.replace(`${base}/${encodeURIComponent(rows[0].name)}`)
+    }, [name, rows, router, base])
     const add = () => {
-        const n = prompt('Name of the new prompt (e.g. deploy.md; a .sh name makes a script)')?.trim()
-        if (n) create.mutate({ name: n, body: n.endsWith('.md') ? `# ${n.replace(/\.md$/, '')}\n\n` : '#!/usr/bin/env bash\n' })
+        const n = prompt(kind === 'script' ? 'Name of the new job (e.g. check.sh)' : 'Name of the new prompt (e.g. deploy.md)')?.trim()
+        if (n) create.mutate({ name: n, kind, body: kind === 'script' ? '#!/usr/bin/env bash\n' : `# ${n.replace(/\.md$/, '')}\n\n` })
     }
     return (
         <div className="mx-auto flex max-w-7xl gap-5 px-6 py-5 max-lg:flex-col max-md:px-3">
             <aside className="w-56 shrink-0 max-lg:w-full">
                 <div className="mb-2 flex items-center justify-between">
-                    <h1 className="text-[15px] font-semibold tracking-tight">Prompts</h1>
+                    <h1 className="text-[15px] font-semibold tracking-tight">{noun}</h1>
                     <button className="btn" onClick={add} disabled={create.isPending}>+ New</button>
                 </div>
-                <p className="mb-3 text-[12px] text-muted">What the runs are told, and the runner script itself. Agents read them with <code className="font-mono">nightly prompt show</code>.</p>
+                <p className="mb-3 text-[12px] text-muted">{kind === 'script'
+                    ? 'Runnable jobs: a schedule runs one as a script, no agent involved. Exit 0 = ok, 1 = findings, anything else = failed.'
+                    : 'What the agent runs are told. Agents read them with'} {kind === 'prompt' && <code className="font-mono">nightly prompt show</code>}</p>
                 {create.error && <p className="mb-2 text-[12px] text-red-300">{create.error.message}</p>}
-                {(['prompt', 'script'] as const).map((k) => {
-                    const rows = list.data?.filter((p) => p.kind === k) ?? []
-                    if (!rows.length) return null
-                    return (
-                        <nav key={k} className="mb-3 flex flex-col gap-0.5">
-                            <span className="label mb-1 px-2">{k === 'prompt' ? 'Prompts' : 'Scripts'}</span>
-                            {rows.map((p) => (
-                                <Link key={p.id} href={`/prompts/${encodeURIComponent(p.name)}`}
-                                    className={`flex items-center gap-2 rounded-md px-2 py-1.5 ${p.name === name ? 'bg-hover text-fg' : 'text-dim hover:bg-hover/60 hover:text-fg'}`}>
-                                    <span className="min-w-0 flex-1 truncate font-mono text-[12px]">{p.name}</span>
-                                    {p.usedBy.length > 0 && <span className="rounded bg-accent/15 px-1 text-[10px] text-accent" title={`Schedule: ${p.usedBy.join(', ')}`}>◷</span>}
-                                </Link>
-                            ))}
-                        </nav>
-                    )
-                })}
+                <nav className="mb-3 flex flex-col gap-0.5">
+                    {rows.map((p) => (
+                        <Link key={p.id} href={`${base}/${encodeURIComponent(p.name)}`}
+                            className={`flex items-center gap-2 rounded-md px-2 py-1.5 ${p.name === name ? 'bg-hover text-fg' : 'text-dim hover:bg-hover/60 hover:text-fg'}`}>
+                            <span className="min-w-0 flex-1 truncate font-mono text-[12px]">{p.name}</span>
+                            {p.codeLike && <span className="rounded bg-violet-400/15 px-1 text-[10px] text-violet-300" title="Starts with #!: this is a script">script</span>}
+                            {p.usedBy.length > 0 && <span className="rounded bg-accent/15 px-1 text-[10px] text-accent" title={`Schedule: ${p.usedBy.join(', ')}`}>◷</span>}
+                        </Link>
+                    ))}
+                </nav>
             </aside>
             <main className="min-w-0 flex-1">
-                {name ? <PromptEditor key={name} name={name} /> : list.data?.length === 0 && <div className="rounded-lg border border-line p-10 text-center text-muted">No prompts yet.</div>}
+                {name ? <PromptEditor key={name} name={name} base={base} /> : rows.length === 0 && <div className="rounded-lg border border-line p-10 text-center text-muted">Nothing here yet.</div>}
             </main>
         </div>
     )
 }
 
-function PromptEditor({ name }: { name: string }) {
+function PromptEditor({ name, base: root }: { name: string; base: string }) {
     const router = useRouter()
     const utils = api.useUtils()
     const q = api.prompt.get.useQuery({ name }, { refetchOnWindowFocus: true })
@@ -84,7 +83,7 @@ function PromptEditor({ name }: { name: string }) {
     const save = api.prompt.save.useMutation({
         onSuccess: async (r) => { clearDraft(draftId); setBase(r.body); setText(r.body); setNote(''); await invalidate() },
     })
-    const del = api.prompt.delete.useMutation({ onSuccess: async () => { await utils.prompt.list.invalidate(); router.push('/prompts') } })
+    const del = api.prompt.delete.useMutation({ onSuccess: async () => { await utils.prompt.list.invalidate(); router.push(root) } })
 
     const dirty = text !== null && text !== base
     const changedElsewhere = !!p && p.body !== base
@@ -113,6 +112,7 @@ function PromptEditor({ name }: { name: string }) {
                     <button className="btn-primary" disabled={!dirty || save.isPending} onClick={() => doSave()} title="Ctrl+S">Save</button>
                 </div>
             </div>
+            {!isMd && <JobPanel name={name} />}
             {changedElsewhere && dirty && (
                 <div className="mb-2 flex flex-wrap items-center gap-3 rounded-md border border-amber-400/30 bg-amber-400/5 px-3 py-2 text-[12px] text-amber-200">
                     Saved elsewhere since you started editing (the nightly run or another tab).
@@ -159,6 +159,32 @@ function PromptEditor({ name }: { name: string }) {
                     </section>
                 )}
             </div>
+        </div>
+    )
+}
+
+const EXIT_MEANING: [string, string][] = [['0', 'ok: nothing to report'], ['1', 'findings: the check ran and found problems (amber, raises RSI findings)'], ['other', 'failed: the job itself broke (infra, timeout, bad setup)']]
+
+/** Last run, linked schedules, the exit-code contract and a Run now button for one job script. */
+function JobPanel({ name }: { name: string }) {
+    const utils = api.useUtils()
+    const q = api.prompt.job.useQuery({ name }, { refetchInterval: 10_000 })
+    const run = api.schedule.start.useMutation({ onSuccess: () => void utils.prompt.job.invalidate({ name }) })
+    const j = q.data
+    return (
+        <div className="mb-3 rounded-lg border border-line bg-panel/40 px-3 py-2 text-[12px]" data-testid="job-panel">
+            <div className="flex flex-wrap items-center gap-3">
+                <span className="rounded bg-violet-400/15 px-1.5 text-violet-300">script</span>
+                <span className="text-dim">Last run: {j?.lastRun ? <Link className="text-accent" href={`/runs/${j.lastRun.id}`}>#{j.lastRun.id} {j.lastRun.status} · {ago(j.lastRun.startedAt)}</Link> : 'never'}</span>
+                <span className="text-dim">Schedule: {j?.schedules.length ? j.schedules.map((s) => s.name).join(', ') : 'none'}</span>
+                <button className="btn-primary ml-auto" disabled={!j?.schedules.length || run.isPending}
+                    title={j?.schedules.length ? 'Run it now, ignoring the clock' : 'Attach it to a schedule first'}
+                    onClick={() => j && run.mutate({ id: j.schedules[0].id })}>Run now</button>
+            </div>
+            {run.error && <p className="mt-1 text-red-300">{run.error.message}</p>}
+            <ul className="mt-1.5 flex flex-wrap gap-x-5 gap-y-0.5 text-muted">
+                {EXIT_MEANING.map(([c, m]) => <li key={c}><code className="font-mono text-fg/80">exit {c}</code> {m}</li>)}
+            </ul>
         </div>
     )
 }

@@ -16,6 +16,7 @@ export type Status = (typeof STATUSES)[number]
 
 export const STATUS_LABEL: Record<string, string> = {
     queue: 'Queue', in_progress: 'In progress', review: 'Review', blocked: 'Blocked', done: 'Done', wontfix: "Won't fix",
+    findings: 'Findings', failed: 'Failed', ok: 'OK', running: 'Running', skipped: 'Skipped',
 }
 
 export function isDue(it: { kind: string; status: string; cadence: string | null; lastRunAt: Date | null }, at = Date.now()) {
