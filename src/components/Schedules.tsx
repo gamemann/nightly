@@ -4,12 +4,14 @@ import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { api, type RouterOutputs } from '~/trpc/react'
 import { useDebounced } from './ItemList'
+import { Pagination, useUrlParams } from './Pagination'
+import { parsePage } from '../lib/paging'
 import { StatusPill, ago } from './pills'
 import { Legend, Panel, Timeline } from './Charts'
 import { Sparkline } from './PerfChart'
 import { COLOR, RUN_STATES, fmtMinutes, perSchedule, timelineOf } from '../../lib/charts.mjs'
 
-type Schedule = RouterOutputs['schedule']['list'][number]
+type Schedule = RouterOutputs['schedule']['list']['rows'][number]
 
 const when = (d: Date | string) =>
     new Date(d).toLocaleString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
@@ -24,7 +26,13 @@ const EXAMPLES = [
 export function Schedules() {
     const utils = api.useUtils()
     const router = useRouter()
-    const list = api.schedule.list.useQuery(undefined, { refetchInterval: 30_000 })
+    const { sp, set } = useUrlParams()
+    const q = parsePage(sp, { sorts: ['name', 'cron', 'enabled'], sort: '', filters: ['enabled'] })
+    const [text, setText] = useState(q.q ?? '')
+    const dtext = useDebounced(text, 300)
+    useEffect(() => { if (dtext !== (q.q ?? '')) set({ q: dtext }) }, [dtext]) // eslint-disable-line react-hooks/exhaustive-deps
+    const list = api.schedule.list.useQuery(q, { refetchInterval: 30_000, placeholderData: (p) => p })
+    const fires = api.schedule.fires.useQuery(undefined, { refetchInterval: 30_000 })
     const settings = api.setting.all.useQuery()
     const running = api.schedule.running.useQuery(undefined, { refetchInterval: 10_000 })
     const setSetting = api.setting.set.useMutation({ onSuccess: () => utils.setting.all.invalidate() })
@@ -68,13 +76,21 @@ export function Schedules() {
                 </div>
             )}
 
-            {!!list.data?.length && <ScheduleCharts schedules={list.data} />}
+            {!!fires.data?.length || !!list.data?.rows.length ? <ScheduleCharts schedules={list.data?.rows ?? []} live={fires.data ?? []} /> : null}
+
+            <div className="mb-3 flex items-center gap-2">
+                <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Search schedules" aria-label="Search schedules" className="input w-56" />
+                <select value={q.f.enabled ?? ''} onChange={(e) => set({ enabled: e.target.value })} aria-label="Filter by state" className="input">
+                    <option value="">All</option><option value="on">Enabled</option><option value="off">Disabled</option>
+                </select>
+            </div>
 
             {list.isLoading && <div className="p-6 text-center text-muted">Loading…</div>}
-            {list.data?.length === 0 && <div className="rounded-lg border border-line p-10 text-center text-muted">No schedules. Nothing starts on its own.</div>}
+            {list.data?.rows.length === 0 && <div className="rounded-lg border border-line p-10 text-center text-muted">No schedules. Nothing starts on its own.</div>}
             <div className="space-y-3">
-                {list.data?.map((s) => <ScheduleCard key={s.id} s={s} paused={!doRun} onStarted={(id) => router.push(`/runs/${id}`)} />)}
+                {list.data?.rows.map((s) => <ScheduleCard key={s.id} s={s} paused={!doRun} onStarted={(id) => router.push(`/runs/${id}`)} />)}
             </div>
+            {list.data && <Pagination p={list.data} />}
         </div>
     )
 }
@@ -82,10 +98,9 @@ export function Schedules() {
 const HOURS = 72
 
 /** Next fires of every enabled schedule on one timeline, and how each schedule has been doing. */
-function ScheduleCharts({ schedules }: { schedules: Schedule[] }) {
+function ScheduleCharts({ schedules, live }: { schedules: Schedule[]; live: { id: number; name: string; next: Date[] }[] }) {
     const router = useRouter()
     const runs = api.run.chart.useQuery({ days: 30 }, { refetchInterval: 60_000 })
-    const live = schedules.filter((s) => s.enabled)
     const fires = timelineOf(live.flatMap((s) => s.next.map((at) => ({ scheduleId: s.id, name: s.name, at }))), { hours: HOURS })
     const totals = new Map((runs.data?.perSched ?? []).map((x) => [x.schedule.id, x.total]))
     const stats = perSchedule((runs.data?.perSched ?? []).flatMap((x) => x.runs.map((r) => ({ ...r, schedule: x.schedule })))).map((x) => ({ ...x, total: totals.get(x.id as number) ?? x.total }))
@@ -132,7 +147,7 @@ function ScheduleCard({ s, paused, onStarted }: { s: Schedule; paused: boolean; 
         onSuccess: async (r) => { await invalidate(); if (r.status === 'skipped') alert(`Run #${r.id} was skipped: another run is still going and this schedule does not allow overlap.`); else onStarted(r.id) },
     })
     const prompts = api.schedule.prompts.useQuery()
-    const isJob = api.prompt.list.useQuery().data?.find((p) => p.name === s.prompt)?.kind === 'script'
+    const isJob = api.schedule.kindOf.useQuery({ name: s.prompt }).data === 'script'
     const [open, setOpen] = useState(false)
     const [cron, setCron] = useState(s.cron)
     useEffect(() => setCron(s.cron), [s.cron])

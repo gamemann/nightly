@@ -190,28 +190,22 @@ function Tables({ days, filter, setFilter }: { days: number; filter?: Record<str
     const [dim, setDim] = useState("project")
     const [sort, setSort] = useState<string>("total")
     const [asc, setAsc] = useState(false)
-    const q = api.usage.breakdown.useQuery({ days, dim, filter })
-    const sess = api.usage.sessions.useQuery({ days, filter, limit: 25 }, { enabled: !!filter })
-    const rows = useMemo(() => {
-        const r = [...((q.data?.rows ?? []) as Record<string, number | string>[])]
-        r.sort((a, b) => (typeof a[sort] === "string" ? String(a[sort]).localeCompare(String(b[sort])) : Number(a[sort] ?? 0) - Number(b[sort] ?? 0)) * (asc ? 1 : -1))
-        return r
-    }, [q.data, sort, asc])
-    const { sp } = useUrlParams()
-    const sizeP = Number(sp.get("size"))
-    const size = (PAGE_SIZES as readonly number[]).includes(sizeP) ? sizeP : DEFAULT_SIZE
-    const pg = Math.max(1, Math.floor(Number(sp.get("page"))) || 1)
-    const pageRows = useMemo(() => {
-        const pages = Math.max(1, Math.ceil(rows.length / size)), page = Math.min(pg, pages)
-        return paged(rows.slice((page - 1) * size, page * size), rows.length, { page, size })
-    }, [rows, size, pg])
+    const { sp, set } = useUrlParams()
+    const size = (PAGE_SIZES as readonly number[]).includes(Number(sp.get("size"))) ? Number(sp.get("size")) : DEFAULT_SIZE
+    const page = Math.max(1, Math.floor(Number(sp.get("page"))) || 1)
+    const ssize = (PAGE_SIZES as readonly number[]).includes(Number(sp.get("ssize"))) ? Number(sp.get("ssize")) : DEFAULT_SIZE
+    const spage = Math.max(1, Math.floor(Number(sp.get("spage"))) || 1)
+    const q = api.usage.breakdown.useQuery({ days, dim, filter, page, size, sort, dir: asc ? "asc" : "desc" }, { placeholderData: (p) => p })
+    const sess = api.usage.sessions.useQuery({ days, filter, page: spage, size: ssize }, { enabled: !!filter, placeholderData: (p) => p })
+    const pageRows = q.data?.page
+    const rows = pageRows?.rows ?? []
     const isTool = dim === "tool"
     const cols: [string, string][] = isTool ? [["calls", "calls"], ["total", "result tokens"], ["biggest", "biggest"], ["errors", "errors"]] : [["messages", "msgs"], ["input", "fresh in"], ["output", "out"], ["cache_read", "cache read"], ["total", "total"], ["cost", "est. cost"]]
-    const th = (k: string, l: string) => <th key={k} className="cursor-pointer select-none px-2 py-1 text-right hover:text-fg" onClick={() => { if (sort === k) setAsc(!asc); else { setSort(k); setAsc(false) } }}>{l}{sort === k ? (asc ? " ▲" : " ▼") : ""}</th>
+    const th = (k: string, l: string) => <th key={k} className="cursor-pointer select-none px-2 py-1 text-right hover:text-fg" onClick={() => { set({}); if (sort === k) setAsc(!asc); else { setSort(k); setAsc(false) } }}>{l}{sort === k ? (asc ? " ▲" : " ▼") : ""}</th>
     return (
         <div className="mb-4 rounded-lg border border-line bg-panel/40 p-3">
             <div className="mb-2 flex flex-wrap items-center gap-1 text-[12px]">
-                {DIM_TABS.map(([k, l]) => <button key={k} onClick={() => { setDim(k); setSort("total"); setAsc(false) }} className={`${btn} ${dim === k ? "bg-hover text-sky-300" : ""}`}>{l}</button>)}
+                {DIM_TABS.map(([k, l]) => <button key={k} onClick={() => { set({}); setDim(k); setSort("total"); setAsc(false) }} className={`${btn} ${dim === k ? "bg-hover text-sky-300" : ""}`}>{l}</button>)}
                 {q.data?.estimated && <span className="ml-2 text-[11px] text-muted">sizes are estimates</span>}
             </div>
             {q.error && <div className="text-red-300">{q.error.message}</div>}
@@ -219,7 +213,7 @@ function Tables({ days, filter, setFilter }: { days: number; filter?: Record<str
                 <table className="w-full text-[12px]">
                     <thead className="text-muted"><tr><th className="px-2 py-1 text-left">{dim}</th>{cols.map(([k, l]) => th(k, l))}<th className="w-40 px-2 py-1 text-left">share</th></tr></thead>
                     <tbody>
-                        {pageRows.rows.map((r) => (
+                        {rows.map((r) => (
                             <tr key={String(r.key)} className="border-t border-line hover:bg-hover">
                                 <td className="max-w-xs truncate px-2 py-1 font-mono">
                                     {dim === "tool" ? String(r.key) : <button className="hover:text-sky-300" title="drill into this row's sessions" onClick={() => setFilter({ [dim]: String(r.key) })}>{String(r.key) || "(none)"}</button>}
@@ -230,14 +224,14 @@ function Tables({ days, filter, setFilter }: { days: number; filter?: Record<str
                         ))}
                     </tbody>
                 </table>
-                {rows.length === 0 && !q.isLoading && <div className="py-4 text-center text-muted">No rows.</div>}
-                {rows.length > 0 && <Pagination p={pageRows} />}
+                {pageRows?.total === 0 && !q.isLoading && <div className="py-4 text-center text-muted">No rows.</div>}
+                {pageRows && pageRows.total > 0 && <Pagination p={pageRows} />}
             </div>
             {filter && (
                 <div className="mt-3">
                     <div className="mb-1 text-[12px] font-medium">Sessions</div>
                     <table className="w-full text-[12px]"><thead className="text-left text-muted"><tr><th className="px-2">session</th><th>project</th><th>branch</th><th>last</th><th className="text-right">msgs</th><th className="text-right">total</th><th className="text-right">est.</th></tr></thead>
-                        <tbody>{sess.data?.map((s) => <tr key={s.key} className="border-t border-line"><td className="px-2 font-mono">{s.key.slice(0, 8)}</td><td>{s.project}</td><td>{s.branch}</td><td>{when(s.last)}</td><td className="text-right tabular-nums">{s.messages + s.subMessages}</td><td className="text-right tabular-nums">{fmt(s.total)}</td><td className="text-right tabular-nums">{usd(s.cost)}</td></tr>)}</tbody></table>
+                        <tbody>{sess.data?.rows.map((s) => <tr key={s.key} className="border-t border-line"><td className="px-2 font-mono">{s.key.slice(0, 8)}</td><td>{s.project}</td><td>{s.branch}</td><td>{when(s.last)}</td><td className="text-right tabular-nums">{s.messages + s.subMessages}</td><td className="text-right tabular-nums">{fmt(s.total)}</td><td className="text-right tabular-nums">{usd(s.cost)}</td></tr>)}</tbody></table>
                 </div>
             )}
         </div>

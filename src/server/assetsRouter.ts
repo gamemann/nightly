@@ -1,6 +1,8 @@
 import { z } from 'zod'
 import { assetsCli } from './assetsServer'
 import { procedure, router } from './trpc'
+import { pageIn } from './pageInput'
+import { offsetOf, paged } from '../lib/paging'
 
 const name = z.string().regex(/^[\w.-]+$/)
 const list = z.array(z.string())
@@ -21,8 +23,19 @@ const sourceInput = z.object({
 })
 
 export const assetsRouter = router({
-    sources: procedure.query(({ ctx }) => ctx.db.assetSource.findMany({ orderBy: [{ type: 'asc' }, { name: 'asc' }] })),
-    kinds: procedure.query(({ ctx }) => ctx.db.assetKind.findMany({ orderBy: [{ sort: 'asc' }, { key: 'asc' }] })),
+    sources: procedure.input(pageIn).query(async ({ ctx, input }) => {
+        const where = input.q ? { name: { contains: input.q } } : {}
+        const total = await ctx.db.assetSource.count({ where })
+        const dir = input.dir
+        const orderBy = input.sort === 'name' ? [{ name: dir }] : [{ type: 'asc' as const }, { name: 'asc' as const }]
+        return paged(await ctx.db.assetSource.findMany({ where, orderBy, skip: offsetOf(total, input), take: input.size }), total, input)
+    }),
+    kinds: procedure.input(pageIn).query(async ({ ctx, input }) => {
+        const where = input.q ? { key: { contains: input.q } } : {}
+        const total = await ctx.db.assetKind.count({ where })
+        const orderBy = input.sort === 'key' ? [{ key: input.dir }] : [{ sort: 'asc' as const }, { key: 'asc' as const }]
+        return paged(await ctx.db.assetKind.findMany({ where, orderBy, skip: offsetOf(total, input), take: input.size }), total, input)
+    }),
     sourceAdd: procedure.input(sourceInput).mutation(({ input }) => assetsCli(['source', 'add', input.name, ...sourceArgs(input)])),
     sourceSet: procedure.input(sourceInput).mutation(({ input }) => assetsCli(['source', 'set', input.name, ...sourceArgs(input)])),
     sourceRm: procedure.input(z.object({ name, purge: z.boolean().optional() })).mutation(({ input }) => assetsCli(['source', 'rm', input.name, ...(input.purge ? ['--purge'] : [])])),

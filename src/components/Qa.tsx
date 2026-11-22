@@ -4,33 +4,32 @@ import { api, type RouterOutputs } from "~/trpc/react"
 import { ago } from "./pills"
 import { parsePage } from "~/lib/paging"
 import { DataTable, type Column } from "./DataTable"
-import { useUrlParams } from "./Pagination"
+import { Pagination, useUrlParams } from "./Pagination"
 import { HeatGrid, Legend, Panel, StackedBars } from "./Charts"
 import { COLOR, qaAreaGrid, qaTrend } from "../../lib/charts.mjs"
 
-type Run = RouterOutputs["qa"]["list"][number]
+type Run = RouterOutputs["qa"]["cards"]["rows"][number]["runs"][number]
+type Slim = RouterOutputs["qa"]["overview"][number]
 const TREND = 30
 const imgUrl = (r: Run, f: string) => `/attachments/qa-${r.id}/${encodeURIComponent(f)}`
 const badge = (ok: boolean) => (ok ? "bg-emerald-400/15 text-emerald-300" : "bg-red-400/15 text-red-300")
 
 export function Qa() {
-    const list = api.qa.list.useQuery(undefined, { refetchInterval: 30_000 })
-    const rows = list.data ?? []
-    const keys = [...new Set(rows.map((r) => `${r.game}\u0000${r.kind}`))].sort()
+    const { sp } = useUrlParams("c")
+    const q = parsePage(sp, { sorts: [], sort: "" }, "c")
+    const cards = api.qa.cards.useQuery({ page: q.page, size: q.size, runs: TREND }, { refetchInterval: 30_000, placeholderData: (p) => p })
+    const overview = api.qa.overview.useQuery({ days: DAYS }, { refetchInterval: 30_000 })
     return (
         <div className="mx-auto max-w-6xl px-6 py-5 max-md:px-3">
             <h1 className="text-[15px] font-semibold tracking-tight">QA</h1>
             <p className="mt-0.5 mb-4 text-[12px] text-muted">Fuzz sweeps, visual checks, suites and the nightly frame-time budget pushed from the game machine, newest run per game and kind with the last {TREND} as a trend.</p>
-            {list.isLoading && <div className="p-6 text-center text-muted">Loading…</div>}
-            {list.data && keys.length === 0 && <div className="mb-6 rounded-lg border border-line px-3 py-6 text-center text-muted">No QA runs yet. Post one (see below).</div>}
-            {rows.length > 0 && <QaOverview rows={rows} />}
+            {cards.isLoading && <div className="p-6 text-center text-muted">Loading…</div>}
+            {cards.data && cards.data.total === 0 && <div className="mb-6 rounded-lg border border-line px-3 py-6 text-center text-muted">No QA runs yet. Post one (see below).</div>}
+            {overview.data && overview.data.length > 0 && <QaOverview rows={overview.data} />}
             <div className="space-y-4">
-                {keys.map((k) => {
-                    const [game, kind] = k.split("\u0000")
-                    if (kind === "perf") return <PerfCard key={k} game={game} runs={rows.filter((r) => r.game === game && r.kind === kind).slice(0, TREND)} />
-                    return <Card key={k} game={game} kind={kind} runs={rows.filter((r) => r.game === game && r.kind === kind).slice(0, TREND)} />
-                })}
+                {cards.data?.rows.map((c) => c.kind === "perf" ? <PerfCard key={`${c.game}\u0000${c.kind}`} game={c.game} runs={c.runs} /> : <Card key={`${c.game}\u0000${c.kind}`} game={c.game} kind={c.kind} runs={c.runs} />)}
             </div>
+            {cards.data && cards.data.total > cards.data.size && <Pagination p={cards.data} ns="c" />}
             <QaHistory />
             <Docs />
         </div>
@@ -69,7 +68,7 @@ const cardId = (game: string, kind: string) => `qa-${game}-${kind}`.replace(/[^\
 const jump = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" })
 
 /** Pass/fail over time across everything, and one heatmap row per game and kind. Click-through scrolls to that card. */
-function QaOverview({ rows }: { rows: Run[] }) {
+function QaOverview({ rows }: { rows: Slim[] }) {
     const trend = qaTrend(rows, { days: DAYS })
     const grid = qaAreaGrid(rows, { days: 14 })
     const pass = trend.reduce((n, d) => n + d.pass, 0)

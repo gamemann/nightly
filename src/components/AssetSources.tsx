@@ -2,6 +2,8 @@
 import Link from 'next/link'
 import { useState } from 'react'
 import { api } from '~/trpc/react'
+import { Pagination, useUrlParams } from './Pagination'
+import { parsePage } from '../lib/paging'
 
 const box = 'rounded-md border border-line bg-panel px-2 py-1 text-[12px]'
 const btn = 'rounded-md border border-line px-2 py-1 text-[12px] hover:bg-hover'
@@ -14,8 +16,12 @@ const parse = (s: string): Record<string, unknown> => { try { return JSON.parse(
 /** Settings for the Assets tab: where assets come from (sources) and what each kind is judged against (kinds). */
 export function AssetSources() {
     const utils = api.useUtils()
-    const sources = api.assets.sources.useQuery()
-    const kinds = api.assets.kinds.useQuery()
+    const sU = useUrlParams('s')
+    const kU = useUrlParams('k')
+    const sq = parsePage(sU.sp, { sorts: ['name'], sort: '' }, 's')
+    const kq = parsePage(kU.sp, { sorts: ['key'], sort: '' }, 'k')
+    const sources = api.assets.sources.useQuery(sq, { placeholderData: (p) => p })
+    const kinds = api.assets.kinds.useQuery(kq, { placeholderData: (p) => p })
     const [msg, setMsg] = useState('')
     const done = { onSuccess: () => { void utils.assets.invalidate(); setMsg('saved') }, onError: (e: { message: string }) => setMsg(e.message) }
     const add = api.assets.sourceAdd.useMutation(done)
@@ -37,12 +43,14 @@ export function AssetSources() {
                 <input className={`${box} min-w-64 flex-1`} placeholder="root directory on the server" value={n.root} onChange={(e) => setN({ ...n, root: e.target.value })} />
                 <button className={btn} disabled={!n.name || !n.root} onClick={() => add.mutate(n, { onSuccess: () => setN({ ...n, name: '', root: '' }) })}>Add source</button>
             </div>
-            {sources.data?.map((s) => <SourceRow key={s.name} s={s as Src} onSave={(p) => upd.mutate({ name: s.name, ...p })} onScan={() => scan.mutate({ names: [s.name] })} onRm={(purge) => rm.mutate({ name: s.name, purge })} />)}
-            {sources.data?.length === 0 && <p className="mb-4 text-[12px] text-muted">No sources yet. Add the first one above, for example a game checkout with its models under assets/.</p>}
-            {!!sources.data?.length && <button className={`${btn} mb-6 mt-2`} onClick={() => scan.mutate({})}>Scan all enabled</button>}
+            {sources.data?.rows.map((s) => <SourceRow key={s.name} s={s as Src} onSave={(p) => upd.mutate({ name: s.name, ...p })} onScan={() => scan.mutate({ names: [s.name] })} onRm={(purge) => rm.mutate({ name: s.name, purge })} />)}
+            {sources.data?.rows.length === 0 && <p className="mb-4 text-[12px] text-muted">No sources yet. Add the first one above, for example a game checkout with its models under assets/.</p>}
+            {sources.data && <Pagination p={sources.data} ns="s" />}
+            {!!sources.data?.rows.length && <button className={`${btn} mb-6 mt-2`} onClick={() => scan.mutate({})}>Scan all enabled</button>}
             <h2 className="mb-2 mt-4 text-[13px] font-semibold">Kinds and budgets</h2>
             <p className="mb-2 text-[12px] text-muted">The kind decides which audit checks and limits apply. <code className="font-mono">match</code> is a regex on the model path; the budget is JSON (min_tris, max_tris, min_tex, max_tex, required_clips, require_skin, max_size, and more).</p>
-            {kinds.data?.map((k) => <KindRow key={k.key} k={k as Kind} onSave={(p) => kSave.mutate({ key: k.key, ...p })} onRm={() => kRm.mutate({ key: k.key })} />)}
+            {kinds.data?.rows.map((k) => <KindRow key={k.key} k={k as Kind} onSave={(p) => kSave.mutate({ key: k.key, ...p })} onRm={() => kRm.mutate({ key: k.key })} />)}
+            {kinds.data && <Pagination p={kinds.data} ns="k" />}
             <NewKind onAdd={(p) => kSave.mutate(p)} />
         </div>
     )

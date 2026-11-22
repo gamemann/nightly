@@ -1,13 +1,15 @@
 "use client"
 import { useRouter } from "next/navigation"
 import { gameLabel } from "~/lib/games"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
+import { Pagination, useUrlParams } from "./Pagination"
+import type { reviewPage } from "~/server/reviewIndex"
 import { Metrics, Stage, Viewer, type MediaGroup, type MediaItem } from "./MediaViewer"
 import type { ReviewMedia, ReviewWeapon } from "../../lib/review.mjs"
 import { OWNER } from "~/lib/constants"
 import { BarList, Donut } from "./PerfChart"
 import { Legend, Panel, StackedBars } from "./Charts"
-import { COLOR, reviewProgress, verdictParts, verdictsByDay } from "../../lib/charts.mjs"
+import { COLOR } from "../../lib/charts.mjs"
 
 type Counts = { total: number; good: number; wrong: number; todo: number }
 type Review = { key: string; title: string; body: string; createdAt: string; updatedAt: string; weapons: Record<string, ReviewWeapon>; game: string; counts: Counts }
@@ -21,12 +23,12 @@ const VERDICT: Record<string, { label: string; cls: string }> = {
 const VERDICT_COLOR: Record<string, string> = { good: COLOR.good, wrong: COLOR.bad, todo: COLOR.none }
 const DAYS = 30
 
-/** Verdict split, progress per review and verdicts given per day. Clicks filter the list or open the review. */
-function ReviewCharts({ reviews, onState, onOpen }: { reviews: Review[]; onState: (s: "" | "todo" | "wrong" | "good") => void; onOpen: (key: string) => void }) {
-    const parts = verdictParts(reviews)
+type Data = Awaited<ReturnType<typeof reviewPage>>
+
+/** Verdict split, progress per review and verdicts given per day (all computed on the server over every review). Clicks filter the list or open the review. */
+function ReviewCharts({ charts, onState, onOpen }: { charts: Data["charts"]; onState: (s: "" | "todo" | "wrong" | "good") => void; onOpen: (key: string) => void }) {
+    const { parts, progress, days } = charts
     const total = parts.reduce((n, p) => n + p.value, 0)
-    const progress = reviewProgress(reviews)
-    const days = verdictsByDay(reviews, { days: DAYS })
     const given = days.reduce((n, d) => n + d.good + d.wrong, 0)
     return (
         <div className="mb-4 grid gap-3 lg:grid-cols-3">
@@ -47,33 +49,44 @@ function ReviewCharts({ reviews, onState, onOpen }: { reviews: Review[]; onState
     )
 }
 
-export function Reviews({ reviews }: { reviews: Review[] }) {
-    const [game, setGame] = useState("")
-    const [state, setState] = useState<"" | "todo" | "wrong" | "good">("")
+const SORTS: [string, string][] = [["updated", "Recently updated"], ["created", "Newest"], ["title", "Title"], ["game", "Game"], ["entries", "Most entries"], ["progress", "Most reviewed"]]
+
+export function Reviews({ data }: { data: Data }) {
+    const { set } = useUrlParams()
+    const { page, games, charts, query } = data
+    const reviews = page.rows
+    const state = (query.f.state ?? "") as "" | "todo" | "wrong" | "good"
+    const game = query.f.game ?? ""
     const [open, setOpen] = useState<Set<string>>(new Set())
-    const games = [...new Set(reviews.map((r) => r.game))].sort()
-    const sum = (f: (r: Review) => number) => reviews.reduce((n, r) => n + f(r), 0)
-    const shown = reviews.filter((r) => (!game || r.game === game) && (!state || r.counts[state] > 0))
+    const [text, setText] = useState(query.q)
+    useEffect(() => setText(query.q), [query.q])
+    useEffect(() => { if (text === query.q) return; const t = setTimeout(() => set({ q: text }), 300); return () => clearTimeout(t) }, [text]) // eslint-disable-line react-hooks/exhaustive-deps
+    const part = (k: string) => charts.parts.find((p) => p.key === k)?.value ?? 0
+    const setState = (v: string) => set({ state: v })
     const toggle = (k: string) => setOpen((o) => { const n = new Set(o); if (!n.delete(k)) n.add(k); return n })
     const chip = (on: boolean) => `rounded-md px-2 py-0.5 text-[12px] ${on ? "bg-hover text-fg" : "text-dim hover:bg-hover/60"}`
     return (
         <div className="mx-auto max-w-6xl px-6 py-5 max-md:px-3">
             <h1 className="text-[15px] font-semibold tracking-tight">Reviews</h1>
             <p className="mt-0.5 mb-3 text-[12px] text-muted">Animation clips, filmstrips and sounds waiting for a look. Verdict good / still wrong with a note that builders read back with <code className="font-mono">nightly review open KEY</code>. Task tickets in review status are under Review in the sidebar.</p>
-            {reviews.length > 0 && <ReviewCharts reviews={reviews} onState={setState} onOpen={(k) => { setOpen((o) => new Set(o).add(k)); setTimeout(() => document.getElementById(`review-${k}`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 0) }} />}
+            {data.totalReviews > 0 && <ReviewCharts charts={charts} onState={setState} onOpen={(k) => { set({ q: k, state: "", game: "" }); setOpen((o) => new Set(o).add(k)) }} />}
             <div className="mb-3 flex flex-wrap items-center gap-1.5">
-                <button className={chip(state === "")} onClick={() => setState("")}>All {sum((r) => r.counts.total)}</button>
-                <button className={chip(state === "todo")} onClick={() => setState("todo")}>Not reviewed <span className="text-dim">{sum((r) => r.counts.todo)}</span></button>
-                <button className={chip(state === "good")} onClick={() => setState("good")}>Good <span className="text-emerald-300">{sum((r) => r.counts.good)}</span></button>
-                <button className={chip(state === "wrong")} onClick={() => setState("wrong")}>Still wrong <span className="text-red-300">{sum((r) => r.counts.wrong)}</span></button>
-                <select value={game} onChange={(e) => setGame(e.target.value)} className="ml-auto rounded-md border border-line bg-panel px-2 py-0.5 text-[12px]">
+                <button className={chip(state === "")} onClick={() => setState("")}>All {part("good") + part("wrong") + part("todo")}</button>
+                <button className={chip(state === "todo")} onClick={() => setState("todo")}>Not reviewed <span className="text-dim">{part("todo")}</span></button>
+                <button className={chip(state === "good")} onClick={() => setState("good")}>Good <span className="text-emerald-300">{part("good")}</span></button>
+                <button className={chip(state === "wrong")} onClick={() => setState("wrong")}>Still wrong <span className="text-red-300">{part("wrong")}</span></button>
+                <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Search title or key" aria-label="search reviews" className="ml-auto w-48 rounded-md border border-line bg-panel px-2 py-0.5 text-[12px] outline-none focus:border-sky-400/60" />
+                <select value={query.sort} onChange={(e) => set({ sort: e.target.value === "updated" ? "" : e.target.value, dir: "" })} aria-label="sort reviews" className="rounded-md border border-line bg-panel px-2 py-0.5 text-[12px]">
+                    {SORTS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+                </select>
+                <select value={game} onChange={(e) => set({ game: e.target.value })} className="rounded-md border border-line bg-panel px-2 py-0.5 text-[12px]">
                     <option value="">All games</option>
-                    {games.map((g) => <option key={g} value={g}>{gameLabel(g)} ({reviews.filter((r) => r.game === g).length})</option>)}
+                    {games.map((g) => <option key={g.game} value={g.game}>{gameLabel(g.game)} ({g.count})</option>)}
                 </select>
             </div>
-            {shown.length === 0 && <div className="mb-6 rounded-lg border border-line px-3 py-6 text-center text-muted">{reviews.length ? "No reviews match." : "No reviews yet. File one (see below)."}</div>}
+            {reviews.length === 0 && <div className="mb-6 rounded-lg border border-line px-3 py-6 text-center text-muted">{data.totalReviews ? "No reviews match." : "No reviews yet. File one (see below)."}</div>}
             <div className="space-y-2">
-                {shown.map((r) => (
+                {reviews.map((r) => (
                     <div key={r.key} id={`review-${r.key}`} className="scroll-mt-4">
                         <button onClick={() => toggle(r.key)} className="flex w-full flex-wrap items-baseline gap-3 rounded-lg border border-line px-4 py-2.5 text-left hover:bg-hover/40">
                             <span className="w-3 text-[11px] text-muted">{open.has(r.key) ? "▾" : "▸"}</span>
@@ -91,12 +104,13 @@ export function Reviews({ reviews }: { reviews: Review[] }) {
                     </div>
                 ))}
             </div>
+            {page.total > 0 && <Pagination p={page} />}
             <Docs />
         </div>
     )
 }
 
-function ReviewCard({ r }: { r: Review }) {
+function ReviewCard({ r }: { r: Data["page"]["rows"][number] }) {
     const ids = Object.keys(r.weapons).sort()
     const count = (v: string) => ids.filter((i) => r.weapons[i].verdict === v).length
     return (
