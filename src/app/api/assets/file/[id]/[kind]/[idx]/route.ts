@@ -1,7 +1,7 @@
 import { readFileSync, statSync } from "node:fs"
 import path from "node:path"
 import { db } from "~/server/db"
-import { resolveFile } from "../../../../../../../../lib/assets.mjs"
+import { resolveFile } from "../../../../../../../../lib/assets-files.mjs"
 
 export const dynamic = "force-dynamic"
 const TYPES: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".ogg": "audio/ogg", ".wav": "audio/wav", ".mp3": "audio/mpeg", ".glb": "model/gltf-binary", ".gltf": "model/gltf+json" }

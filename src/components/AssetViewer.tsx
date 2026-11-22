@@ -7,7 +7,7 @@ const LIGHTS = ["studio", "outdoor", "dark rim", "flat"]
 type Api = { apply: (o: Opts) => void; reset: () => void }
 
 /** three.js viewer: orbit (left drag), pan (right drag), zoom (wheel); wireframe, textured/unlit, lighting presets, bounding box (metres) and grid. */
-export function AssetViewer({ url, bbox }: { url: string; bbox?: number[] }) {
+export function AssetViewer({ url, bbox, textures }: { url: string; bbox?: number[]; textures?: { name: string; url: string }[] }) {
     const box = useRef<HTMLDivElement>(null)
     const api = useRef<Api | null>(null)
     const [o, setO] = useState<Opts>({ wire: false, unlit: false, bbox: true, grid: true, light: "studio" })
@@ -78,7 +78,14 @@ export function AssetViewer({ url, bbox }: { url: string; bbox?: number[] }) {
                 })
             }
             api.current = { apply, reset }
-            new GLTFLoader().load(url, (gltf) => {
+            // external texture URIs (Textures/colormap.png) are relative to the source file, which the browser cannot see: map them by stem to the file route
+            const mgr = new THREE.LoadingManager()
+            mgr.setURLModifier((u) => {
+                if (u.startsWith("data:") || u.startsWith("blob:")) return u
+                const stem = decodeURIComponent(u.split("?")[0].split("/").pop() ?? "").replace(/\.[^.]+$/, "")
+                return textures?.find((t) => t.name === stem)?.url ?? u
+            })
+            new GLTFLoader(mgr).load(url, (gltf) => {
                 if (dead) return
                 root = gltf.scene
                 scene.add(root)
