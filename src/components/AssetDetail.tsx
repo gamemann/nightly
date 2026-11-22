@@ -14,6 +14,7 @@ export type DetailData = {
         sounds?: { name: string; len: number; rate: number; bytes: number; channels?: number; format?: string; event?: string; game?: string; kind?: string; synth?: string; file?: string; max_distance?: number; concurrent?: number; source?: string }[]
         compare?: { status: string; pack?: string; weapon_id?: string; diff?: string[] }
         flags?: { code: string; severity: string; msg: string }[]
+        map?: { layout: string; tris: number; surfaces: number; materials: number; textured: number; untextured: number; untexturedTris: number; missingTextures: string[]; missingTextureCount: number; spawns: number; hulls: number; triggers: number; chunks: number; bounds?: { min: number[]; max: number[] } | null }
     }
 }
 export type ReviewHit = { key: string; title: string; verdict: string; note: string; media: { slot: string; variant: string; label: string; file: string; waveform?: string; strip?: string; poster?: string }[] }
@@ -75,11 +76,20 @@ export function AssetDetail({ d, reviews }: { d: DetailData; reviews: ReviewHit[
             {!!flags.length && <div className="mt-2 flex flex-wrap gap-1.5">{flags.map((f) => <span key={f.code} title={f.msg} className={`rounded px-1.5 py-0.5 text-[11px] ${sevCls(f.severity)}`}>{f.code}: {f.msg}</span>)}</div>}
 
             <Section id="model" title="Model">
-                {d.hasModel ? <AssetViewer url={fileUrl(d.id, "glb", 0)} bbox={x.model?.bbox} textures={(x.textures ?? []).map((t, i) => ({ name: t.name, url: fileUrl(d.id, "tex", i) }))} /> : <div className="rounded-lg border border-line p-6 text-center text-[12px] text-muted">No model file for this asset.</div>}
+                {d.hasModel ? <AssetViewer url={fileUrl(d.id, "glb", 0)} bbox={x.model?.bbox} textures={(x.textures ?? []).map((t, i) => ({ name: t.name, url: fileUrl(d.id, "tex", i) }))} map={!!x.map} /> : <div className="rounded-lg border border-line p-6 text-center text-[12px] text-muted">No model file for this asset.</div>}
                 <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-6">
                     <Stat k="triangles" v={(x.model?.tris ?? 0).toLocaleString()} /><Stat k="vertices" v={(x.model?.verts ?? 0).toLocaleString()} /><Stat k="materials" v={x.model?.materials ?? 0} /><Stat k="meshes" v={x.model?.meshes ?? 0} />
                     <Stat k="bbox (m)" v={(x.model?.bbox ?? []).map((v) => v.toFixed(2)).join(" x ") || "-"} /><Stat k="primitive meshes" v={(x.model?.primitive_meshes ?? []).length} />
                 </div>
+                {x.map && (
+                    <div className="mt-2">
+                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-6">
+                            <Stat k="surfaces" v={x.map.surfaces} /><Stat k="culling chunks" v={x.map.chunks} /><Stat k="spawns" v={x.map.spawns} /><Stat k="collision hulls" v={x.map.hulls} /><Stat k="trigger zones" v={x.map.triggers} />
+                            <Stat k="untextured" v={`${x.map.untextured} of ${x.map.surfaces}`} />
+                        </div>
+                        {x.map.missingTextureCount > 0 && <div className="mt-2 text-[12px] text-dim"><span className="text-muted">materials without a texture file ({x.map.missingTextureCount}): </span><span className="font-mono">{x.map.missingTextures.join(", ")}{x.map.missingTextureCount > x.map.missingTextures.length ? ", ..." : ""}</span></div>}
+                    </div>
+                )}
                 <div className="mt-1 font-mono text-[11px] text-muted">{x.model?.glb}{x.model?.viewer_glb ? ` (viewer: ${x.model.viewer_glb})` : ""}</div>
             </Section>
 
