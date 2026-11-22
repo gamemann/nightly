@@ -1,3 +1,4 @@
+"use client"
 import Link from "next/link"
 import { BarList, Donut } from "./PerfChart"
 import { OverviewStats } from "./OverviewStats"
@@ -5,7 +6,7 @@ import { FindingsTable } from "./FindingsTable"
 import { DataTable, type Column } from "./DataTable"
 import type { PageQuery } from "~/lib/paging"
 import type { Board, DomainStat, Finding, WorstAsset } from "~/server/rsiBoard"
-import { TIERS } from "~/server/rsiBoard"
+import { TIERS } from "~/lib/rsiDomains"
 
 const scoreCls = (s: number) => (s >= 70 ? "text-emerald-300" : s >= 40 ? "text-amber-300" : "text-red-300")
 const sevCls = (s: string) => (s === "error" ? "bg-red-400/15 text-red-300" : s === "warn" ? "bg-amber-400/15 text-amber-300" : "bg-hover text-dim")
