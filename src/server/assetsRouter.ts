@@ -23,17 +23,23 @@ const sourceInput = z.object({
 })
 
 export const assetsRouter = router({
+    /** Sources: search (name, root, repo), type and enabled filters, sort by name, type or last scan; all in SQL. */
     sources: procedure.input(pageIn).query(async ({ ctx, input }) => {
-        const where = input.q ? { name: { contains: input.q } } : {}
+        const w: object[] = []
+        if (input.q) w.push({ OR: [{ name: { contains: input.q } }, { root: { contains: input.q } }, { repo: { contains: input.q } }] })
+        if (input.f.type) w.push({ type: input.f.type })
+        if (input.f.enabled) w.push({ enabled: input.f.enabled === 'on' })
+        const where = { AND: w }
         const total = await ctx.db.assetSource.count({ where })
         const dir = input.dir
-        const orderBy = input.sort === 'name' ? [{ name: dir }] : [{ type: 'asc' as const }, { name: 'asc' as const }]
+        const orderBy = input.sort === 'name' || input.sort === 'type' || input.sort === 'lastScanAt' ? [{ [input.sort]: dir }, { name: 'asc' as const }] : [{ type: 'asc' as const }, { name: 'asc' as const }]
         return paged(await ctx.db.assetSource.findMany({ where, orderBy, skip: offsetOf(total, input), take: input.size }), total, input)
     }),
+    /** Kinds: search (key, label, match), sort by key, label or order. */
     kinds: procedure.input(pageIn).query(async ({ ctx, input }) => {
-        const where = input.q ? { key: { contains: input.q } } : {}
+        const where = input.q ? { OR: [{ key: { contains: input.q } }, { label: { contains: input.q } }, { match: { contains: input.q } }] } : {}
         const total = await ctx.db.assetKind.count({ where })
-        const orderBy = input.sort === 'key' ? [{ key: input.dir }] : [{ sort: 'asc' as const }, { key: 'asc' as const }]
+        const orderBy = input.sort === 'key' || input.sort === 'label' || input.sort === 'sort' ? [{ [input.sort]: input.dir }, { key: 'asc' as const }] : [{ sort: 'asc' as const }, { key: 'asc' as const }]
         return paged(await ctx.db.assetKind.findMany({ where, orderBy, skip: offsetOf(total, input), take: input.size }), total, input)
     }),
     sourceAdd: procedure.input(sourceInput).mutation(({ input }) => assetsCli(['source', 'add', input.name, ...sourceArgs(input)])),

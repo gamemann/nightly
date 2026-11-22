@@ -146,9 +146,12 @@ function ScheduleCard({ s, paused, onStarted }: { s: Schedule; paused: boolean; 
     const start = api.schedule.start.useMutation({
         onSuccess: async (r) => { await invalidate(); if (r.status === 'skipped') alert(`Run #${r.id} was skipped: another run is still going and this schedule does not allow overlap.`); else onStarted(r.id) },
     })
-    const prompts = api.schedule.prompts.useQuery()
-    const isJob = api.schedule.kindOf.useQuery({ name: s.prompt }).data === 'script'
     const [open, setOpen] = useState(false)
+    const [ptext, setPtext] = useState(s.prompt)
+    useEffect(() => setPtext(s.prompt), [s.prompt])
+    const pq = useDebounced(ptext, 250)
+    const prompts = api.schedule.prompts.useQuery({ q: pq === s.prompt ? undefined : pq }, { enabled: open, placeholderData: (p) => p })
+    const isJob = api.schedule.kindOf.useQuery({ name: s.prompt }).data === 'script'
     const [cron, setCron] = useState(s.cron)
     useEffect(() => setCron(s.cron), [s.cron])
     const dcron = useDebounced(cron, 300)
@@ -204,9 +207,11 @@ function ScheduleCard({ s, paused, onStarted }: { s: Schedule; paused: boolean; 
                     <div className="flex flex-wrap gap-6">
                         <label className="grid gap-1">
                             <span className="label">Prompt</span>
-                            <select className="select" value={s.prompt} onChange={(e) => save({ prompt: e.target.value })}>
-                                {[...new Set([s.prompt, ...(prompts.data ?? [])])].map((p) => <option key={p} value={p}>{p}</option>)}
-                            </select>
+                            <input className="input w-64 font-mono" list={`prompts-${s.id}`} value={ptext} spellCheck={false} placeholder="search prompts"
+                                onChange={(e) => setPtext(e.target.value)}
+                                onBlur={() => { const v = ptext.trim(); if (v && v !== s.prompt && (prompts.data ?? []).includes(v)) save({ prompt: v }); else setPtext(s.prompt) }}
+                                onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()} />
+                            <datalist id={`prompts-${s.id}`}>{(prompts.data ?? []).map((p) => <option key={p} value={p} />)}</datalist>
                         </label>
                         <label className="grid gap-1">
                             <span className="label">Max turns</span>
