@@ -1,3 +1,4 @@
+import { Suspense } from "react"
 import { notFound } from "next/navigation"
 import { AssetDetail, type DetailData, type ReviewHit } from "~/components/AssetDetail"
 import { AssetSources } from "~/components/AssetSources"
@@ -13,7 +14,7 @@ type Rec = { _files?: { glb?: string } } & Record<string, unknown>
 
 export default async function AssetsPage({ params, searchParams }: { params: Promise<{ slug?: string[] }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
     const { slug = [] } = await params
-    if (slug[0] === "sources") return <AssetSources />
+    if (slug[0] === "sources") return <Suspense><AssetSources /></Suspense>
     if (!slug[0]) {
         const q = parsePage(await searchParams, ASSET_SPEC)
         const [data, agg] = await Promise.all([assetPage(q), assetAgg()])

@@ -6,6 +6,7 @@ import { z } from 'zod'
 import { chConfig, chPing, chQuery, publicConfig } from '../../lib/usage-ch.mjs'
 import { type Backend, breakdown, foldRuns, insights, series, sessions, totals } from '../../lib/usage-query.mjs'
 import { parsePrices } from '../../lib/usage-price.mjs'
+import { paged, offsetOf } from '../lib/paging'
 import { procedure, router } from './trpc'
 
 // Reads only: Prisma raw SQL on the local usage tables, or ClickHouse over HTTP when it is enabled and reachable. Every write
@@ -96,18 +97,32 @@ export const usageRouter = router({
             return { source: b.kind, totals: t, series: ser, insights: ins }
         })
     }),
-    breakdown: procedure.input(common.extend({ dim: z.string(), filter: z.record(z.string(), z.string()).optional() })).query(async ({ ctx, input }) => {
+    /** One dimension's rows (the aggregate is cached), sorted and cut to a page on the server. */
+    breakdown: procedure.input(common.extend({ dim: z.string(), filter: z.record(z.string(), z.string()).optional(), page: z.number().int().min(1).default(1), size: z.number().int().min(1).max(1000).default(100), sort: z.string().default('total'), dir: z.enum(['asc', 'desc']).default('desc') })).query(async ({ ctx, input }) => {
         const b = await backend(ctx, input.source)
         if (!b.be) return null
         const be = b.be
-        try { return await cached(`bd:${b.kind}:${input.dim}:${input.days}:${JSON.stringify(input.filter)}:${b.s.usagePrices}`, () => breakdown(be, prices(b.s), input.dim, { since: since(input.days), filter: input.filter })) }
+        try {
+            const r = await cached(`bd:${b.kind}:${input.dim}:${input.days}:${JSON.stringify(input.filter)}:${b.s.usagePrices}`, () => breakdown(be, prices(b.s), input.dim, { since: since(input.days), filter: input.filter }))
+            const all = [...r.rows] as Record<string, number | string>[]
+            const key = all[0] && input.sort in all[0] ? input.sort : 'total'
+            const sgn = input.dir === 'asc' ? 1 : -1
+            all.sort((a, c) => (typeof a[key] === 'string' ? String(a[key]).localeCompare(String(c[key])) : Number(a[key] ?? 0) - Number(c[key] ?? 0)) * sgn)
+            const off = offsetOf(all.length, input)
+            return { ...r, rows: undefined, page: paged(all.slice(off, off + input.size), all.length, input) }
+        }
         catch (e) { throw new TRPCError({ code: 'BAD_REQUEST', message: (e as Error).message }) }
     }),
-    sessions: procedure.input(common.extend({ filter: z.record(z.string(), z.string()).optional(), limit: z.number().int().min(1).max(500).default(50) })).query(async ({ ctx, input }) => {
+    /** Sessions, newest first, a page at a time (the full aggregate is cached, not capped). */
+    sessions: procedure.input(common.extend({ filter: z.record(z.string(), z.string()).optional(), page: z.number().int().min(1).default(1), size: z.number().int().min(1).max(1000).default(100) })).query(async ({ ctx, input }) => {
         const b = await backend(ctx, input.source)
-        if (!b.be) return []
+        if (!b.be) return null
         const be = b.be
-        try { return await cached(`ss:${b.kind}:${input.days}:${JSON.stringify(input.filter)}:${input.limit}:${b.s.usagePrices}`, () => sessions(be, prices(b.s), { since: since(input.days), filter: input.filter, limit: input.limit })) }
+        try {
+            const all = await cached(`ss:${b.kind}:${input.days}:${JSON.stringify(input.filter)}:${b.s.usagePrices}`, () => sessions(be, prices(b.s), { since: since(input.days), filter: input.filter, limit: Infinity }))
+            const off = offsetOf(all.length, input)
+            return paged(all.slice(off, off + input.size), all.length, input)
+        }
         catch (e) { throw new TRPCError({ code: 'BAD_REQUEST', message: (e as Error).message }) }
     }),
     /** Nightly's own scheduled runs (the Run table): turns, minutes and cost the runner recorded. */

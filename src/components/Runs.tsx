@@ -1,9 +1,9 @@
 'use client'
 import Link from 'next/link'
-import { useEffect, useRef, useState } from 'react'
+import { Suspense, useEffect, useRef, useState } from 'react'
 import { api } from '~/trpc/react'
 import { DataTable, type Column } from './DataTable'
-import { useUrlParams } from './Pagination'
+import { Pagination, useUrlParams } from './Pagination'
 import { parsePage } from '~/lib/paging'
 import { Markdown } from './Markdown'
 import { StatusPill, ago, fmt } from './pills'
@@ -137,23 +137,7 @@ export function RunDetail({ id }: { id: number }) {
             {stop.error && <p className="mt-2 text-[12px] text-red-300">{stop.error.message}</p>}
             {r.summary && <p className="mt-4 rounded-md border border-line bg-panel/60 px-3.5 py-2.5 text-dim">{r.summary}</p>}
             {running && <LiveLog log={r.log} />}
-            {r.notes.length > 0 && (
-                <section className="mt-6">
-                    <span className="label">Items touched · {r.notes.length}</span>
-                    <ul className="mt-2 space-y-2">
-                        {r.notes.map((n) => (
-                            <li key={n.id} className="rounded-lg border border-line bg-panel/40 px-3.5 py-2.5">
-                                <Link href={`/item/${n.item.key}`} className="mb-1 flex items-center gap-2 text-[12px]">
-                                    <span className="font-mono text-muted">{n.item.key}</span>
-                                    <span className="truncate text-fg hover:text-accent">{n.item.title}</span>
-                                    <StatusPill status={n.item.status} />
-                                </Link>
-                                <Markdown>{n.body}</Markdown>
-                            </li>
-                        ))}
-                    </ul>
-                </section>
-            )}
+            <Suspense><RunNotes id={id} /></Suspense>
             <section className="mt-6">
                 <span className="label">Report</span>
                 <div className="mt-2 rounded-lg border border-line bg-panel/30 px-5 py-4">
@@ -237,6 +221,33 @@ function Gallery({ files }: { files: { path: string; size: number }[] }) {
                     </div>
                 </div>
             )}
+        </section>
+    )
+}
+
+/** The notes this run left on items, paged (state in the `n` URL params). */
+function RunNotes({ id }: { id: number }) {
+    const { sp } = useUrlParams('n')
+    const pq = parsePage(sp, { sorts: [], sort: '' }, 'n')
+    const q = api.run.notes.useQuery({ id, page: pq.page, size: pq.size }, { placeholderData: (p) => p })
+    const p = q.data
+    if (!p || p.total === 0) return null
+    return (
+        <section className="mt-6">
+            <span className="label">Items touched · {p.total}</span>
+            <ul className="mt-2 space-y-2">
+                {p.rows.map((n) => (
+                    <li key={n.id} className="rounded-lg border border-line bg-panel/40 px-3.5 py-2.5">
+                        <Link href={`/item/${n.item.key}`} className="mb-1 flex items-center gap-2 text-[12px]">
+                            <span className="font-mono text-muted">{n.item.key}</span>
+                            <span className="truncate text-fg hover:text-accent">{n.item.title}</span>
+                            <StatusPill status={n.item.status} />
+                        </Link>
+                        <Markdown>{n.body}</Markdown>
+                    </li>
+                ))}
+            </ul>
+            <Pagination p={p} ns="n" />
         </section>
     )
 }

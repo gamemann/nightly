@@ -298,11 +298,20 @@ const runRouter = router({
             where: { id: input.id },
             include: {
                 schedule: { select: { id: true, name: true, prompt: true } },
-                notes: { orderBy: { id: 'asc' }, include: { item: { select: { key: true, title: true, status: true } } } },
             },
         })
         if (!r) throw new TRPCError({ code: 'NOT_FOUND' })
         return r
+    }),
+    /** The notes a run left on items, a page at a time (oldest first). */
+    notes: procedure.input(pageIn.extend({ id: z.number() })).query(async ({ ctx, input }) => {
+        const where = { runId: input.id }
+        const total = await ctx.db.note.count({ where })
+        const rows = await ctx.db.note.findMany({
+            where, orderBy: { id: 'asc' }, skip: offsetOf(total, input), take: input.size,
+            include: { item: { select: { key: true, title: true, status: true } } },
+        })
+        return paged(rows, total, input)
     }),
     /** Frames under the media dir for one local day (YYYY-MM-DD), as paths for /media/. */
     media: procedure.input(z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) })).query(async ({ input }) => {
@@ -333,17 +342,29 @@ const scheduleInput = z.object({
 })
 
 const scheduleRouter = router({
-    list: procedure.query(async ({ ctx }) => {
+    list: procedure.input(pageIn).query(async ({ ctx, input }) => {
+        const where = { ...(input.q ? { name: { contains: input.q } } : {}), ...(input.f.enabled ? { enabled: input.f.enabled === 'on' } : {}) }
+        const key = ['name', 'cron', 'enabled'].includes(input.sort) ? input.sort : 'id'
+        const total = await ctx.db.schedule.count({ where })
         const rows = await ctx.db.schedule.findMany({
-            orderBy: { id: 'asc' },
+            where, orderBy: { [key]: key === 'id' ? 'asc' : input.dir }, skip: offsetOf(total, input), take: input.size,
             include: { runs: { orderBy: { startedAt: 'desc' }, take: 1, select: { id: true, status: true, startedAt: true, summary: true } } },
         })
         const now = new Date()
-        return rows.map(({ runs, ...s }) => {
+        return paged(rows.map(({ runs, ...s }) => {
             const error = cronError(s.cron)
             return { ...s, error, next: error ? [] : nextFires(s.cron, now, 3), lastRun: runs[0] ?? null }
-        })
+        }), total, input)
     }),
+    /** Slim list of enabled schedules for the next-fires timeline (not a page: the timeline spans all of them). */
+    fires: procedure.query(async ({ ctx }) => {
+        const now = new Date()
+        return (await ctx.db.schedule.findMany({ where: { enabled: true }, orderBy: { id: 'asc' }, select: { id: true, name: true, cron: true } }))
+            .map((s) => ({ id: s.id, name: s.name, next: cronError(s.cron) ? [] : nextFires(s.cron, now, 3) }))
+    }),
+    /** Whether a prompt name is a script (job) rather than a prompt. */
+    kindOf: procedure.input(z.object({ name: z.string() })).query(async ({ ctx, input }) =>
+        (await ctx.db.prompt.findFirst({ where: { name: input.name }, select: { kind: true } }))?.kind ?? null),
     /** Next fire times for an expression being typed (or why it is invalid). */
     preview: procedure.input(z.object({ cron: z.string() })).query(({ input }) => {
         const error = cronError(input.cron)
@@ -487,17 +508,29 @@ const qaRouter = router({
         const [games, kinds] = await Promise.all([ctx.db.qaRun.groupBy({ by: ['game'] }), ctx.db.qaRun.groupBy({ by: ['kind'] })])
         return { page: paged(rows, total, input), games: games.map((g) => g.game).sort(), kinds: kinds.map((k) => k.kind).sort() }
     }),
-    /** Newest QA runs (all games and kinds); the page groups and trends them. */
-    list: procedure.query(async ({ ctx }) => {
-        const rows = await ctx.db.qaRun.findMany({ orderBy: { ranAt: "desc" }, take: 600 })
-        return rows.map((r) => ({
-            id: r.id, kind: r.kind, game: r.game, commit: r.commit, ranAt: r.ranAt, ok: r.ok, total: r.total, failedCount: r.failedCount,
-            failures: JSON.parse(r.failures) as { name: string; repro: string; note: string; reasons: string[] }[],
-            images: JSON.parse(r.images) as { file: string; note: string }[],
-            // only perf runs carry per-metric numbers worth shipping to the page
-            summary: r.kind === "perf" ? (JSON.parse(r.summary) as PerfSummary) : null,
+    /** Every (game, kind) pair, paged; each carries its newest runs (the card shows the last 30 as a trend). */
+    cards: procedure.input(pageIn.extend({ runs: z.number().int().min(1).max(200).default(30) })).query(async ({ ctx, input }) => {
+        const keys = (await ctx.db.qaRun.groupBy({ by: ['game', 'kind'] })).sort((a, b) => a.game.localeCompare(b.game) || a.kind.localeCompare(b.kind))
+        const off = offsetOf(keys.length, input)
+        const slice = keys.slice(off, off + input.size)
+        const cards = await Promise.all(slice.map(async (k) => {
+            const rows = await ctx.db.qaRun.findMany({ where: { game: k.game, kind: k.kind }, orderBy: { ranAt: 'desc' }, take: input.runs })
+            return {
+                game: k.game, kind: k.kind,
+                runs: rows.map((r) => ({
+                    id: r.id, kind: r.kind, game: r.game, commit: r.commit, ranAt: r.ranAt, ok: r.ok, total: r.total, failedCount: r.failedCount,
+                    failures: JSON.parse(r.failures) as { name: string; repro: string; note: string; reasons: string[] }[],
+                    images: JSON.parse(r.images) as { file: string; note: string }[],
+                    // only perf runs carry per-metric numbers worth shipping to the page
+                    summary: r.kind === 'perf' ? (JSON.parse(r.summary) as PerfSummary) : null,
+                })),
+            }
         }))
+        return paged(cards, keys.length, input)
     }),
+    /** Slim rows (no failures, images or summaries) for the last N days: what the two overview charts count. */
+    overview: procedure.input(z.object({ days: z.number().int().min(1).max(365).default(30) })).query(({ ctx, input }) =>
+        ctx.db.qaRun.findMany({ where: { ranAt: { gte: new Date(Date.now() - (input.days + 1) * 86_400_000) } }, orderBy: { ranAt: 'desc' }, select: { id: true, game: true, kind: true, ranAt: true, ok: true } })),
 })
 
 const agentRouter = router({
