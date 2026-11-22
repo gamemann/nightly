@@ -8,6 +8,7 @@ import { z } from 'zod'
 import { OPEN_STATUSES } from '~/lib/constants'
 import { type Budget, compareFunctions, compareMetrics, evaluateBudgets, regressionMarkers } from '../../lib/perf.mjs'
 import { bestFolded, diffFlameSvg, diffRows, flameSvg, hitchSvg, hitchesFromReport, sparklineSvg } from '../../lib/perf-viz.mjs'
+import { runsQuery } from '../../lib/list-query.mjs'
 import { pageIn, type PageIn } from './pageInput'
 import { procedure, router } from './trpc'
 import { PERF_SPECS } from '~/lib/feedSpecs'
@@ -108,14 +109,12 @@ export const perfRouter = router({
         return { combos: combos.map((c) => ({ platform: c.platform, role: c.role, map: c.map, bots: c.bots, n: c._count._all })), metrics: names.map((n) => n.name).sort() }
     }),
 
-    /** Paginated run list (newest first) with the headline metrics. */
-    runs: procedure.input(scope.extend({ page: z.number().int().min(0).default(0), pageSize: z.number().int().min(1).max(200).default(25), q: z.string().optional() })).query(async ({ ctx, input }) => {
-        const where = { ...runWhere(input), ...(input.q ? { OR: [{ commit: { contains: input.q } }, { label: { contains: input.q } }, { name: { contains: input.q } }, { map: { contains: input.q } }] } : {}) }
-        const [total, rows] = await Promise.all([
-            ctx.db.perfRun.count({ where }),
-            ctx.db.perfRun.findMany({ where, orderBy: [{ ranAt: 'desc' }, { id: 'desc' }], skip: input.page * input.pageSize, take: input.pageSize, include: { metrics: { where: { name: { in: ['fps', 'frame_ms_p95', 'tick_ms', 'memory_mb', 'draw_calls'] } } } } }),
-        ])
-        return { total, rows: rows.map((r) => ({ ...r, metrics: Object.fromEntries(r.metrics.map((m) => [m.name, m.value])) })) }
+    /** Paginated run list (newest first unless sorted) with the headline metrics; scope, search, sort and paging are server-side. */
+    runs: procedure.input(scope.merge(pageIn)).query(async ({ ctx, input }) => {
+        const { where, orderBy } = runsQuery(input)
+        const total = await ctx.db.perfRun.count({ where })
+        const rows = await ctx.db.perfRun.findMany({ where, orderBy, skip: offsetOf(total, input), take: input.size, include: { metrics: { where: { name: { in: ['fps', 'frame_ms_p95', 'tick_ms', 'memory_mb', 'draw_calls'] } } } } })
+        return paged(rows.map((r) => ({ ...r, metrics: Object.fromEntries(r.metrics.map((m) => [m.name, m.value])) as Record<string, number> })), total, input)
     }),
 
     /** One run: metrics, budgets with verdicts, profiler table, folded stacks text (if kept), findings. */

@@ -8,6 +8,7 @@ import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import type { Prisma, PrismaClient } from '../../generated/prisma/client'
 import { cronError, nextFires } from '../../lib/cron.mjs'
+import { promptsQuery } from '../../lib/list-query.mjs'
 import { OWNER, CADENCES, KINDS, LIVE_MINUTES, OPEN_STATUSES, STATUSES, isDue, slugify } from '~/lib/constants'
 import { likeEsc, offsetOf, paged } from '~/lib/paging'
 import { pageIn } from './pageInput'
@@ -401,13 +402,10 @@ const promptName = z.string().trim().regex(/^[\w.-]{1,80}$/, 'letters, digits, .
 const promptRouter = router({
     /** The sidebar list of prompts or jobs: search (name, body), sort and paging in SQL. */
     page: procedure.input(pageIn.extend({ kind: z.enum(['prompt', 'script']) })).query(async ({ ctx, input }) => {
-        const q = input.q?.trim()
-        const where = { kind: input.kind, ...(q ? { OR: [{ name: { contains: q } }, { body: { contains: q } }] } : {}) }
-        const sort = ['name', 'updatedAt'].includes(input.sort) ? input.sort : 'name'
-        const dir = input.sort ? input.dir : 'asc'
+        const { where, orderBy } = promptsQuery(input)
         const total = await ctx.db.prompt.count({ where })
         const [rows, schedules] = await Promise.all([
-            ctx.db.prompt.findMany({ where, orderBy: [{ [sort]: dir }, { id: 'asc' }], skip: offsetOf(total, input), take: input.size, select: { id: true, name: true, kind: true, body: true, updatedAt: true } }),
+            ctx.db.prompt.findMany({ where, orderBy, skip: offsetOf(total, input), take: input.size, select: { id: true, name: true, kind: true, body: true, updatedAt: true } }),
             ctx.db.schedule.findMany({ select: { name: true, prompt: true } }),
         ])
         return paged(rows.map(({ body, ...p }) => ({ ...p, size: body.length, codeLike: body.startsWith('#!'), usedBy: schedules.filter((x) => x.prompt === p.name).map((x) => x.name) })), total, input)

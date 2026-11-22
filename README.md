@@ -153,6 +153,9 @@ Reviews are for judging animation, model and sound work, where a green test says
 
 Each entry carries what to look for, a verdict (Good or Still wrong) with a note, and the verdict history. Builders read the notes back with `scripts/review-post.sh open KEY` (or `nightly review open KEY` on the panel's machine), fix what is marked wrong and re-post the media as `after`. Files are stored under `NIGHTLY_REVIEWS` with a `review.json`; there is no database table. Filing and reading are described under [Panel](#panel).
 
+### Lists and paging
+Every long list is server-side paged through the shared `DataTable` and `ListControls` components: the page, size, sort, search and filters live in URL params (one namespace per table, so two tables can share a page), and the server turns them into limit, offset, order and where. Phase 2 moved the Performance run list (search commit, label, map; sort by run, time, scope or commit; tick two runs to compare) and the Prompts and Jobs sidebar (search name or text; sort by name or last saved) onto that path. The health feeds, performance findings and RSI tables were already converted. The query building for the run list and the prompt list is pure code in `lib/list-query.mjs`, covered by `lib/list-query.test.mjs` (run `npm test`). Still on the old fixed layout: the Tokens table and the games overview cards; both are small and unpaged.
+
 ### Companion repo
 [nightly-env](https://github.com/gamemann/nightly-env) holds the pieces that run my fleet on top of nightly: the scripts, systemd units, offload helpers and agent instruction files. nightly stays generic; nightly-env is one concrete setup.
 

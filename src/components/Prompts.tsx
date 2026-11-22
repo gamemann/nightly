@@ -8,9 +8,9 @@ import { Markdown } from './Markdown'
 import { MarkdownEditor } from './MarkdownEditor'
 import { ago, fmt } from './pills'
 import { Pagination, useUrlParams } from './Pagination'
+import { ListControls } from './DataTable'
 import { parsePage } from '~/lib/paging'
-
-const LIST_SPEC = { sorts: ['name', 'updatedAt'], sort: 'name', dir: 'asc' } as const
+import { PROMPT_SPEC } from '~/lib/feedSpecs'
 
 export function Prompts(props: { name?: string; kind?: 'prompt' | 'script' }) { return <Suspense><PromptsInner {...props} /></Suspense> }
 
@@ -19,10 +19,8 @@ function PromptsInner({ name, kind = 'prompt' }: { name?: string; kind?: 'prompt
     const noun = kind === 'script' ? 'Jobs / Scripts' : 'Prompts'
     const router = useRouter()
     const utils = api.useUtils()
-    const { sp, set } = useUrlParams('l')
-    const lq = parsePage(sp, LIST_SPEC, 'l')
-    const [text, setText] = useState(lq.q)
-    useEffect(() => { if (text === lq.q) return; const t = setTimeout(() => set({ q: text }), 300); return () => clearTimeout(t) }, [text]) // eslint-disable-line react-hooks/exhaustive-deps
+    const { sp } = useUrlParams('l')
+    const lq = parsePage(sp, PROMPT_SPEC, 'l')
     const list = api.prompt.page.useQuery({ kind, page: lq.page, size: lq.size, sort: lq.sort, dir: lq.dir, q: lq.q || undefined, f: {} }, { placeholderData: (p) => p })
     const keepQs = sp.toString() ? `?${sp.toString()}` : ''
     const create = api.prompt.save.useMutation({
@@ -47,7 +45,7 @@ function PromptsInner({ name, kind = 'prompt' }: { name?: string; kind?: 'prompt
                     ? 'Runnable jobs: a schedule runs one as a script, no agent involved. Exit 0 = ok, 1 = findings, anything else = failed.'
                     : 'What the agent runs are told. Agents read them with'} {kind === 'prompt' && <code className="font-mono">nightly prompt show</code>}</p>
                 {create.error && <p className="mb-2 text-[12px] text-red-300">{create.error.message}</p>}
-                <input className="input mb-2 w-full" placeholder="Search name or text" aria-label="search" value={text} onChange={(e) => setText(e.target.value)} />
+                <ListControls ns="l" q={lq.q} searchHint="Search name or text" sort={lq.sort} dir={lq.dir} sorts={[{ key: 'name', label: 'name' }, { key: 'updatedAt', label: 'last saved' }]} />
                 <nav className="mb-1 flex flex-col gap-0.5">
                     {rows.map((p) => (
                         <Link key={p.id} href={`${base}/${encodeURIComponent(p.name)}${keepQs}`}

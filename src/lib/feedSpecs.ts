@@ -14,4 +14,8 @@ export type FeedName = keyof typeof FEED_SPECS
 export const PERF_SPECS = {
     findings: { sorts: ['updatedAt', 'game', 'metric', 'status'], sort: 'updatedAt', dir: 'desc', filters: ['game', 'status'] },
     rsi: { sorts: ['updatedAt', 'game', 'kind', 'state', 'value'], sort: 'updatedAt', dir: 'desc', filters: ['game', 'state', 'kind'] },
+    runs: { sorts: ['ranAt', 'id', 'commit', 'label', 'platform', 'map'], sort: 'ranAt', dir: 'desc' },
 } as const satisfies Record<string, PageSpec>
+
+/** The list of prompts or job scripts in the Prompts sidebar. */
+export const PROMPT_SPEC = { sorts: ['name', 'updatedAt'], sort: 'name', dir: 'asc' } as const satisfies PageSpec

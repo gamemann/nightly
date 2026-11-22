@@ -246,39 +246,25 @@ function Budgets({ game }: { game: Game }) {
 
 // ---------- runs list ----------
 
+type RunRow = RouterOutputs["perf"]["runs"]["rows"][number]
 function Runs({ game, scope }: { game: string; scope: Scope }) {
-    const [page, setPage] = useState(0)
-    const [q, setQ] = useState("")
+    const { sp } = useUrlParams("n")
+    const q = parsePage(sp, PERF_SPECS.runs, "n")
     const [pick, setPick] = useState<number[]>([])
-    const PAGE = 25
-    const runs = api.perf.runs.useQuery({ game, ...scope, page, pageSize: PAGE, q: q || undefined }, { placeholderData: (p) => p })
-    const total = runs.data?.total ?? 0
+    const d = api.perf.runs.useQuery({ game, ...scope, page: q.page, size: q.size, sort: q.sort, dir: q.dir, q: q.q || undefined, f: q.f }, { placeholderData: (p) => p })
+    const toggle = (id: number, on: boolean) => setPick(on ? [...pick, id].slice(-2).sort((a, b) => a - b) : pick.filter((x) => x !== id))
+    const cols: Column<RunRow>[] = [
+        { key: "pick", label: "", render: (r) => <input type="checkbox" aria-label={`compare run ${r.id}`} checked={pick.includes(r.id)} onChange={(e) => toggle(r.id, e.target.checked)} /> },
+        { key: "id", label: "Run", sortable: true, render: (r) => <><Link className="font-mono hover:text-sky-300" href={`/perf/${game}/run/${r.id}`}>#{r.id}</Link>{r.label && <span className="ml-1 text-muted">{r.label}</span>}</> },
+        { key: "ranAt", label: "When", sortable: true, className: "text-muted", render: (r) => ago(r.ranAt) },
+        { key: "platform", label: "Scope", sortable: true, render: (r) => scopeLabel(r) },
+        { key: "commit", label: "Commit", sortable: true, className: "font-mono text-muted", render: (r) => r.commit.slice(0, 9) },
+        ...HEAD.map((m): Column<RunRow> => ({ key: m, label: m, className: "text-right font-mono tabular-nums", render: (r) => f2(r.metrics[m]) })),
+    ]
+    const empty: Paged<RunRow> = { rows: [], total: 0, page: 1, size: 100, pages: 1, from: 0, to: 0 }
     return (
-        <>
-            <div className="mb-2 flex items-center gap-2 text-[12px]">
-                <input className={input} placeholder="filter: commit, label, map" value={q} onChange={(e) => { setQ(e.target.value); setPage(0) }} />
-                {pick.length === 2 ? <Link className={`${btn} text-sky-300`} href={`/perf/compare/${pick[0]}/${pick[1]}`}>Compare #{pick[0]} vs #{pick[1]}</Link> : <span className="text-muted">tick two runs to compare (older = A)</span>}
-                <span className="ml-auto text-muted">{total} runs</span>
-            </div>
-            <table className="w-full text-[12px]">
-                <thead className="text-left text-muted"><tr><th /><th className="py-1">Run</th><th>When</th><th>Scope</th><th>Commit</th>{HEAD.map((m) => <th key={m} className="text-right font-mono">{m}</th>)}</tr></thead>
-                <tbody>
-                    {runs.data?.rows.map((r) => (
-                        <tr key={r.id} className="border-t border-line hover:bg-hover/40">
-                            <td><input type="checkbox" checked={pick.includes(r.id)} onChange={(e) => setPick(e.target.checked ? [...pick, r.id].slice(-2).sort((a, b) => a - b) : pick.filter((x) => x !== r.id))} /></td>
-                            <td className="py-1"><Link className="font-mono hover:text-sky-300" href={`/perf/${game}/run/${r.id}`}>#{r.id}</Link>{r.label && <span className="ml-1 text-muted">{r.label}</span>}</td>
-                            <td className="text-muted">{ago(r.ranAt)}</td><td>{scopeLabel(r)}</td><td className="font-mono text-muted">{r.commit.slice(0, 9)}</td>
-                            {HEAD.map((m) => <td key={m} className="text-right tabular-nums">{f2(r.metrics[m])}</td>)}
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
-            <div className="mt-2 flex items-center gap-2 text-[12px] text-muted">
-                <button className={btn} disabled={page === 0} onClick={() => setPage(page - 1)}>Newer</button>
-                <span>page {page + 1} of {Math.max(1, Math.ceil(total / PAGE))}</span>
-                <button className={btn} disabled={(page + 1) * PAGE >= total} onClick={() => setPage(page + 1)}>Older</button>
-            </div>
-        </>
+        <DataTable ns="n" cols={cols} data={d.data ?? empty} rowKey={(r) => r.id} sort={q.sort} dir={q.dir} q={q.q} active={q.f} searchHint="Search commit, label, map" empty="No runs in this scope."
+            toolbar={pick.length === 2 ? <Link className={`${btn} text-sky-300`} href={`/perf/compare/${pick[0]}/${pick[1]}`}>Compare #{pick[0]} vs #{pick[1]}</Link> : <span className="text-[12px] text-muted">tick two runs to compare (older = A)</span>} />
     )
 }
 
