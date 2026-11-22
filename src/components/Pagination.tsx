@@ -26,7 +26,7 @@ export function Pagination({ p, ns = '' }: { p: Pick<Paged<unknown>, 'total' | '
     const btn = 'rounded border border-line px-2 py-0.5 text-[12px] enabled:hover:bg-hover disabled:opacity-40'
     return (
         <div className="flex flex-wrap items-center justify-between gap-2 px-1 py-2 text-[12px] text-dim">
-            <span className="tabular-nums">rows {p.from.toLocaleString()}-{p.to.toLocaleString()} of {p.total.toLocaleString()}</span>
+            <span className="tabular-nums">rows {p.from.toLocaleString("en-GB")}-{p.to.toLocaleString("en-GB")} of {p.total.toLocaleString("en-GB")}</span>
             <span className="flex flex-wrap items-center gap-2">
                 <label className="flex items-center gap-1">per page
                     <select className="rounded border border-line bg-panel px-1 py-0.5" value={p.size} onChange={(e) => set({ size: e.target.value === String(PAGE_SIZES[0]) ? '' : e.target.value })}>
@@ -36,7 +36,7 @@ export function Pagination({ p, ns = '' }: { p: Pick<Paged<unknown>, 'total' | '
                 <button className={btn} disabled={p.page <= 1} onClick={() => go(p.page - 1)} aria-label="previous page">Prev</button>
                 <form className="flex items-center gap-1" onSubmit={(e) => { e.preventDefault(); const n = Math.floor(Number(jump)); if (n >= 1) go(n); setJump('') }}>
                     page <input className="w-14 rounded border border-line bg-panel px-1 py-0.5 text-center tabular-nums" inputMode="numeric" placeholder={String(p.page)} value={jump} onChange={(e) => setJump(e.target.value)} aria-label="jump to page" />
-                    of {p.pages.toLocaleString()}
+                    of {p.pages.toLocaleString("en-GB")}
                 </form>
                 <button className={btn} disabled={p.page >= p.pages} onClick={() => go(p.page + 1)} aria-label="next page">Next</button>
             </span>
