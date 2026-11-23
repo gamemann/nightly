@@ -551,3 +551,226 @@ model AssetAuditHistory {
 
   @@index([pack, at])
 }
+
+// ---------------------------------------------------------------------------
+// Users, roles and permissions (redesign phase 1). The panel is always behind a login.
+// Permission keys are listed in lib/permissions.mjs (PERMISSIONS); `*` and `<area>.*` are wildcards.
+
+/// A panel account. hash is `salt:hash` scrypt hex (lib/passwords.mjs). disabledAt blocks login.
+model User {
+  id          Int               @id @default(autoincrement())
+  username    String            @unique
+  name        String            @default("")
+  hash        String
+  disabledAt  DateTime?
+  lastLoginAt DateTime?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  roles       UserRole[]
+  grants      PermissionGrant[]
+  sessions    Session[]
+  access      ProjectAccess[]
+  nodeUsers   NodeUser[]
+}
+
+/// A named set of permission grants. builtin roles (admin, user) cannot be deleted.
+model Role {
+  id          Int               @id @default(autoincrement())
+  name        String            @unique
+  description String            @default("")
+  builtin     Boolean           @default(false)
+  createdAt   DateTime          @default(now())
+  users       UserRole[]
+  grants      PermissionGrant[]
+  access      ProjectAccess[]
+}
+
+model UserRole {
+  userId Int
+  roleId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+}
+
+/// One permission for a role or a user (exactly one of roleId/userId). allow=false on a user grant
+/// removes a permission the user's roles give.
+model PermissionGrant {
+  id     Int     @id @default(autoincrement())
+  roleId Int?
+  userId Int?
+  perm   String
+  allow  Boolean @default(true)
+  role   Role?   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  user   User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, perm])
+  @@unique([userId, perm])
+}
+
+/// A login. The cookie carries a random token; only its sha256 is stored.
+model Session {
+  id         Int      @id @default(autoincrement())
+  userId     Int
+  tokenHash  String   @unique
+  createdAt  DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+  expiresAt  DateTime
+  ip         String   @default("")
+  userAgent  String   @default("")
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// ---------------------------------------------------------------------------
+// Projects and folders.
+
+/// A folder of projects; folders nest (parentId). icon is a file name under data/icons.
+model Folder {
+  id        Int             @id @default(autoincrement())
+  name      String
+  parentId  Int?
+  icon      String          @default("")
+  sort      Int             @default(0)
+  createdAt DateTime        @default(now())
+  parent    Folder?         @relation("FolderTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children  Folder[]        @relation("FolderTree")
+  projects  Project[]
+  access    ProjectAccess[]
+
+  @@index([parentId])
+}
+
+/// type: website | game | game-addon. settings is JSON (e.g. {"perfGame":"fc"}).
+model Project {
+  id        Int             @id @default(autoincrement())
+  slug      String          @unique
+  name      String
+  type      String          @default("game")
+  repoPath  String          @default("")
+  repoUrl   String          @default("")
+  folderId  Int?
+  icon      String          @default("")
+  sort      Int             @default(0)
+  settings  String          @default("{}")
+  archived  Boolean         @default(false)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+  folder    Folder?         @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  access    ProjectAccess[]
+  builds    BuildConfig[]
+
+  @@index([folderId])
+  @@index([type])
+}
+
+/// Gives a user or a role permissions on one project or a whole folder (inherited by subfolders).
+/// perms is a comma list of permission keys (`projects.view,tasks.edit`, `*`).
+model ProjectAccess {
+  id        Int      @id @default(autoincrement())
+  projectId Int?
+  folderId  Int?
+  userId    Int?
+  roleId    Int?
+  perms     String   @default("projects.view")
+  createdAt DateTime @default(now())
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  folder    Folder?  @relation(fields: [folderId], references: [id], onDelete: Cascade)
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      Role?    @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([folderId])
+}
+
+// ---------------------------------------------------------------------------
+// Nodes (registry only in phase 1; the node daemon lands later).
+
+/// type: planet (runs the panel and agents) | station (build/test box). tokenHash is sha256 of the
+/// node token; secret is the shared secret the panel signs with (never shown after creation).
+/// specs is JSON: {cpu:{model,mhz,cores,threads}, ram:{gb,type,mhz}, gpu:[], disks:[], buildSlots,
+/// heavySlots, offloadKinds:[]}.
+model Node {
+  id         Int        @id @default(autoincrement())
+  name       String     @unique
+  type       String     @default("station")
+  host       String     @default("")
+  port       Int        @default(4001)
+  tls        Boolean    @default(false)
+  tokenHash  String     @default("")
+  secret     String     @default("")
+  specs      String     @default("{}")
+  status     String     @default("unknown")
+  notes      String     @default("")
+  lastSeenAt DateTime?
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+  users      NodeUser[]
+  linksFrom  NodeLink[] @relation("LinkFrom")
+  linksTo    NodeLink[] @relation("LinkTo")
+}
+
+/// Maps a panel user onto a login name on a node.
+model NodeUser {
+  id       Int    @id @default(autoincrement())
+  nodeId   Int
+  userId   Int
+  username String
+  node     Node   @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([nodeId, userId])
+}
+
+/// A link between two nodes. auth: ssh-key | password. status: unknown | ok | failed.
+model NodeLink {
+  id         Int       @id @default(autoincrement())
+  fromId     Int
+  toId       Int
+  username   String    @default("")
+  auth       String    @default("ssh-key")
+  status     String    @default("unknown")
+  checkedAt  DateTime?
+  createdAt  DateTime  @default(now())
+  from       Node      @relation("LinkFrom", fields: [fromId], references: [id], onDelete: Cascade)
+  to         Node      @relation("LinkTo", fields: [toId], references: [id], onDelete: Cascade)
+
+  @@unique([fromId, toId, username])
+}
+
+/// An external database. kind: clickhouse | postgres | mysql | sqlite. secretRef names an env var
+/// or file holding the password; the password itself is never stored here.
+model DbConnection {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  kind      String   @default("clickhouse")
+  host      String   @default("")
+  port      Int      @default(0)
+  database  String   @default("")
+  username  String   @default("")
+  secretRef String   @default("")
+  options   String   @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// A build of a project. heavy builds run in a node's heavy slots. nodeKinds lists offload kinds
+/// a node must offer (comma list).
+model BuildConfig {
+  id        Int      @id @default(autoincrement())
+  projectId Int
+  name      String
+  command   String   @default("")
+  heavy     Boolean  @default(false)
+  nodeKinds String   @default("")
+  timeout   Int      @default(0)
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, name])
+}
