@@ -77,6 +77,9 @@ export function Sidebar() {
                 <Link href="/usage" className={link('/usage', path.startsWith('/usage'))} title="Claude Code token usage">
                     <span className="w-2 text-center text-[11px] text-muted">Σ</span><span className="max-md:hidden">Usage</span>
                 </Link>
+                <Link href="/maps" className={link('/maps', path.startsWith('/maps'))} title="Maps (converted, with the fly-cam viewer)">
+                    <span className="w-2 text-center text-[11px] text-muted">▦</span><span className="max-md:hidden">Maps</span>
+                </Link>
                 <Link href="/assets" className={link('/assets', path.startsWith('/assets'))} title="Assets (RSI)">
                     <span className="w-2 text-center text-[11px] text-muted">◆</span><span className="max-md:hidden">Assets</span>
                 </Link>

@@ -13,7 +13,7 @@ import type { Paged } from "~/lib/paging"
 import type { Agg, AssetRow, Tab } from "~/server/assetsList"
 
 export type { AssetRow, Tab }
-const TABS: [Tab, string][] = [["entities", "Entities"], ["avatars", "Avatars"], ["models", "Models"], ["maps", "Maps"], ["textures", "Textures"], ["animations", "Animations"], ["sounds", "Sounds"], ["libraries", "Libraries"]]
+const TABS: [Tab, string][] = [["entities", "Entities"], ["avatars", "Characters"], ["models", "Models"], ["maps", "Map models"], ["textures", "Textures"], ["animations", "Animations"], ["sounds", "Sounds"], ["libraries", "Libraries"]]
 const kb = (n: number) => (n >= 1 << 20 ? `${(n / (1 << 20)).toFixed(1)} MB` : `${Math.round(n / 1024)} KB`)
 export const scoreCls = (s: number) => (s >= 70 ? "text-emerald-300" : s >= 40 ? "text-amber-300" : "text-red-300")
 export const sevCls = (s: string) => (s === "error" ? "bg-red-400/15 text-red-300" : s === "warn" ? "bg-amber-400/15 text-amber-300" : "bg-hover text-dim")
