@@ -4,7 +4,7 @@ import { PIECE_SQL, describe, placeOf } from '../../lib/asset-names.mjs'
 import { DEDUPE_KEY, TAB_SQL, UNIQUE, aggCountSql, effectiveFilters } from '../../lib/asset-tabs.mjs'
 import { offsetOf, likeEsc, paged, type PageQuery, type PageSpec, type Paged } from '~/lib/paging'
 
-export type Tab = 'entities' | 'models' | 'textures' | 'animations' | 'sounds' | 'maps' | 'libraries'
+export type Tab = 'entities' | 'avatars' | 'models' | 'textures' | 'animations' | 'sounds' | 'maps' | 'libraries'
 export type AssetRow = {
     id: number; pack: string; game: string; weaponId: string; display: string; group: string; groupKey: string; piece: boolean; pieces: number; worst: number; copies: number; uses: string[]; kind: string; source: string; score: number; pass: boolean; auditedAt: string
     hasModel: boolean; tris: number; verts: number; materials: number; fileHash: string
@@ -164,7 +164,7 @@ export async function assetAgg(): Promise<Agg> {
     await ensureAssetColumns()
     const W = `WHERE NOT ${PIECE_SQL}`, A = `AND NOT ${PIECE_SQL}`
     const [tot, bins, packs, kinds, flags, worst, games, kt] = await Promise.all([
-        db.$queryRawUnsafe<Record<string, unknown>[]>(`SELECT COUNT(*) total, SUM(source='audit') audited, SUM(${TAB_SQL.entities}) e, SUM(${TAB_SQL.models}) m, SUM(${TAB_SQL.textures}) t, SUM(${TAB_SQL.animations}) a, SUM(${TAB_SQL.sounds}) s FROM ${UNIQUE}`),
+        db.$queryRawUnsafe<Record<string, unknown>[]>(`SELECT COUNT(*) total, SUM(source='audit') audited, SUM(${TAB_SQL.entities}) e, SUM(${TAB_SQL.avatars}) v, SUM(${TAB_SQL.models}) m, SUM(${TAB_SQL.textures}) t, SUM(${TAB_SQL.animations}) a, SUM(${TAB_SQL.sounds}) s FROM ${UNIQUE}`),
         db.$queryRawUnsafe<{ b: unknown; c: unknown }[]>(`SELECT MIN(9, MAX(0, score / 10)) b, COUNT(*) c FROM ${UNIQUE} GROUP BY b`),
         db.$queryRawUnsafe<{ k: string; total: unknown; pass: unknown }[]>(`SELECT pack k, COUNT(*) total, SUM(pass) pass FROM AssetWeapon WHERE pack != '' ${A} GROUP BY pack`),
         db.$queryRawUnsafe<{ k: string; total: unknown; pass: unknown }[]>(`SELECT kind k, COUNT(*) total, SUM(pass) pass FROM ${UNIQUE} WHERE kind != '' GROUP BY kind`),
@@ -179,10 +179,10 @@ export async function assetAgg(): Promise<Agg> {
         total: n(t.total), audited: n(t.audited),
         bins: Array.from({ length: 10 }, (_, i) => ({ lo: i * 10, hi: i === 9 ? 100 : i * 10 + 9, label: `${i * 10}-${i === 9 ? 100 : i * 10 + 9}`, count: bn.get(i) ?? 0, tier: i >= 7 ? 'pass' as const : i >= 4 ? 'warn' as const : 'fail' as const })),
         packs: group(packs), kinds: group(kinds),
-        kindTabs: Object.fromEntries(kt.filter((r) => r.kind).map((r) => [String(r.kind), { entities: n(r.entities), models: n(r.models), textures: n(r.textures), animations: n(r.animations), sounds: n(r.sounds) }])),
+        kindTabs: Object.fromEntries(kt.filter((r) => r.kind).map((r) => [String(r.kind), { entities: n(r.entities), avatars: n(r.avatars), models: n(r.models), textures: n(r.textures), animations: n(r.animations), sounds: n(r.sounds) }])),
         flags: flags.map((f) => ({ code: f.code, severity: f.sev, n: n(f.c), tab: flagTab(f.code) })).sort((a, b) => b.n - a.n || a.code.localeCompare(b.code)),
         worst: worst.map((w) => ({ ...w, id: n(w.id), score: n(w.score) })),
-        tabCounts: { entities: n(t.e), models: n(t.m), textures: n(t.t), animations: n(t.a), sounds: n(t.s), maps: places.filter((p) => p.kind === 'map').length, libraries: places.filter((p) => p.kind === 'library').length },
+        tabCounts: { entities: n(t.e), avatars: n(t.v), models: n(t.m), textures: n(t.t), animations: n(t.a), sounds: n(t.s), maps: places.filter((p) => p.kind === 'map').length, libraries: places.filter((p) => p.kind === 'library').length },
         games: [...new Set(games.flatMap((g) => g.game.split(',').filter(Boolean)))].sort(),
     }
 }

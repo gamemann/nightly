@@ -7,12 +7,13 @@ import { Legend, Panel, StackedBars } from "./Charts"
 import { DataTable, type Column } from "./DataTable"
 import { useUrlParams } from "./Pagination"
 import { COLOR } from "../../lib/charts.mjs"
-import { ENTITY_KINDS, describe } from "../../lib/asset-names.mjs"
+import { describe } from "../../lib/asset-names.mjs"
+import { kindInTab } from "../../lib/asset-tabs.mjs"
 import type { Paged } from "~/lib/paging"
 import type { Agg, AssetRow, Tab } from "~/server/assetsList"
 
 export type { AssetRow, Tab }
-const TABS: [Tab, string][] = [["entities", "Entities"], ["models", "Models"], ["maps", "Maps"], ["textures", "Textures"], ["animations", "Animations"], ["sounds", "Sounds"], ["libraries", "Libraries"]]
+const TABS: [Tab, string][] = [["entities", "Entities"], ["avatars", "Avatars"], ["models", "Models"], ["maps", "Maps"], ["textures", "Textures"], ["animations", "Animations"], ["sounds", "Sounds"], ["libraries", "Libraries"]]
 const kb = (n: number) => (n >= 1 << 20 ? `${(n / (1 << 20)).toFixed(1)} MB` : `${Math.round(n / 1024)} KB`)
 export const scoreCls = (s: number) => (s >= 70 ? "text-emerald-300" : s >= 40 ? "text-amber-300" : "text-red-300")
 export const sevCls = (s: string) => (s === "error" ? "bg-red-400/15 text-red-300" : s === "warn" ? "bg-amber-400/15 text-amber-300" : "bg-hover text-dim")
@@ -31,11 +32,11 @@ function Thumb({ r, tab }: { r: AssetRow; tab: Tab }) {
 }
 
 /** Entities, maps and libraries show the model flags. */
-const flagScope = (t: Tab): Tab => (t === "entities" || t === "maps" || t === "libraries" ? "models" : t)
+const flagScope = (t: Tab): Tab => (t === "entities" || t === "avatars" || t === "maps" || t === "libraries" ? "models" : t)
 /** Every filter a tab or chip click drops, so a tab never opens empty from a stale filter (page resets by itself). */
 const CLEAR = { pack: "", game: "", flag: "", min: "", max: "", pieces: "", grp: "", kind: "" }
 const num = (v: number) => v.toLocaleString("en-GB")
-const TAB_COLS: Record<Exclude<Tab, "entities">, Column<AssetRow>[]> = {
+const TAB_COLS: Record<Exclude<Tab, "entities" | "avatars">, Column<AssetRow>[]> = {
     libraries: [
         { key: "maps", label: "Pieces", sortable: true, className: "tabular-nums", render: (r) => num(r.pieces) },
         { key: "tris", label: "Tris", sortable: true, className: "tabular-nums", render: (r) => num(r.tris) },
@@ -131,7 +132,7 @@ export function Assets({ data, agg, kinds, sources, trend = [], packNames }: { d
     const placeTab = tab === "maps" || tab === "libraries"
     const mapRows = placeTab && !pieces
     const flagCodes = [...new Set(agg.flags.filter((f) => f.tab === flagScope(tab)).map((f) => f.code))].sort()
-    const inTab = (k: string) => tab === "entities" ? ENTITY_KINDS.includes(k) : tab === "models" ? !ENTITY_KINDS.includes(k) : true
+    const inTab = (k: string) => kindInTab(tab, k)
     const kindList = [{ key: "", label: "All" }, ...kinds.filter((k) => agg.kinds.some((x) => x.key === k.key) && inTab(k.key) && (agg.kindTabs[k.key]?.[tab] ?? 0) > 0), ...agg.kinds.filter((k) => !kinds.some((x) => x.key === k.key) && inTab(k.key)).map((k) => ({ key: k.key, label: k.key }))]
     const filtered = ["pack", "game", "flag", "min", "max", "q", "kind", "grp"].some((k) => sp.get(k))
     const allCount = agg.tabCounts[tab]
@@ -141,7 +142,7 @@ export function Assets({ data, agg, kinds, sources, trend = [], packNames }: { d
         { key: "asset", label: mapRows ? (tab === "maps" ? "Map" : "Library set") : "Asset", sortable: true, render: (r) => <><Link className="text-sky-300 hover:underline" href={r.id > 0 ? `/assets/${r.id}` : `/assets?tab=${tab}&pieces=1&grp=${encodeURIComponent(r.groupKey)}`} title={r.weaponId}>{r.display}</Link>{r.id > 0 && r.group && <span className="ml-1.5 text-[11px] text-muted" title={r.weaponId}>{r.group}</span>}{r.id <= 0 && <span className="ml-1.5 text-[11px] text-muted">{r.pieces} pieces</span>}{r.id > 0 && r.hasModel && r.texCount === 0 && <span className="ml-1 rounded bg-bad/20 px-1 text-[10px] text-bad" title="the model has no texture at all (flag NO_TEXTURES)">no texture</span>}{r.copies > 1 && <span className="ml-1 text-[10px] text-muted" title={r.uses.join(", ")}>x{r.copies}</span>}{r.source !== "audit" && <span className="ml-1 text-[10px] text-muted" title="from a directory scan, not yet audited">scan</span>}</> },
         { key: "pack", label: "Pack", sortable: true, className: "text-dim", render: (r) => r.pack },
         { key: "game", label: "Games", sortable: true, className: "text-dim", render: (r) => <span title={r.uses.join(", ")}>{r.game || (r.uses.length > 3 ? `${r.uses.slice(0, 2).join(", ")} +${r.uses.length - 2}` : r.uses.join(", ")) || "-"}</span> },
-        ...(placeTab && pieces ? TAB_COLS.models : TAB_COLS[tab === "entities" ? "models" : tab]),
+        ...(placeTab && pieces ? TAB_COLS.models : TAB_COLS[tab === "entities" || tab === "avatars" ? "models" : tab]),
         { key: "score", label: mapRows ? "Mean" : "Score", sortable: true, className: "tabular-nums", render: (r) => <span className={scoreCls(r.score)}>{r.score}</span> },
         { key: "flags", label: "Flags", render: (r) => <>{r.flags.filter((f) => f.tab === flagScope(tab)).map((f) => <span key={f.code} className={`mr-1 rounded px-1 text-[10.5px] ${sevCls(f.severity)}`}>{f.code}</span>)}</> },
     ]

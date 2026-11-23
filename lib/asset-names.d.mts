@@ -5,3 +5,4 @@ export function describe(pack: string, id: string): { name: string; group: strin
 export function placeOf(pack: string, id: string): { type: 'map' | 'library'; key: string; label: string } | null
 
 export const ENTITY_KINDS: string[]
+export const AVATAR_KINDS: string[]
