@@ -20,3 +20,5 @@ export function projectGrants(scope: ProjectScope, projectId: number): string[]
 export function canProject(perms: Perms | null | undefined, scope: ProjectScope, key: string, projectId: number): boolean
 export function folderTree<F extends { id: number; parentId: number | null; name: string; sort?: number }>(folders: F[]): TreeFolder<F>[]
 export function flattenTree<F extends { name: string }>(tree: TreeFolder<F>[], depth?: number, path?: string[]): { folder: TreeFolder<F>; depth: number; path: string[] }[]
+export const ROUTER_PERMS: Record<string, [string | null, string | null]>
+export function procedurePerm(path: string, type: string): string | null

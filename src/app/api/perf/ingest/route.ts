@@ -1,4 +1,4 @@
-import { COOKIE, readAuth, safeEqual, sessionToken } from "~/server/auth"
+import { trustedPost } from "~/server/auth"
 import { perfIngest } from "~/server/perfRouter"
 
 // Performance ingest: POST a dot-profiler report (JSON v1/v2), a .folded stack file or the .txt summary as the body.
@@ -24,9 +24,8 @@ export async function POST(req: Request) {
         body = folded ? JSON.stringify({ report, folded }) : report
     } else body = await req.text()
     const bearer = /^Bearer\s+(\S+)/i.exec(req.headers.get("authorization") ?? "")?.[1] ?? ""
-    // Panel login on and no valid session cookie: the proxy let this through only because of the Bearer header, so the token must be real.
-    const cfg = await readAuth()
-    const viaCookie = !cfg.enabled || safeEqual(req.headers.get("cookie")?.match(new RegExp(`(?:^|;\\s*)${COOKIE}=([^;]*)`))?.[1] ?? "", sessionToken(cfg))
+        // Signed in, or ingest left open: a token is checked only if one exists. Otherwise the proxy let this through for its Bearer token, which must be real.
+    const viaCookie = await trustedPost(req)
     if (!body.trim()) return Response.json({ error: "empty body" }, { status: 400 })
     const args: string[] = []
     for (const k of FLAGS) {

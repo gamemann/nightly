@@ -1,4 +1,4 @@
-import { COOKIE, readAuth, safeEqual, sessionToken } from "~/server/auth"
+import { trustedPost } from "~/server/auth"
 import { agentHeartbeat } from "~/server/feedRouter"
 
 // Agent heartbeat: any runner (a fleet launcher, a CI job, a subagent wrapper) registers or refreshes itself on the board.
@@ -11,8 +11,8 @@ export async function POST(req: Request) {
     const name = typeof b.name === "string" ? b.name : ""
     if (!name) return Response.json({ error: "name is required" }, { status: 400 })
     const bearer = /^Bearer\s+(\S+)/i.exec(req.headers.get("authorization") ?? "")?.[1] ?? ""
-    const cfg = await readAuth()
-    const viaCookie = !cfg.enabled || safeEqual(req.headers.get("cookie")?.match(new RegExp(`(?:^|;\\s*)${COOKIE}=([^;]*)`))?.[1] ?? "", sessionToken(cfg))
+    // Signed in, or ingest left open: a token is checked only if one exists. Otherwise the proxy let this through for its Bearer token, which must be real.
+    const viaCookie = await trustedPost(req)
     const args = ["agent", "heartbeat", name, "--json", viaCookie ? "--require-token" : "--token-only"]
     for (const k of ["task", "kind", "repos", "note"]) if (typeof b[k] === "string" && b[k]) args.push(`--${k}`, b[k] as string)
     if (b.leave === true) args.push("--leave")

@@ -1,6 +1,5 @@
 'use client'
 import Link from 'next/link'
-import { useEffect, useState } from 'react'
 import { api } from '~/trpc/react'
 import { OverviewStats } from './OverviewStats'
 
@@ -16,7 +15,7 @@ const ACCOUNT_LIMITS = [
     { key: 'accountMaxWeekly', label: 'Skip account at weekly', fallback: '98', unit: '%', max: 100 },
     { key: 'spillMaxRestarts', label: 'Restarts after a limit', fallback: '3', unit: 'times', max: 10 },
 ]
-const HIDDEN = new Set(['doRun', 'runner', 'lastTickAt', 'lastTickBy', 'authEnabled', 'authUser', ...USAGE_LIMITS.map((u) => u.key), ...ACCOUNT_LIMITS.map((u) => u.key)])
+const HIDDEN = new Set(['doRun', 'runner', 'lastTickAt', 'lastTickBy', 'authEnabled', 'authUser', 'ingestOpen', ...USAGE_LIMITS.map((u) => u.key), ...ACCOUNT_LIMITS.map((u) => u.key)])
 
 export function Settings() {
     const utils = api.useUtils()
@@ -82,7 +81,7 @@ export function Settings() {
                     </label>
                 ))}
             </div>
-            <LoginSettings />
+            <IngestSettings />
             <div className="mt-4 rounded-lg border border-line bg-panel/60 p-4">
                 <div className="font-medium">Runner</div>
                 <p className="mt-0.5 mb-3 text-[12px] text-muted">
@@ -105,72 +104,26 @@ export function Settings() {
     )
 }
 
-function LoginSettings() {
+/** ingestOpen: scripts may post to the ingest routes (qa, review, perf, assets, usage, heartbeats) without a session or token. */
+function IngestSettings() {
     const utils = api.useUtils()
-    const status = api.auth.status.useQuery()
-    const [on, setOn] = useState(false)
-    const [user, setUser] = useState('')
-    const [password, setPassword] = useState('')
-    const [done, setDone] = useState('')
-    useEffect(() => {
-        if (status.data) { setOn(status.data.enabled); setUser(status.data.user) }
-    }, [status.data])
-    const configure = api.auth.configure.useMutation({
-        onSuccess: async (r) => {
-            // Changing the login invalidates this browser's cookie too: sign straight back in with what was typed.
-            if (r.enabled && password) {
-                const f = new FormData()
-                f.set('username', user)
-                f.set('password', password)
-                await fetch('/api/login', { method: 'POST', body: f, redirect: 'manual' })
-            }
-            setPassword('')
-            setDone(r.enabled ? 'Saved. The panel now asks for a login.' : 'Saved. The panel is open to anyone who can reach it.')
-            if (r.enabled && !password) window.location.href = '/login'
-            await utils.auth.status.invalidate()
-        },
-    })
-    const s = status.data
-    const changed = !!s && (on !== s.enabled || user !== s.user || !!password)
-    const err = configure.error?.data?.zodError?.fieldErrors
+    const s = api.setting.all.useQuery()
+    const set = api.setting.set.useMutation({ onSuccess: () => utils.setting.all.invalidate() })
+    const on = s.data?.ingestOpen === 'true'
     return (
-        <div className="mt-4 rounded-lg border border-line bg-panel/60 p-4">
-            <div className="flex items-center justify-between gap-6">
-                <div>
-                    <div className="font-medium">Login</div>
-                    <p className="mt-0.5 text-[12px] text-muted">
-                        Off: anyone who can reach the panel can use it. On: a password (and a username, if you set one) is asked for first; a sign-in lasts 90 days.
-                        Locked out? On this machine: <code className="font-mono">bin/nightly set-setting authEnabled false</code>.
-                    </p>
-                </div>
-                <button role="switch" aria-checked={on} disabled={!s} onClick={() => { setOn(!on); setDone('') }}
-                    className={`relative h-6 w-11 shrink-0 rounded-full transition ${on ? 'bg-emerald-500' : 'bg-zinc-700'}`}>
-                    <span className={`absolute top-0.5 size-5 rounded-full bg-white shadow transition-all ${on ? 'left-[22px]' : 'left-0.5'}`} />
-                </button>
+        <div className="mt-4 flex items-center justify-between gap-6 rounded-lg border border-line bg-panel/60 p-4">
+            <div>
+                <div className="font-medium">Open ingest</div>
+                <p className="mt-0.5 text-[12px] text-muted">
+                    On: scripts on the network may post QA, reviews, perf reports, assets, usage and heartbeats without a token. Off: they need a Bearer token
+                    (<code className="font-mono">nightly perf token add</code>). Users and roles are under <Link href="/admin/users" className="text-dim hover:text-accent">Users</Link>.
+                </p>
             </div>
-            {on && (
-                <div className="mt-3 grid gap-2 text-[12px]">
-                    <label className="flex items-center gap-3">
-                        <span className="w-40 text-dim">Username <span className="text-muted">(optional)</span></span>
-                        <input value={user} onChange={(e) => setUser(e.target.value)} autoComplete="off" placeholder="none: password only" className="input w-56" />
-                    </label>
-                    <label className="flex items-center gap-3">
-                        <span className="w-40 text-dim">{s?.hasPassword ? 'New password' : 'Password'}</span>
-                        <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password"
-                            placeholder={s?.hasPassword ? 'leave empty to keep it' : 'at least 8 characters'} className="input w-56" />
-                    </label>
-                    {(err?.user || err?.password) && <p className="text-red-300">{[...(err.user ?? []), ...(err.password ?? [])].join(' ')}</p>}
-                </div>
-            )}
-            <div className="mt-3 flex items-center gap-3">
-                <button className="btn-primary" disabled={!changed || configure.isPending}
-                    onClick={() => configure.mutate({ enabled: on, user: on ? user : s?.user ?? '', password: on && password ? password : undefined })}>Save</button>
-                {s?.enabled && (
-                    <form method="post" action="/api/logout"><button className="btn">Sign out</button></form>
-                )}
-                {configure.error && !err && <span className="text-[12px] text-red-300">{configure.error.message}</span>}
-                {done && <span className="text-[12px] text-emerald-300">{done}</span>}
-            </div>
+            <button role="switch" aria-checked={on} disabled={!s.data || set.isPending}
+                onClick={() => set.mutate({ key: 'ingestOpen', value: on ? 'false' : 'true' })}
+                className={`relative h-6 w-11 shrink-0 rounded-full transition ${on ? 'bg-emerald-500' : 'bg-zinc-700'}`}>
+                <span className={`absolute top-0.5 size-5 rounded-full bg-white shadow transition-all ${on ? 'left-[22px]' : 'left-0.5'}`} />
+            </button>
         </div>
     )
 }

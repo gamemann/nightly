@@ -1,4 +1,4 @@
-import { COOKIE, readAuth, safeEqual, sessionToken } from "~/server/auth"
+import { trustedPost } from "~/server/auth"
 import { assetsIngest } from "~/server/assetsServer"
 
 // Asset audit ingest: POST the audit.json of tools/rsi_asset_audit.py (schema rsi-assets/2 (assets[]; the older weapons[] is accepted)) as the body.
@@ -9,8 +9,8 @@ export async function POST(req: Request) {
     const body = await req.text()
     if (!body.trim()) return Response.json({ error: "empty body" }, { status: 400 })
     const bearer = /^Bearer\s+(\S+)/i.exec(req.headers.get("authorization") ?? "")?.[1] ?? ""
-    const cfg = await readAuth()
-    const viaCookie = !cfg.enabled || safeEqual(req.headers.get("cookie")?.match(new RegExp(`(?:^|;\\s*)${COOKIE}=([^;]*)`))?.[1] ?? "", sessionToken(cfg))
+    // Signed in, or ingest left open: a token is checked only if one exists. Otherwise the proxy let this through for its Bearer token, which must be real.
+    const viaCookie = await trustedPost(req)
     try {
         return Response.json(JSON.parse(await assetsIngest(body, bearer, viaCookie)))
     } catch (e) {

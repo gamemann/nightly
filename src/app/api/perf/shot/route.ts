@@ -1,4 +1,4 @@
-import { COOKIE, readAuth, safeEqual, sessionToken } from "~/server/auth"
+import { trustedPost } from "~/server/auth"
 import { perfShot } from "~/server/perfRouter"
 
 // Attach a screenshot to a run: POST /api/perf/shot?run=<id>[&name=worst-hitch][&note=...] with the png as the body (or multipart part `file`).
@@ -15,8 +15,8 @@ export async function POST(req: Request) {
     } else png = Buffer.from(await req.arrayBuffer())
     if (!png.length) return Response.json({ error: "empty body" }, { status: 400 })
     const bearer = /^Bearer\s+(\S+)/i.exec(req.headers.get("authorization") ?? "")?.[1] ?? ""
-    const cfg = await readAuth()
-    const viaCookie = !cfg.enabled || safeEqual(req.headers.get("cookie")?.match(new RegExp(`(?:^|;\\s*)${COOKIE}=([^;]*)`))?.[1] ?? "", sessionToken(cfg))
+    // Signed in, or ingest left open: a token is checked only if one exists. Otherwise the proxy let this through for its Bearer token, which must be real.
+    const viaCookie = await trustedPost(req)
     const args = ["--run", run, ...(url.searchParams.get("name") ? ["--name", url.searchParams.get("name")!] : []), ...(url.searchParams.get("note") ? ["--note", url.searchParams.get("note")!] : []), viaCookie ? "--require-token" : "--token-only"]
     try {
         return Response.json(JSON.parse(await perfShot(args, png, bearer)))

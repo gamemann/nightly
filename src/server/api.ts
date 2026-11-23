@@ -12,7 +12,10 @@ import { promptsQuery } from '../../lib/list-query.mjs'
 import { OWNER, CADENCES, KINDS, LIVE_MINUTES, OPEN_STATUSES, STATUSES, isDue, slugify } from '~/lib/constants'
 import { likeEsc, offsetOf, paged } from '~/lib/paging'
 import { pageIn } from './pageInput'
-import { AUTH_KEYS, PRIVATE_SETTINGS, forgetAuth, hashPassword, newSecret } from './auth'
+import { AUTH_KEYS, PRIVATE_SETTINGS, forgetIngest } from './auth'
+import { accountRouters } from './accountsRouter'
+import { projectRouters } from './projectsRouter'
+import { nodeRouters } from './nodesRouter'
 import { ATTACH_DIR, MEDIA_DIR, MEDIA_EXT } from './media'
 import { assetsRouter } from './assetsRouter'
 import { gameRouter } from './gameRouter'
@@ -627,37 +630,13 @@ const settingRouter = router({
         return Object.fromEntries(rows.filter((r) => !PRIVATE_SETTINGS.has(r.key)).map((r) => [r.key, r.value])) as Record<string, string>
     }),
     set: procedure
-        .input(z.object({ key: z.string().min(1).refine((k) => !(AUTH_KEYS as readonly string[]).includes(k), 'login settings are changed under auth'), value: z.string() }))
-        .mutation(({ ctx, input }) => ctx.db.setting.upsert({ where: { key: input.key }, create: input, update: { value: input.value } })),
+        .input(z.object({ key: z.string().min(1).refine((k) => !(AUTH_KEYS as readonly string[]).includes(k), 'the old login settings are retired: use Users'), value: z.string() }))
+        .mutation(async ({ ctx, input }) => {
+            const r = await ctx.db.setting.upsert({ where: { key: input.key }, create: input, update: { value: input.value } })
+            if (input.key === 'ingestOpen') forgetIngest()
+            return r
+        }),
 })
 
-const setSetting = (tx: Tx, key: string, value: string) => tx.setting.upsert({ where: { key }, create: { key, value }, update: { value } })
-
-const authRouter = router({
-    status: procedure.query(async ({ ctx }) => {
-        const rows = await ctx.db.setting.findMany({ where: { key: { in: [...AUTH_KEYS] } } })
-        const v = Object.fromEntries(rows.map((r) => [r.key, r.value]))
-        return { enabled: v.authEnabled === 'true' && !!v.authHash, user: v.authUser ?? '', hasPassword: !!v.authHash }
-    }),
-    /** Change the login. While it is on, only a signed-in browser gets here (the proxy). Turning it on
-     *  needs a password, new or already set. Changing user or password signs every browser out. */
-    configure: procedure
-        .input(z.object({
-            enabled: z.boolean(),
-            user: z.string().trim().max(60).regex(/^[^\s:]*$/, 'no spaces or colons'),
-            password: z.string().min(8, 'at least 8 characters').max(200).optional(),
-        }))
-        .mutation(({ ctx, input }) => ctx.db.$transaction(async (tx) => {
-            const hash = (await tx.setting.findUnique({ where: { key: 'authHash' } }))?.value
-            if (input.enabled && !hash && !input.password) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Set a password to turn the login on.' })
-            if (input.password) await setSetting(tx, 'authHash', hashPassword(input.password))
-            if (!(await tx.setting.findUnique({ where: { key: 'authSecret' } }))) await setSetting(tx, 'authSecret', newSecret())
-            await setSetting(tx, 'authUser', input.user)
-            await setSetting(tx, 'authEnabled', input.enabled ? 'true' : 'false')
-            forgetAuth()
-            return { enabled: input.enabled }
-        })),
-})
-
-export const appRouter = router({ perf: perfRouter, usage: usageRouter, item: itemRouter, note: noteRouter, run: runRouter, schedule: scheduleRouter, prompt: promptRouter, attachment: attachmentRouter, qa: qaRouter, agent: agentRouter, setting: settingRouter, auth: authRouter, game: gameRouter, feed: feedRouter, assets: assetsRouter, review: reviewRouter })
+export const appRouter = router({ perf: perfRouter, usage: usageRouter, item: itemRouter, note: noteRouter, run: runRouter, schedule: scheduleRouter, prompt: promptRouter, attachment: attachmentRouter, qa: qaRouter, agent: agentRouter, setting: settingRouter, ...accountRouters, ...projectRouters, ...nodeRouters, game: gameRouter, feed: feedRouter, assets: assetsRouter, review: reviewRouter })
 export type AppRouter = typeof appRouter

@@ -2,12 +2,13 @@
 @plugin '@tailwindcss/typography';
 
 @theme {
-    --color-bg: #0a0b0e;
-    --color-panel: #111217;
-    --color-panel-2: #171920;
-    --color-hover: #1c1f27;
-    --color-line: #22252e;
-    --color-line-strong: #2e323d;
+    --color-bg: #05070f;
+    --color-panel: #0c1020;
+    --color-panel-2: #121731;
+    --color-hover: #1a2040;
+    --color-line: #1e2546;
+    --color-line-strong: #2c355f;
+    --color-glow: #8b8cf8;
     --color-fg: #e4e5e9;
     --color-dim: #a3a7b1;
     --color-muted: #6c717c;
@@ -18,6 +19,42 @@
 
 :root { color-scheme: dark; }
 html, body { background: var(--color-bg); color: var(--color-fg); }
+
+/* ---------- night theme ---------- */
+/* The sky: a navy to black gradient with two faint nebula glows, fixed behind everything. */
+@utility night-sky {
+    background:
+        radial-gradient(ellipse 60% 40% at 85% 0%, rgb(99 102 241 / 0.14), transparent 70%),
+        radial-gradient(ellipse 50% 35% at 0% 100%, rgb(56 189 248 / 0.07), transparent 70%),
+        linear-gradient(180deg, #0a1026 0%, #060912 55%, #03040a 100%);
+    background-attachment: fixed;
+}
+/* Stars: three layers of tiny dots on a pseudo element, twinkling slowly (still for reduced motion). */
+.starfield { position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden; }
+.starfield::before, .starfield::after {
+    content: ''; position: absolute; inset: -50%;
+    background-image:
+        radial-gradient(1px 1px at 20px 30px, #fff9, transparent 60%),
+        radial-gradient(1px 1px at 140px 80px, #c7d2fe99, transparent 60%),
+        radial-gradient(1.5px 1.5px at 260px 190px, #fffb, transparent 60%),
+        radial-gradient(1px 1px at 330px 40px, #fff7, transparent 60%),
+        radial-gradient(1px 1px at 80px 250px, #a5b4fc88, transparent 60%),
+        radial-gradient(1px 1px at 390px 300px, #fff6, transparent 60%);
+    background-size: 420px 340px;
+    animation: twinkle 9s ease-in-out infinite alternate;
+}
+.starfield::after { background-size: 610px 470px; opacity: 0.6; animation-duration: 13s; animation-delay: -4s; }
+@keyframes twinkle { from { opacity: 0.35; } to { opacity: 0.9; } }
+@media (prefers-reduced-motion: reduce) { .starfield::before, .starfield::after { animation: none; } }
+@utility glow-card {
+    @apply rounded-xl border border-line bg-panel/80 backdrop-blur;
+    box-shadow: 0 0 0 1px rgb(139 140 248 / 0.05), 0 10px 40px -12px rgb(99 102 241 / 0.35);
+}
+@utility glow-text { text-shadow: 0 0 18px rgb(139 140 248 / 0.55); }
+@utility nav-active {
+    @apply bg-accent/12 text-fg;
+    box-shadow: inset 2px 0 0 var(--color-accent), 0 0 18px -6px rgb(139 140 248 / 0.6);
+}
 body { font-size: 13px; -webkit-font-smoothing: antialiased; }
 ::selection { background: color-mix(in oklab, var(--color-accent) 40%, transparent); }
 * { scrollbar-width: thin; scrollbar-color: var(--color-line-strong) transparent; }
