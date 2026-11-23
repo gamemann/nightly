@@ -1,8 +1,8 @@
-import { existsSync, readFileSync, readdirSync } from "node:fs"
+import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs"
 import path from "node:path"
 import { db } from "./db"
 
-export type MapRow = { id: number; name: string; pack: string; score: number; pass: boolean; tris: number; surfaces: number; spawns: number; hulls: number; untextured: number; hasOriginal: boolean; flags: string[]; title?: string; gameMap?: boolean }
+export type MapRow = { id: number; name: string; pack: string; score: number; pass: boolean; tris: number; surfaces: number; spawns: number; hulls: number; untextured: number; hasOriginal: boolean; flags: string[]; title?: string; gameMap?: boolean; reason?: string }
 
 /** Every converted map (kind `level`), one row per pack that ships it. */
 export async function mapRows(): Promise<MapRow[]> {
@@ -16,8 +16,12 @@ export async function mapRows(): Promise<MapRow[]> {
 
 /** Maps a pack lists in manifests (the source's `maps` globs) that have no converted geometry to view (a game's map definition: spawns, rules, environment). Shown on the Maps page without a viewer. */
 async function definitionOnly(have: Set<string>): Promise<MapRow[]> {
-    const out: MapRow[] = []
-    for (const s of await db.assetSource.findMany({ select: { name: true, root: true, config: true } })) {
+    const out: MapRow[] = [], seenRoots = new Set<string>()
+    for (const s of await db.assetSource.findMany({ select: { name: true, root: true, config: true }, orderBy: { id: "asc" } })) {
+        let real = s.root
+        try { real = realpathSync(s.root) } catch { /* missing root */ }
+        if (seenRoots.has(real)) continue   // a symlink alias of a source already listed
+        seenRoots.add(real)
         let globs: string[] = []
         try { globs = (JSON.parse(s.config) as { maps?: string[] }).maps ?? [] } catch { /* no config */ }
         for (const g of globs) {
@@ -31,9 +35,10 @@ async function definitionOnly(have: Set<string>): Promise<MapRow[]> {
                 const stem = path.basename(f, ".json")
                 if (have.has(`${s.name}/${stem}`) || out.some((o) => o.pack === s.name && o.name === stem)) continue
                 try {
-                    const j = JSON.parse(readFileSync(f, "utf8")) as { name?: string; id?: string; kind?: string }
+                    const j = JSON.parse(readFileSync(f, "utf8")) as { name?: string; id?: string; kind?: string; world?: { pack?: string }; boxes?: unknown[] }
                     if (!j.id && !j.name) continue
-                    out.push({ id: 0, name: stem, title: j.name, pack: s.name, score: 0, pass: false, tris: 0, surfaces: 0, spawns: 0, hulls: 0, untextured: 0, hasOriginal: false, flags: [], gameMap: true })
+                    const reason = j.world?.pack ? `Its world pack "${j.world.pack}" is not on disk or was not converted (see the pack's findings).` : Array.isArray(j.boxes) && j.boxes.length ? "Hand-built from boxes but not scanned yet: rescan this pack." : "The definition has no world pack and no boxes, so there is no geometry to convert."
+                    out.push({ id: 0, name: stem, title: j.name, pack: s.name, score: 0, pass: false, tris: 0, surfaces: 0, spawns: 0, hulls: 0, untextured: 0, hasOriginal: false, flags: [], gameMap: true, reason })
                 } catch { /* not a manifest */ }
             }
         }
