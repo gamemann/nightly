@@ -1,4 +1,5 @@
 import { feedRouter } from './feedRouter'
+import { toolsRouter } from './toolsRouter'
 import { execFile } from 'node:child_process'
 import { suggestRepos } from '../../lib/classify.mjs'
 import { readFile, readdir, stat } from 'node:fs/promises'
@@ -640,5 +641,5 @@ const settingRouter = router({
         }),
 })
 
-export const appRouter = router({ perf: perfRouter, usage: usageRouter, item: itemRouter, note: noteRouter, run: runRouter, schedule: scheduleRouter, prompt: promptRouter, attachment: attachmentRouter, qa: qaRouter, agent: agentRouter, setting: settingRouter, ...accountRouters, ...projectRouters, ...nodeRouters, nodeOps: nodeOpsRouter, game: gameRouter, feed: feedRouter, assets: assetsRouter, review: reviewRouter, transcripts: transcriptsRouter })
+export const appRouter = router({ perf: perfRouter, usage: usageRouter, item: itemRouter, note: noteRouter, run: runRouter, schedule: scheduleRouter, prompt: promptRouter, attachment: attachmentRouter, qa: qaRouter, agent: agentRouter, setting: settingRouter, ...accountRouters, ...projectRouters, ...nodeRouters, nodeOps: nodeOpsRouter, game: gameRouter, feed: feedRouter, assets: assetsRouter, review: reviewRouter, transcripts: transcriptsRouter, tools: toolsRouter })
 export type AppRouter = typeof appRouter

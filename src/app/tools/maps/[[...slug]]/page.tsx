@@ -1,3 +1,4 @@
+import { MapManager } from "~/components/tools/MapManager"
 import { MapsList } from "~/components/MapsList"
 import { mapRows } from "~/server/mapsList"
 import AssetsPage from "../../(asset-manager)/assets/[[...slug]]/page"
@@ -11,5 +12,5 @@ export default async function MapsPage({ params, searchParams }: { params: Promi
     if (no) return no
     const { slug = [] } = await params
     if (slug[0]) return AssetsPage({ params: Promise.resolve({ slug: [slug[0]] }), searchParams })
-    return <MapsList rows={await mapRows()} />
+    return <MapManager><MapsList rows={await mapRows()} /></MapManager>
 }

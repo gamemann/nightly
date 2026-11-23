@@ -28,10 +28,11 @@ import { agentLive } from '../lib/cli-agents.mjs'
 import { runTranscriptCommand, TRANSCRIPT_HELP } from '../lib/cli-transcripts.mjs'
 import * as TS from '../lib/transcripts-store.mjs'
 import { FEED_COMMANDS, FEED_HELP, runFeedCommand } from '../lib/cli-feeds.mjs'
+import { GAMETOOLS_COMMANDS, GAMETOOLS_BOOL, GAMETOOLS_HELP, runGametoolsCommand, assetsUploadCmd } from '../lib/cli-gametools.mjs'
 import { ACCOUNT_COMMANDS, ACCOUNT_BOOL, ACCOUNT_HELP, runAccountCommand } from '../lib/cli-accounts.mjs'
 
 const argv = process.argv.slice(2)
-const BOOL = new Set(['json', 'all', 'top', 'due', 'help', 'h', 'dryRun', 'force', 'peek', 'strict', 'register', 'noFindings', 'noBudgets', 'noBaseline', 'requireToken', 'tokenOnly', 'png', 'disable', 'enable', 'infra', 'leave', 'purge', 'wait', 'child', 'full', 'noCh', 'resync', 'missing', 'noCi', 'absolute', 'delete', 'noJournal', 'frame', 'fork', 'interrupt', ...ACCOUNT_BOOL])
+const BOOL = new Set(['json', 'all', 'top', 'due', 'help', 'h', 'dryRun', 'force', 'peek', 'strict', 'register', 'noFindings', 'noBudgets', 'noBaseline', 'requireToken', 'tokenOnly', 'png', 'disable', 'enable', 'infra', 'leave', 'purge', 'wait', 'child', 'full', 'noCh', 'resync', 'missing', 'noCi', 'absolute', 'delete', 'noJournal', 'frame', 'fork', 'interrupt', ...ACCOUNT_BOOL, ...GAMETOOLS_BOOL])
 
 const multi = {}
 function parse(args) {
@@ -149,6 +150,7 @@ ${FEED_HELP}
 
   Users, projects and nodes (the panel's AdminCP does the same):
 ${ACCOUNT_HELP}
+${GAMETOOLS_HELP}
   tick [--dry-run]                              crontab, every minute: fire the schedules due now
   start <schedule-id|name>                      fire one schedule now (ignores doRun); prints the run id
 
@@ -686,6 +688,7 @@ function cmdAssets() {
     if (sub === 'config') { const c = ASC.config(db); return out(c, () => JSON.stringify(c, null, 2)) }
     // a scan or an ingest adds rows with no preview: render those (only those) in the background, never blocking the caller
     const kickThumbs = () => { if (process.env.NIGHTLY_NO_AUTO_THUMBS) return; try { spawn(process.execPath, [process.argv[1], 'assets', 'thumbs', '--child', '--missing'], { detached: true, stdio: 'ignore', env: process.env }).unref() } catch { /* previews are optional */ } }
+    if (sub === 'upload' || sub === 'uploads') return assetsUploadCmd(sub, { db, pos, opt, out, die })
     if (sub === 'scan') { const r = ASC.scanCmd(db, pos, opt, out); kickThumbs(); return r }
     if (sub === 'ingest') {
         const file = pos[0] ?? die('assets ingest <audit.json|->')
@@ -881,6 +884,7 @@ try {
         checked: cmdChecked, run: cmdRun, get: cmdGet, 'set-setting': cmdSetSetting, brief: cmdBrief,
         prompt: cmdPrompt, prompts: cmdPrompt, schedule: cmdSchedule, schedules: cmdSchedule, tick: cmdTick, start: cmdStart, exec: cmdExec, agent: cmdAgent, account: cmdAccount, accounts: cmdAccount, transcript: cmdTranscript, transcripts: cmdTranscript, perf: cmdPerf, assets: cmdAssets, rsi: cmdRsi, usage: cmdUsage }
     for (const c of [...FEED_COMMANDS, 'feed', 'gates']) table[c] = () => runFeedCommand(c, { db, pos, opt, out, die, readStdin })
+    for (const c of GAMETOOLS_COMMANDS) table[c] = () => runGametoolsCommand(c, { db, pos, opt, out, die })
     for (const c of ACCOUNT_COMMANDS) table[c] ??= () => runAccountCommand(c, { db, pos, opt, out, die, readStdin })
     const fn = table[cmd] ?? die(`unknown command "${cmd}" (try: nightly help)`)
     await fn()
