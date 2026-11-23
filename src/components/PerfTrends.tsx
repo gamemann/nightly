@@ -37,7 +37,7 @@ export function Trends({ game, scope, onTab }: { game: string; scope: Scope; onT
     const budgets = q.data?.budgets ?? []
     const metrics = useMemo(() => { const s = new Set<string>(); runs.forEach((r) => Object.keys(r.metrics).forEach((m) => s.add(m))); return [...s] }, [runs])
     const cards = useMemo(() => statusCards(runs, metrics, budgets), [runs, metrics, budgets])
-    const open = (id?: number | string) => { if (id !== undefined) router.push(`/perf/${game}/run/${id}`) }
+    const open = (id?: number | string) => { if (id !== undefined) router.push(`/tools/perf/${game}/run/${id}`) }
 
     if (q.isLoading) return <div className="p-6 text-center text-muted">Loading…</div>
     if (!runs.length) return <div className="rounded-lg border border-line px-3 py-6 text-center text-muted">No runs in this scope. Ingest one: <code>nightly perf ingest report.json --game {game}</code></div>
@@ -163,7 +163,7 @@ function Compare({ runs, budgets, game }: { runs: RunRow[]; budgets: unknown[]; 
     return (
         <details className="rounded-lg border border-line bg-panel/40 p-3">
             <summary className="cursor-pointer text-[13px]">Compare two runs</summary>
-            <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px] text-dim">baseline {sel(ra?.id, setA, "Baseline run")} vs {sel(rb?.id, setB, "Compared run")}{ra && rb && <Link className="ml-auto text-sky-300 hover:underline" href={`/perf/${game}/run/${rb.id}?vs=${ra.id}`}>flame diff {"→"}</Link>}</div>
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px] text-dim">baseline {sel(ra?.id, setA, "Baseline run")} vs {sel(rb?.id, setB, "Compared run")}{ra && rb && <Link className="ml-auto text-sky-300 hover:underline" href={`/tools/perf/${game}/run/${rb.id}?vs=${ra.id}`}>flame diff {"→"}</Link>}</div>
             <table className="mt-2 w-full text-[12px]">
                 <thead className="text-left text-muted"><tr><th className="py-1">Metric</th><th className="text-right">A</th><th className="text-right">B</th><th className="text-right">Change</th><th className="pl-3">Verdict</th><th>Budget</th></tr></thead>
                 <tbody>{rows.map((r) => <tr key={r.metric} className="border-t border-line"><td className="py-1 font-mono">{r.metric}</td><td className="text-right tabular-nums">{fmt(r.a)}</td><td className="text-right tabular-nums">{fmt(r.b)}</td><td className="text-right tabular-nums">{r.pct === null ? "-" : fmtPct(r.pct)}</td><td className={`pl-3 ${VC[r.verdict]}`}>{VI[r.verdict]}</td><td>{r.budget ? (r.budget.ok ? <span className="text-emerald-300">{"✓"} {r.budget.kind} {fmt(r.budget.limit)}</span> : <span className="text-red-300">{"✗"} {r.budget.kind} {fmt(r.budget.limit)}</span>) : <span className="text-muted">-</span>}</td></tr>)}</tbody>

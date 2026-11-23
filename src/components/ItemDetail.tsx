@@ -26,7 +26,7 @@ export function ItemDetail({ itemKey }: { itemKey: string }) {
         },
     })
     const checked = api.item.checked.useMutation({ onSuccess: invalidate })
-    const del = api.item.delete.useMutation({ onSuccess: async () => { await invalidate(); router.push('/queue') } })
+    const del = api.item.delete.useMutation({ onSuccess: async () => { await invalidate(); router.push('/tasks/queue') } })
     // The description is copied from the server ONCE, when editing starts, and never again while it is open.
     // Re-syncing on q.data threw the text away on every refetch -- a window refocus, or any sidebar save, which
     // invalidates this query -- because superjson's Dates defeat react-query's structural sharing and every
@@ -51,7 +51,7 @@ export function ItemDetail({ itemKey }: { itemKey: string }) {
     }, [q.data, bodyDraft])
 
     if (q.isLoading) return <div className="p-10 text-muted">Loading…</div>
-    if (!q.data) return <div className="p-10 text-muted">No item “{itemKey}”. <Link className="text-accent" href="/queue">Back to queue</Link></div>
+    if (!q.data) return <div className="p-10 text-muted">No item “{itemKey}”. <Link className="text-accent" href="/tasks/queue">Back to queue</Link></div>
     const it = q.data
     const save = (patch: Patch) => update.mutate({ key: it.key, patch })
     const startEdit = () => { setBody(it.body); setBase(it.body); setRestored(false); setEditing(true) }
@@ -248,7 +248,7 @@ function Notes({ itemKey, count, onAdded }: { itemKey: string; count: number; on
                         <div className="mb-1 flex items-center gap-2 text-[11.5px] text-muted">
                             <span className="font-medium text-dim">{n.author}</span>
                             <span>{fmt(n.createdAt)}</span>
-                            {n.run && <Link href={`/runs/${n.run.id}`} className="rounded bg-accent/10 px-1.5 text-accent hover:bg-accent/20">run #{n.run.id}</Link>}
+                            {n.run && <Link href={`/admin/runs/${n.run.id}`} className="rounded bg-accent/10 px-1.5 text-accent hover:bg-accent/20">run #{n.run.id}</Link>}
                             <button onClick={() => confirm('Delete this note?') && del.mutate({ id: n.id })} className="ml-auto opacity-0 hover:text-red-400 group-hover:opacity-100">delete</button>
                         </div>
                         <div className="rounded-lg border border-line bg-panel/50 px-3.5 py-2.5"><Markdown>{n.body}</Markdown></div>

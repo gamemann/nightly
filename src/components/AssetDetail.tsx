@@ -8,7 +8,7 @@ import { describe } from "../../lib/asset-names.mjs"
 
 const tabOf = (kind: string) => (["avatar", "npc", "monster", "character"].includes(kind) ? "avatars" : kind === "map" ? "maps" : "entities")
 /** The asset list filtered by what was clicked: it reads pack, kind and game from the URL, and the tab follows the asset's kind. */
-const listHref = (assetKind: string, f: Record<string, string>) => assetKind === "level" ? `/maps?${new URLSearchParams(f)}` : `/assets?${new URLSearchParams({ tab: tabOf(assetKind), ...f })}`
+const listHref = (assetKind: string, f: Record<string, string>) => assetKind === "level" ? `/tools/maps?${new URLSearchParams(f)}` : `/tools/assets?${new URLSearchParams({ tab: tabOf(assetKind), ...f })}`
 
 export type DetailData = {
     id: number; pack: string; game: string; weaponId: string; kind: string; source: string; score: number; pass: boolean; auditedAt: string; hasModel: boolean
@@ -70,7 +70,7 @@ export function AssetDetail({ d, reviews }: { d: DetailData; reviews: ReviewHit[
     const [view, setView] = useState<"converted" | "original">("converted")
     return (
         <div className="mx-auto max-w-6xl px-6 py-5 max-md:px-3">
-            <h1 className="text-[15px] font-semibold tracking-tight"><Link href={d.kind === "level" ? "/maps" : "/assets"} className="hover:text-sky-300">{d.kind === "level" ? "Maps" : "Assets"}</Link> <span className="text-muted">/</span> <Link href={listHref(d.kind, { pack: d.pack })} className="hover:text-sky-300">{d.pack}</Link> <span className="text-muted">/</span> <span title={d.weaponId}>{describe(d.pack, d.weaponId).name}</span> <span className="font-mono text-[11px] font-normal text-muted">{d.weaponId}</span></h1>
+            <h1 className="text-[15px] font-semibold tracking-tight"><Link href={d.kind === "level" ? "/tools/maps" : "/tools/assets"} className="hover:text-sky-300">{d.kind === "level" ? "Maps" : "Assets"}</Link> <span className="text-muted">/</span> <Link href={listHref(d.kind, { pack: d.pack })} className="hover:text-sky-300">{d.pack}</Link> <span className="text-muted">/</span> <span title={d.weaponId}>{describe(d.pack, d.weaponId).name}</span> <span className="font-mono text-[11px] font-normal text-muted">{d.weaponId}</span></h1>
             <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px]">
                 <span className={`text-[22px] font-semibold tabular-nums ${scoreCls(d.score)}`}>{d.score}</span>
                 <span className={`rounded px-1.5 ${d.pass ? "bg-emerald-400/15 text-emerald-300" : "bg-red-400/15 text-red-300"}`}>{d.pass ? "pass" : "fail"}</span>

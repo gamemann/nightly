@@ -29,11 +29,11 @@ export function RunList() {
     const chart = api.run.chart.useQuery({ days: DAYS }, { refetchInterval: 60_000 })
     const data = runs.data?.page
     const cols: Column<NonNullable<typeof data>['rows'][number]>[] = [
-        { key: 'id', label: '#', sortable: true, className: 'font-mono text-muted', render: (r) => <Link href={`/runs/${r.id}`}>#{r.id}</Link> },
+        { key: 'id', label: '#', sortable: true, className: 'font-mono text-muted', render: (r) => <Link href={`/admin/runs/${r.id}`}>#{r.id}</Link> },
         { key: 'started', label: 'Started', sortable: true, className: 'text-dim whitespace-nowrap', render: (r) => fmt(r.startedAt) },
         { key: 'status', label: 'Status', sortable: true, render: (r) => <StatusPill status={r.status} /> },
         { key: 'trigger', label: 'Schedule', sortable: true, className: 'text-muted', render: (r) => r.schedule?.name ?? (r.trigger === 'import' ? 'imported' : r.trigger) },
-        { key: 'summary', label: 'Summary', className: 'max-w-[28rem] truncate', render: (r) => <Link href={`/runs/${r.id}`}>{r.summary || <span className="text-muted">no summary</span>}</Link> },
+        { key: 'summary', label: 'Summary', className: 'max-w-[28rem] truncate', render: (r) => <Link href={`/admin/runs/${r.id}`}>{r.summary || <span className="text-muted">no summary</span>}</Link> },
         { key: 'notes', label: 'Notes', className: 'text-muted', render: (r) => (r._count.notes > 0 ? `✉ ${r._count.notes}` : '') },
         { key: 'cost', label: 'Cost', sortable: true, className: 'text-right tabular-nums text-muted', render: (r) => usd(r.costUsd) },
         { key: 'minutes', label: 'Time', sortable: true, className: 'text-right text-muted', render: (r) => (r.status === 'running' ? ago(r.startedAt).replace(' ago', '') : dur(r.minutes)) },
@@ -46,7 +46,7 @@ export function RunList() {
                     Runs &amp; reports<span className="ml-2 text-[12px] font-normal tabular-nums text-muted">{data?.total ?? ''}</span>
                 </h1>
                 <p className="mt-0.5 text-[12px] text-muted">
-                    Every run since the first, with its report, log and frames. When they start is set in <Link href="/schedules" className="text-dim hover:text-accent">Schedules</Link>.
+                    Every run since the first, with its report, log and frames. When they start is set in <Link href="/admin/schedules" className="text-dim hover:text-accent">Schedules</Link>.
                 </p>
             </div>
             {!q.q && chart.data && <RunCharts runs={chart.data.runs} />}
@@ -81,7 +81,7 @@ function RunCharts({ runs }: { runs: ListRun[] }) {
                     legend={<Legend items={RUN_STATES.filter((s) => counts(s.key) > 0).map((s) => ({ label: s.label, color: s.color, count: counts(s.key) }))} />}>
                     <StackedBars ariaLabel="Runs per day by status" unit="runs"
                         bars={days.map((d) => ({ key: d.key, label: d.key.slice(5), id: d.ids[0], segments: RUN_STATES.map((s) => ({ key: s.key, label: s.label, value: d.segments[s.key], color: s.color })) }))}
-                        onBar={(b) => b.id != null && router.push(`/runs/${Math.max(...days.find((d) => d.key === b.key)!.ids)}`)} />
+                        onBar={(b) => b.id != null && router.push(`/admin/runs/${Math.max(...days.find((d) => d.key === b.key)!.ids)}`)} />
                 </Panel>
             </div>
             <div className="grid grid-cols-2 gap-3 content-start">
@@ -117,7 +117,7 @@ export function RunDetail({ id }: { id: number }) {
     return (
         <div className="mx-auto max-w-5xl px-6 py-5 max-md:px-3">
             <div className="mb-2 flex items-center gap-2 text-[12px] text-muted">
-                <Link href="/runs" className="hover:text-fg">← Runs</Link>
+                <Link href="/admin/runs" className="hover:text-fg">← Runs</Link>
                 <span className="font-mono">#{r.id}</span>
                 <StatusPill status={r.status} />
                 {running && (
@@ -129,7 +129,7 @@ export function RunDetail({ id }: { id: number }) {
             </div>
             <h1 className="text-[20px] font-semibold tracking-tight">Run of {fmt(r.startedAt)}</h1>
             <p className="mt-1 text-[12px] text-muted">
-                {r.schedule ? <>schedule <Link href="/schedules" className="text-dim hover:text-accent">{r.schedule.name}</Link> · </> : null}
+                {r.schedule ? <>schedule <Link href="/admin/schedules" className="text-dim hover:text-accent">{r.schedule.name}</Link> · </> : null}
                 {r.trigger === 'manual' ? 'started by hand · ' : r.trigger === 'import' ? 'imported from files · ' : ''}
                 {r.finishedAt ? `finished ${ago(r.finishedAt)}` : running ? `running for ${ago(r.startedAt).replace(' ago', '')}` : 'never finished'}
                 {r.minutes != null && ` · ${dur(r.minutes)}`}{r.turns != null && ` · ${r.turns} turns`}{r.costUsd != null && ` · ${usd(r.costUsd)}`}

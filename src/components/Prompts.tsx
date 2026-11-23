@@ -15,7 +15,7 @@ import { PROMPT_SPEC } from '~/lib/feedSpecs'
 export function Prompts(props: { name?: string; kind?: 'prompt' | 'script' }) { return <Suspense><PromptsInner {...props} /></Suspense> }
 
 function PromptsInner({ name, kind = 'prompt' }: { name?: string; kind?: 'prompt' | 'script' }) {
-    const base = kind === 'script' ? '/jobs' : '/prompts'
+    const base = kind === 'script' ? '/admin/jobs' : '/admin/prompts'
     const noun = kind === 'script' ? 'Jobs / Scripts' : 'Prompts'
     const router = useRouter()
     const utils = api.useUtils()
@@ -186,7 +186,7 @@ function JobPanel({ name }: { name: string }) {
         <div className="mb-3 rounded-lg border border-line bg-panel/40 px-3 py-2 text-[12px]" data-testid="job-panel">
             <div className="flex flex-wrap items-center gap-3">
                 <span className="rounded bg-violet-400/15 px-1.5 text-violet-300">script</span>
-                <span className="text-dim">Last run: {j?.lastRun ? <Link className="text-accent" href={`/runs/${j.lastRun.id}`}>#{j.lastRun.id} {j.lastRun.status} · {ago(j.lastRun.startedAt)}</Link> : 'never'}</span>
+                <span className="text-dim">Last run: {j?.lastRun ? <Link className="text-accent" href={`/admin/runs/${j.lastRun.id}`}>#{j.lastRun.id} {j.lastRun.status} · {ago(j.lastRun.startedAt)}</Link> : 'never'}</span>
                 <span className="text-dim">Schedule: {j?.schedules.length ? j.schedules.map((s) => s.name).join(', ') : 'none'}</span>
                 <button className="btn-primary ml-auto" disabled={!j?.schedules.length || run.isPending}
                     title={j?.schedules.length ? 'Run it now, ignoring the clock' : 'Attach it to a schedule first'}

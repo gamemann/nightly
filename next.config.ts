@@ -17,10 +17,34 @@ const config: NextConfig = {
     env: { NEXT_PUBLIC_NIGHTLY_OWNER: process.env.NIGHTLY_OWNER ?? '' },
     serverExternalPackages: ['better-sqlite3', '@prisma/adapter-better-sqlite3'],
     allowedDevOrigins: devOrigins,
-    // Screenshots and QA moved into the Reviews page (tabs); old links keep working.
+    // The redesign moved every page under a section (tasks, transcripts, automation, tools, admin).
+    // Old links and bookmarks keep working; not permanent, so browsers don't pin them while the
+    // tree still settles.
     redirects: async () => [
-        { source: '/screenshots', destination: '/reviews?tab=media', permanent: true },
-        { source: '/qa', destination: '/reviews?tab=qa', permanent: true },
+        ...['queue', 'in-progress', 'review', 'blocked', 'issues', 'done', 'all'].map((v) => ({ source: `/${v}`, destination: `/tasks/${v}`, permanent: false })),
+        ...[
+            ['/checks', '/automation/checks'],
+            ['/releases', '/automation/workflows'],
+            ['/agents', '/transcripts/agents'],
+            ['/game', '/projects?type=game'],
+            ['/game/:slug', '/projects/:slug/tasks'],
+            ['/perf/:path*', '/tools/perf/:path*'],
+            ['/assets/:path*', '/tools/assets/:path*'],
+            ['/maps/:path*', '/tools/maps/:path*'],
+            ['/crashes', '/tools/crashes'],
+            ['/playtests', '/tools/playtest'],
+            ['/rsi', '/tools/rsi'],
+            ['/reviews', '/tools/reviews'],
+            ['/content', '/tools/content'],
+            ['/screenshots', '/tools/reviews?tab=media'],
+            ['/qa', '/tools/reviews?tab=qa'],
+            ['/schedules', '/admin/schedules'],
+            ['/prompts/:path*', '/admin/prompts/:path*'],
+            ['/jobs/:path*', '/admin/jobs/:path*'],
+            ['/runs/:path*', '/admin/runs/:path*'],
+            ['/web', '/admin/web'],
+            ['/settings', '/admin/settings'],
+        ].map(([source, destination]) => ({ source, destination, permanent: false })),
     ],
 }
 

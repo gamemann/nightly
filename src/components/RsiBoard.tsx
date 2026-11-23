@@ -26,7 +26,7 @@ function Delta({ f }: { f: Finding }) {
 
 function DomainCard({ d }: { d: DomainStat }) {
     return (
-        <a href={`/?domain=${d.domain}#findings`} className="rounded-lg border border-line bg-panel/60 p-3 hover:bg-hover/40">
+        <a href={`/?domain=${d.domain}#findings`} className="glow-card p-3 hover:bg-hover/40">
             <div className="text-[11px] font-semibold uppercase tracking-wide text-dim">{d.domain}</div>
             <div className="mt-1.5 flex items-baseline gap-3 text-[12px]">
                 <span><b className="text-[18px] text-red-300">{d.open}</b> found</span>
@@ -39,7 +39,7 @@ function DomainCard({ d }: { d: DomainStat }) {
 }
 
 const WORST_COLS: Column<WorstAsset>[] = [
-    { key: "subject", label: "Asset", sortable: true, render: (w) => (w.assetId ? <Link href={`/assets/${w.assetId}`} className="hover:underline">{w.subject}</Link> : w.subject) },
+    { key: "subject", label: "Asset", sortable: true, render: (w) => (w.assetId ? <Link href={`/tools/assets/${w.assetId}`} className="hover:underline">{w.subject}</Link> : w.subject) },
     { key: "score", label: "Score", sortable: true, className: "tabular-nums", render: (w) => <span className={scoreCls(w.score)}>{Math.round(w.score)}{w.before != null && w.before !== w.score && <span className="text-muted"> (was {Math.round(w.before)})</span>}</span> },
     { key: "codes", label: "Open flags", render: (w) => <>{w.codes.map((c) => <span key={`${c.code}${c.tier}`} className={`mr-1 inline-block rounded px-1.5 py-px text-[11px] ${sevCls(c.severity)}`}>{c.code}{c.tier ? ` ${c.tier}` : ""}</span>)}</> },
     { key: "next", label: "Next action", className: "text-dim", render: (w) => w.nextAction },
@@ -58,7 +58,7 @@ export function RsiBoard({ b, q, bq, wq }: { b: Board; q: PageQuery; bq: PageQue
             <OverviewStats />
             <div className="mb-4 flex flex-wrap items-baseline justify-between gap-3">
                 <div>
-                    <h1 className="text-[18px] font-semibold tracking-tight">RSI board</h1>
+                    <h1 className="glow-text text-[18px] font-semibold tracking-tight">RSI board</h1>
                     <p className="text-[12px] text-dim">Detect, fix, remeasure. Findings come from the scheduled audit; last refresh <span suppressHydrationWarning>{b.lastRefresh ? new Date(b.lastRefresh).toLocaleString("en-GB") : "never"}</span>.</p>
                 </div>
                 <div className="flex items-center gap-1 text-[12px]" title="Texture findings are judged against this video-settings tier">

@@ -20,7 +20,7 @@ export function GameIndex() {
             <p className="mt-0.5 mb-4 text-[12px] text-muted">Derived from each item&apos;s repos and each QA run&apos;s game.</p>
             <div className="grid gap-3 sm:grid-cols-2">
                 {list.data?.map((g) => (
-                    <Link key={g.slug} href={`/game/${g.slug}`} className="rounded-lg border border-line bg-panel/40 px-4 py-3 hover:bg-hover/50">
+                    <Link key={g.slug} href={`/projects/${g.slug}/tasks`} className="rounded-lg border border-line bg-panel/40 px-4 py-3 hover:bg-hover/50">
                         <div className="font-medium">{gameLabel(g.slug)} <span className="font-mono text-[11px] text-muted">{g.slug}</span></div>
                         <div className="mt-1 text-[12px] text-muted">{g.open} open · {g.total} items · {g.qa} QA runs{g.qaFailing ? ' · latest failing' : ''}</div>
                     </Link>
@@ -85,10 +85,10 @@ function GameRuns({ slug }: { slug: string }) {
     const data = res.data?.page
     if (!data) return <Loading />
     const cols: Column<(typeof data.rows)[number]>[] = [
-        { key: 'id', label: '#', sortable: true, className: 'font-mono text-[11px] text-muted', render: (r) => <Link href={`/runs/${r.id}`}>#{r.id}</Link> },
+        { key: 'id', label: '#', sortable: true, className: 'font-mono text-[11px] text-muted', render: (r) => <Link href={`/admin/runs/${r.id}`}>#{r.id}</Link> },
         { key: 'startedAt', label: 'Started', sortable: true, className: 'whitespace-nowrap text-dim', render: (r) => fmt(r.startedAt) },
         { key: 'status', label: 'Status', sortable: true, render: (r) => <StatusPill status={r.status} /> },
-        { key: 'summary', label: 'Summary', className: 'max-w-[32rem] truncate text-dim', render: (r) => <Link href={`/runs/${r.id}`}>{r.summary}</Link> },
+        { key: 'summary', label: 'Summary', className: 'max-w-[32rem] truncate text-dim', render: (r) => <Link href={`/admin/runs/${r.id}`}>{r.summary}</Link> },
     ]
     return <DataTable cols={cols} data={data} rowKey={(r) => r.id} sort={pq.sort} dir={pq.dir} q={pq.q} active={pq.f} ns="r" searchHint="Search summaries"
         empty="No run has written a note on this game's items." filters={[{ key: 'status', label: 'Status', options: opts(res.data?.statuses) }]} />
@@ -153,7 +153,7 @@ function QaList({ slug }: { slug: string }) {
                 <select className={sel} aria-label="order" value={pq.dir} onChange={(e) => set({ dir: e.target.value })}>
                     <option value="desc">newest first</option><option value="asc">oldest first</option>
                 </select>
-                <Link href="/qa" className="ml-auto text-[12px] text-accent">All games on the QA page</Link>
+                <Link href="/tools/reviews?tab=qa" className="ml-auto text-[12px] text-accent">All games on the QA page</Link>
             </div>
             {!data ? <Loading /> : !data.rows.length && <div className="p-6 text-center text-muted">No QA runs match.</div>}
             {data?.rows.map((r) => (

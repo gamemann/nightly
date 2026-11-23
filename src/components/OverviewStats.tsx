@@ -6,11 +6,11 @@ import { RUN_STATES, fmtUsd, statusByDay, successRate } from '../../lib/charts.m
 
 const DAYS = 14
 const VIEWS = [
-    { key: 'queue', label: 'Queued', href: '/queue' },
-    { key: 'in_progress', label: 'In progress', href: '/in-progress' },
-    { key: 'review', label: 'In review', href: '/review' },
-    { key: 'blocked', label: 'Blocked', href: '/blocked' },
-    { key: 'issues', label: 'Issues', href: '/issues' },
+    { key: 'queue', label: 'Queued', href: '/tasks/queue' },
+    { key: 'in_progress', label: 'In progress', href: '/tasks/in-progress' },
+    { key: 'review', label: 'In review', href: '/tasks/review' },
+    { key: 'blocked', label: 'Blocked', href: '/tasks/blocked' },
+    { key: 'issues', label: 'Issues', href: '/tasks/issues' },
 ]
 
 /** Item counts and recent run outcomes: the live numbers behind the Settings and Home pages. */
@@ -35,12 +35,12 @@ export function OverviewStats({ title = 'Last two weeks' }: { title?: string }) 
                     legend={<Legend items={RUN_STATES.filter((s) => tot(s.key) > 0).map((s) => ({ label: s.label, color: s.color, count: tot(s.key) }))} />}>
                     <StackedBars ariaLabel="Runs per day by status" unit="runs" height={90}
                         bars={days.map((d) => ({ key: d.key, label: d.key.slice(5), id: d.ids[0], segments: RUN_STATES.map((s) => ({ key: s.key, label: s.label, value: d.segments[s.key], color: s.color })) }))}
-                        onBar={(b) => b.id != null && router.push(`/runs/${Math.max(...days.find((d) => d.key === b.key)!.ids)}`)} />
+                        onBar={(b) => b.id != null && router.push(`/admin/runs/${Math.max(...days.find((d) => d.key === b.key)!.ids)}`)} />
                 </Panel>
             </div>
             <div className="grid grid-cols-2 gap-3 content-start">
-                <StatTile label="Completed" value={rate == null ? '-' : `${Math.round(rate * 100)}%`} note={`of ${recent.filter((r) => r.status !== 'running').length} runs`} href="/runs" />
-                <StatTile label="Cost" value={fmtUsd(cost)} note={`${DAYS} days, USD`} href="/runs" />
+                <StatTile label="Completed" value={rate == null ? '-' : `${Math.round(rate * 100)}%`} note={`of ${recent.filter((r) => r.status !== 'running').length} runs`} href="/admin/runs" />
+                <StatTile label="Cost" value={fmtUsd(cost)} note={`${DAYS} days, USD`} href="/admin/runs" />
             </div>
         </section>
     )

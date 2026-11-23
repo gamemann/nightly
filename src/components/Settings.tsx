@@ -30,7 +30,7 @@ export function Settings() {
                 <div>
                     <div className="font-medium">Nightly run</div>
                     <p className="mt-0.5 text-[12px] text-muted">
-                        When off, no <Link href="/schedules" className="text-dim hover:text-accent">schedule</Link> starts on its own (<code className="font-mono">nightly get doRun</code>); Run now still works. Turn it off when the plan limit is close.
+                        When off, no <Link href="/admin/schedules" className="text-dim hover:text-accent">schedule</Link> starts on its own (<code className="font-mono">nightly get doRun</code>); Run now still works. Turn it off when the plan limit is close.
                     </p>
                 </div>
                 <button role="switch" aria-checked={on} disabled={!s.data || set.isPending}
@@ -85,7 +85,7 @@ export function Settings() {
             <div className="mt-4 rounded-lg border border-line bg-panel/60 p-4">
                 <div className="font-medium">Runner</div>
                 <p className="mt-0.5 mb-3 text-[12px] text-muted">
-                    The script a schedule starts, through <code className="font-mono">nightly exec</code>. Empty = the <Link href="/prompts/run.sh" className="text-dim hover:text-accent">run.sh</Link> script in Prompts; a path here overrides it. It decides which repositories are safe and launches Claude.
+                    The script a schedule starts, through <code className="font-mono">nightly exec</code>. Empty = the <Link href="/admin/prompts/run.sh" className="text-dim hover:text-accent">run.sh</Link> script in Prompts; a path here overrides it. It decides which repositories are safe and launches Claude.
                 </p>
                 <input key={s.data?.runner ?? ''} defaultValue={s.data?.runner ?? ''} placeholder="run.sh from Prompts" disabled={!s.data || set.isPending}
                     onBlur={(e) => e.target.value.trim() !== (s.data?.runner ?? '') && set.mutate({ key: 'runner', value: e.target.value.trim() })}

@@ -21,7 +21,7 @@ const scopeLabel = (r: { platform: string; role: string; map: string; bots: numb
 
 export function Perf({ slug }: { slug: string[] }) {
     if ((slug[0] === "compare" || slug[0] === "diff") && slug[1] && slug[2]) return <Shell crumbs={[["Compare", ""]]}><Compare a={Number(slug[1])} b={Number(slug[2])} /></Shell>
-    if (slug[0] && slug[1] === "run" && slug[2]) return <Shell crumbs={[[slug[0], `/perf/${slug[0]}`], [`run #${slug[2]}`, ""]]}><RunView id={Number(slug[2])} /></Shell>
+    if (slug[0] && slug[1] === "run" && slug[2]) return <Shell crumbs={[[slug[0], `/tools/perf/${slug[0]}`], [`run #${slug[2]}`, ""]]}><RunView id={Number(slug[2])} /></Shell>
     if (slug[0]) return <Shell crumbs={[[slug[0], ""]]}><GameView slug={slug[0]} /></Shell>
     return <Shell crumbs={[]}><Overview /></Shell>
 }
@@ -30,7 +30,7 @@ function Shell({ crumbs, children }: { crumbs: [string, string][]; children: Rea
     return (
         <div className="mx-auto max-w-6xl px-6 py-5 max-md:px-3">
             <h1 className="text-[15px] font-semibold tracking-tight">
-                <Link href="/perf" className="hover:text-sky-300">Performance</Link>
+                <Link href="/tools/perf" className="hover:text-sky-300">Performance</Link>
                 {crumbs.map(([t, h]) => <span key={t}> <span className="text-muted">/</span> {h ? <Link href={h} className="hover:text-sky-300">{t}</Link> : t}</span>)}
             </h1>
             {children}
@@ -55,7 +55,7 @@ function Overview() {
                 filters={[{ key: "state", label: "State", options: [{ value: "enabled" }, { value: "disabled" }] }]} />
             <div className="grid gap-3 md:grid-cols-2">
                 {games.data?.rows.map((g) => (
-                    <Link key={g.slug} href={`/perf/${g.slug}`} className="rounded-lg border border-line bg-panel/40 p-4 hover:bg-hover">
+                    <Link key={g.slug} href={`/tools/perf/${g.slug}`} className="rounded-lg border border-line bg-panel/40 p-4 hover:bg-hover">
                         <div className="flex items-center gap-2">
                             <span className="text-[13px] font-medium">{g.name}</span>
                             <span className="font-mono text-[11px] text-muted">{g.slug}</span>
@@ -112,10 +112,10 @@ function Findings({ game }: { game?: string }) {
     const q = parsePage(sp, PERF_SPECS.findings, "f")
     const d = api.perf.findings.useQuery({ game, page: q.page, size: q.size, sort: q.sort, dir: q.dir, q: q.q || undefined, f: q.f }, { refetchInterval: 30_000, placeholderData: (p) => p })
     const cols: Column<FindingRow>[] = [
-        ...(game ? [] : [{ key: "game", label: "Game", sortable: true, render: (f: FindingRow) => <Link className="hover:text-sky-300" href={`/perf/${f.game}`}>{f.game}</Link> }]),
+        ...(game ? [] : [{ key: "game", label: "Game", sortable: true, render: (f: FindingRow) => <Link className="hover:text-sky-300" href={`/tools/perf/${f.game}`}>{f.game}</Link> }]),
         { key: "metric", label: "Metric", sortable: true, className: "font-mono", render: (f) => f.metric },
         { key: "status", label: "State", sortable: true, render: (f) => <span className={`rounded px-1.5 ${f.status === "open" ? "bg-red-400/15 text-red-300" : "bg-emerald-400/15 text-emerald-300"}`}>{f.status}</span> },
-        { key: "value", label: "Value / limit", className: "tabular-nums", render: (f) => <>{f2(f.value)}{unitLabel(f.metric)} / {f2(f.limit)} {f.runId ? <Link className="text-muted hover:text-sky-300" href={`/perf/${f.game}/run/${f.runId}`}>#{f.runId}</Link> : null}</> },
+        { key: "value", label: "Value / limit", className: "tabular-nums", render: (f) => <>{f2(f.value)}{unitLabel(f.metric)} / {f2(f.limit)} {f.runId ? <Link className="text-muted hover:text-sky-300" href={`/tools/perf/${f.game}/run/${f.runId}`}>#{f.runId}</Link> : null}</> },
         { key: "item", label: "Queue item", render: (f) => f.item ? <><Link className="font-mono hover:text-sky-300" href={`/item/${f.item.key}`}>{f.item.key}</Link><span className="ml-1 text-muted">({f.item.status})</span></> : "-" },
         { key: "updatedAt", label: "Updated", sortable: true, className: "text-muted", render: (f) => ago(f.updatedAt) },
     ]
@@ -136,13 +136,13 @@ function Rsi({ game }: { game?: string }) {
     const d = api.perf.rsi.useQuery({ game, page: q.page, size: q.size, sort: q.sort, dir: q.dir, q: q.q || undefined, f: q.f }, { refetchInterval: 30_000, placeholderData: (p) => p })
     const unit = (f: RsiRow) => (f.kind === "offender" ? "ms" : unitLabel(f.metric.replace(/^regress:/, "").replace(/@.*$/, "")))
     const cols: Column<RsiRow>[] = [
-        ...(game ? [] : [{ key: "game", label: "Game", sortable: true, render: (f: RsiRow) => <Link className="hover:text-sky-300" href={`/perf/${f.game}`}>{f.game}</Link> }]),
+        ...(game ? [] : [{ key: "game", label: "Game", sortable: true, render: (f: RsiRow) => <Link className="hover:text-sky-300" href={`/tools/perf/${f.game}`}>{f.game}</Link> }]),
         { key: "metric", label: "Finding", className: "max-w-[18rem] truncate font-mono", render: (f) => <span title={f.note}>{what(f)}</span> },
         { key: "kind", label: "Kind", sortable: true, className: "text-muted", render: (f) => <>{f.kind}{f.cycles > 0 && <span title="completed fix cycles before this one"> x{f.cycles + 1}</span>}</> },
         { key: "state", label: "State", sortable: true, render: (f) => <span className={`rounded px-1.5 ${STATE[f.state] ?? ""}`}>{f.state}</span> },
         { key: "item", label: "Queue item", render: (f) => f.itemKey ? <><Link className="font-mono hover:text-sky-300" href={`/item/${f.itemKey}`}>{f.itemKey}</Link><span className="ml-1 text-muted">({f.itemStatus || "-"})</span></> : "-" },
         { key: "before", label: "Before", className: "text-right tabular-nums", render: (f) => f.before != null ? `${f2(f.before, 3)}${unit(f)}` : f.state === "found" ? `${f2(f.value, 3)}${unit(f)}` : "-" },
-        { key: "after", label: "After", className: "text-right tabular-nums", render: (f) => f.after != null ? <>{f2(f.after, 3)}{unit(f)} {f.remeasuredRunId && <Link className="text-muted hover:text-sky-300" href={`/perf/${f.game}/run/${f.remeasuredRunId}`}>#{f.remeasuredRunId}</Link>}{f.remeasuredRunId && f.runId && <Link className="ml-1 text-sky-300" title="differential flame graph: the run that found it vs the run after the fix" href={`/perf/diff/${f.runId}/${f.remeasuredRunId}`}>diff</Link>}</> : "-" },
+        { key: "after", label: "After", className: "text-right tabular-nums", render: (f) => f.after != null ? <>{f2(f.after, 3)}{unit(f)} {f.remeasuredRunId && <Link className="text-muted hover:text-sky-300" href={`/tools/perf/${f.game}/run/${f.remeasuredRunId}`}>#{f.remeasuredRunId}</Link>}{f.remeasuredRunId && f.runId && <Link className="ml-1 text-sky-300" title="differential flame graph: the run that found it vs the run after the fix" href={`/tools/perf/diff/${f.runId}/${f.remeasuredRunId}`}>diff</Link>}</> : "-" },
         { key: "delta", label: "Delta", className: "text-right tabular-nums", render: (f) => <span className={f.delta == null ? "text-muted" : f.metric.includes("fps") ? (f.delta >= 0 ? "text-emerald-300" : "text-red-300") : f.delta <= 0 ? "text-emerald-300" : "text-red-300"}>{f.delta == null ? "-" : `${f.delta > 0 ? "+" : ""}${f2(f.delta, 3)}${f.pct != null ? ` (${f.pct > 0 ? "+" : ""}${f.pct.toFixed(0)}%)` : ""}`}</span> },
     ]
     const empty: Paged<RsiRow> = { rows: [], total: 0, page: 1, size: 100, pages: 1, from: 0, to: 0 }
@@ -259,7 +259,7 @@ function Runs({ game, scope }: { game: string; scope: Scope }) {
     const toggle = (id: number, on: boolean) => setPick(on ? [...pick, id].slice(-2).sort((a, b) => a - b) : pick.filter((x) => x !== id))
     const cols: Column<RunRow>[] = [
         { key: "pick", label: "", render: (r) => <input type="checkbox" aria-label={`compare run ${r.id}`} checked={pick.includes(r.id)} onChange={(e) => toggle(r.id, e.target.checked)} /> },
-        { key: "id", label: "Run", sortable: true, render: (r) => <><Link className="font-mono hover:text-sky-300" href={`/perf/${game}/run/${r.id}`}>#{r.id}</Link>{r.label && <span className="ml-1 text-muted">{r.label}</span>}</> },
+        { key: "id", label: "Run", sortable: true, render: (r) => <><Link className="font-mono hover:text-sky-300" href={`/tools/perf/${game}/run/${r.id}`}>#{r.id}</Link>{r.label && <span className="ml-1 text-muted">{r.label}</span>}</> },
         { key: "ranAt", label: "When", sortable: true, className: "text-muted", render: (r) => ago(r.ranAt) },
         { key: "platform", label: "Scope", sortable: true, render: (r) => scopeLabel(r) },
         { key: "commit", label: "Commit", sortable: true, className: "font-mono text-muted", render: (r) => r.commit.slice(0, 9) },
@@ -268,7 +268,7 @@ function Runs({ game, scope }: { game: string; scope: Scope }) {
     const empty: Paged<RunRow> = { rows: [], total: 0, page: 1, size: 100, pages: 1, from: 0, to: 0 }
     return (
         <DataTable ns="n" cols={cols} data={d.data ?? empty} rowKey={(r) => r.id} sort={q.sort} dir={q.dir} q={q.q} active={q.f} searchHint="Search commit, label, map" empty="No runs in this scope."
-            toolbar={pick.length === 2 ? <Link className={`${btn} text-sky-300`} href={`/perf/compare/${pick[0]}/${pick[1]}`}>Compare #{pick[0]} vs #{pick[1]}</Link> : <span className="text-[12px] text-muted">tick two runs to compare (older = A)</span>} />
+            toolbar={pick.length === 2 ? <Link className={`${btn} text-sky-300`} href={`/tools/perf/compare/${pick[0]}/${pick[1]}`}>Compare #{pick[0]} vs #{pick[1]}</Link> : <span className="text-[12px] text-muted">tick two runs to compare (older = A)</span>} />
     )
 }
 
@@ -494,7 +494,7 @@ function Compare({ a, b }: { a: number; b: number }) {
     const sg = (n: number | undefined, dg = 2) => (n === undefined ? "" : (n > 0 ? "+" : "") + f2(n, dg))
     return (
         <>
-            <p className="mt-0.5 mb-3 text-[12px] text-muted">A <Link className="font-mono hover:text-sky-300" href={`/perf/${d.a.game}/run/${d.a.id}`}>#{d.a.id}</Link> ({scopeLabel(d.a)}, {d.a.commit.slice(0, 9) || "no commit"}) vs B <Link className="font-mono hover:text-sky-300" href={`/perf/${d.b.game}/run/${d.b.id}`}>#{d.b.id}</Link> ({scopeLabel(d.b)}, {d.b.commit.slice(0, 9) || "no commit"}) · noise band <input className={`${input} w-14`} type="number" value={noise} onChange={(e) => setNoise(Number(e.target.value))} />%</p>
+            <p className="mt-0.5 mb-3 text-[12px] text-muted">A <Link className="font-mono hover:text-sky-300" href={`/tools/perf/${d.a.game}/run/${d.a.id}`}>#{d.a.id}</Link> ({scopeLabel(d.a)}, {d.a.commit.slice(0, 9) || "no commit"}) vs B <Link className="font-mono hover:text-sky-300" href={`/tools/perf/${d.b.game}/run/${d.b.id}`}>#{d.b.id}</Link> ({scopeLabel(d.b)}, {d.b.commit.slice(0, 9) || "no commit"}) · noise band <input className={`${input} w-14`} type="number" value={noise} onChange={(e) => setNoise(Number(e.target.value))} />%</p>
             <DiffFlame a={a} b={b} noise={noise} />
             <table className="mb-6 w-full text-[12px]">
                 <thead className="text-left text-muted"><tr><th className="py-1">Metric</th><th className="text-right">A</th><th className="text-right">B</th><th className="text-right">Δ</th><th className="text-right">Δ %</th><th /></tr></thead>

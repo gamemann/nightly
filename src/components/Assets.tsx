@@ -111,7 +111,7 @@ function AssetCharts({ agg, tab, set, trend }: { agg: Agg; tab: Tab; set: (o: Re
             </Panel>
             <div className="lg:col-span-2">
                 <Panel title="Worst offenders" subtitle="The eight lowest-scoring weapons. Click one to open it." empty={worst.length === 0 && "Nothing scored."}>
-                    <BarList unit="" max={100} onClick={(k) => router.push(`/assets/${k}`)} rows={worst.map((r) => ({ key: String(r.id), label: `${describe(r.pack, r.weaponId).name} · ${r.pack}`, value: r.score, color: rateColor(r.score / 100), note: `${r.pack}, ${r.kind}` }))} />
+                    <BarList unit="" max={100} onClick={(k) => router.push(`/tools/assets/${k}`)} rows={worst.map((r) => ({ key: String(r.id), label: `${describe(r.pack, r.weaponId).name} · ${r.pack}`, value: r.score, color: rateColor(r.score / 100), note: `${r.pack}, ${r.kind}` }))} />
                 </Panel>
             </div>
         </div>
@@ -139,7 +139,7 @@ export function Assets({ data, agg, kinds, sources, trend = [], packNames }: { d
     const chipCount = (k: string) => agg.kindTabs[k]?.[tab] ?? 0
     const cols: Column<AssetRow>[] = [
         { key: "thumb", label: "", render: (r) => <Thumb r={r} tab={tab} /> },
-        { key: "asset", label: mapRows ? (tab === "maps" ? "Map" : "Library set") : "Asset", sortable: true, render: (r) => <><Link className="text-sky-300 hover:underline" href={r.id > 0 ? `/assets/${r.id}` : `/assets?tab=${tab}&pieces=1&grp=${encodeURIComponent(r.groupKey)}`} title={r.weaponId}>{r.display}</Link>{r.id > 0 && r.group && <span className="ml-1.5 text-[11px] text-muted" title={r.weaponId}>{r.group}</span>}{r.id <= 0 && <span className="ml-1.5 text-[11px] text-muted">{r.pieces} pieces</span>}{r.id > 0 && r.hasModel && r.texCount === 0 && <span className="ml-1 rounded bg-bad/20 px-1 text-[10px] text-bad" title="the model has no texture at all (flag NO_TEXTURES)">no texture</span>}{r.copies > 1 && <span className="ml-1 text-[10px] text-muted" title={r.uses.join(", ")}>x{r.copies}</span>}{r.source !== "audit" && <span className="ml-1 text-[10px] text-muted" title="from a directory scan, not yet audited">scan</span>}</> },
+        { key: "asset", label: mapRows ? (tab === "maps" ? "Map" : "Library set") : "Asset", sortable: true, render: (r) => <><Link className="text-sky-300 hover:underline" href={r.id > 0 ? `/tools/assets/${r.id}` : `/tools/assets?tab=${tab}&pieces=1&grp=${encodeURIComponent(r.groupKey)}`} title={r.weaponId}>{r.display}</Link>{r.id > 0 && r.group && <span className="ml-1.5 text-[11px] text-muted" title={r.weaponId}>{r.group}</span>}{r.id <= 0 && <span className="ml-1.5 text-[11px] text-muted">{r.pieces} pieces</span>}{r.id > 0 && r.hasModel && r.texCount === 0 && <span className="ml-1 rounded bg-bad/20 px-1 text-[10px] text-bad" title="the model has no texture at all (flag NO_TEXTURES)">no texture</span>}{r.copies > 1 && <span className="ml-1 text-[10px] text-muted" title={r.uses.join(", ")}>x{r.copies}</span>}{r.source !== "audit" && <span className="ml-1 text-[10px] text-muted" title="from a directory scan, not yet audited">scan</span>}</> },
         { key: "pack", label: "Pack", sortable: true, className: "text-dim", render: (r) => r.pack },
         { key: "game", label: "Games", sortable: true, className: "text-dim", render: (r) => <span title={r.uses.join(", ")}>{r.game || (r.uses.length > 3 ? `${r.uses.slice(0, 2).join(", ")} +${r.uses.length - 2}` : r.uses.join(", ")) || "-"}</span> },
         ...(placeTab && pieces ? TAB_COLS.models : TAB_COLS[tab === "entities" || tab === "avatars" ? "models" : tab]),
@@ -152,7 +152,7 @@ export function Assets({ data, agg, kinds, sources, trend = [], packNames }: { d
             <h1 className="text-[15px] font-semibold tracking-tight">Assets <span className="text-muted">(RSI)</span></h1>
             <p className="mt-0.5 mb-3 text-[12px] text-muted">
                 Every model of every source (packs and games): model, textures, animations and sounds with quality flags and a score, judged against the budget of its kind. {agg.total.toLocaleString("en-GB")} assets, {agg.audited.toLocaleString("en-GB")} audited, the rest listed from a directory scan
-                (<code className="font-mono">nightly assets scan</code>; audits arrive with <code className="font-mono">nightly assets ingest audit.json</code> or POST /api/assets/ingest). Previews come from <code className="font-mono">nightly assets thumbs</code>. <Link className="text-sky-300 hover:underline" href="/assets/sources">Sources and kinds</Link>
+                (<code className="font-mono">nightly assets scan</code>; audits arrive with <code className="font-mono">nightly assets ingest audit.json</code> or POST /api/assets/ingest). Previews come from <code className="font-mono">nightly assets thumbs</code>. <Link className="text-sky-300 hover:underline" href="/tools/assets/sources">Sources and kinds</Link>
             </p>
             <AssetCharts agg={agg} tab={tab} set={set} trend={trend} />
             <div className="mb-2 flex flex-wrap gap-1.5" hidden={placeTab}>
@@ -193,7 +193,7 @@ function FirstRun() {
                     <li>Scan it: <code className="font-mono">nightly assets scan</code>.</li>
                     <li>Adjust kinds and budgets if your game needs different limits.</li>
                 </ol>
-                <Link href="/assets/sources" className="mt-4 inline-block rounded-md border border-sky-400 px-3 py-1.5 text-[13px] text-sky-300 hover:bg-hover">Add a source</Link>
+                <Link href="/tools/assets/sources" className="mt-4 inline-block rounded-md border border-sky-400 px-3 py-1.5 text-[13px] text-sky-300 hover:bg-hover">Add a source</Link>
             </div>
         </div>
     )

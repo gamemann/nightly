@@ -34,7 +34,7 @@ export function AssetSources() {
     const [n, setN] = useState({ name: '', type: 'pack' as 'pack' | 'game', root: '' })
     return (
         <div className="mx-auto max-w-5xl px-6 py-5 max-md:px-3">
-            <div className="mb-1 flex items-baseline justify-between"><h1 className="text-[15px] font-semibold tracking-tight">Asset sources and kinds</h1><Link className="text-[12px] text-sky-300 hover:underline" href="/assets">back to Assets</Link></div>
+            <div className="mb-1 flex items-baseline justify-between"><h1 className="text-[15px] font-semibold tracking-tight">Asset sources and kinds</h1><Link className="text-[12px] text-sky-300 hover:underline" href="/tools/assets">back to Assets</Link></div>
             <p className="mb-4 text-[12px] text-muted">A source is a directory of models, textures and sounds (an asset pack or a game). Nothing is built in: add yours, scan it, and the Assets tab lists what it finds. The same is available as <code className="font-mono">nightly assets source add|set|rm|scan</code>.</p>
             {msg && <div className="mb-3 rounded-md border border-line bg-panel/60 px-3 py-1.5 text-[12px] text-dim" onClick={() => setMsg('')}>{msg}</div>}
             <h2 className="mb-2 text-[13px] font-semibold">Sources</h2>

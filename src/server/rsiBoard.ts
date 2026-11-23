@@ -20,7 +20,7 @@ export const FINDING_SPEC: PageSpec = { sorts: ["subject", "domain", "code", "se
 const SORT_SQL: Record<string, string> = { subject: "subject COLLATE NOCASE", domain: "domain", code: "code", severity: "CASE severity WHEN 'error' THEN 0 WHEN 'warn' THEN 1 WHEN 'info' THEN 2 ELSE 3 END", state: "state", after: "COALESCE(after, 0)" }
 
 /** Gate and feed domains link to the page that shows the evidence, not the asset browser. */
-const DOMAIN_HREF: Record<string, string> = { visual: "/reviews", netchaos: "/reviews", web: "/web", content: "/content" }
+const DOMAIN_HREF: Record<string, string> = { visual: "/tools/reviews", netchaos: "/tools/reviews", web: "/admin/web", content: "/tools/content" }
 
 const NO_AUDITOR: Record<string, string> = {
     maps: "No map census data yet: run perf_bench --mesh-census on a map (logs in the rsiCensusDir setting) and `nightly rsi refresh`.",
@@ -35,7 +35,7 @@ const UNION = `
     CASE WHEN itemKey != '' THEN 'Fix agent works ' || itemKey ELSE 'Queue a fix item from this finding' END, state,
     CASE WHEN status = 'resolved' OR state = 'remeasured' THEN 'resolved' ELSE 'open' END, beforeValue, afterValue, itemKey FROM PerfFinding`
 type Raw = { id: unknown; domain: string; subject: string; assetId: number | null; code: string; tier: string; severity: string; msg: string; nextAction: string; state: string; status: string; before: number | null; after: number | null; itemKey: string }
-const toFinding = (r: Raw): Finding => ({ ...r, id: Number(r.id), href: r.domain === "perf" ? "/perf" : r.assetId ? `/assets/${r.assetId}` : DOMAIN_HREF[r.domain] ?? "/assets" })
+const toFinding = (r: Raw): Finding => ({ ...r, id: Number(r.id), href: r.domain === "perf" ? "/tools/perf" : r.assetId ? `/tools/assets/${r.assetId}` : DOMAIN_HREF[r.domain] ?? "/tools/assets" })
 const nn = (v: unknown) => Number(v ?? 0)
 
 /** Everything the home page shows: per-domain RSI state (SQL aggregates), worst-scoring assets, blockers and one page of findings. */
@@ -89,7 +89,7 @@ export async function loadBoard(tierParam: string | undefined, q: PageQuery, bq:
     })
     const blockers = blockerRows.map((r): Finding => ({
         id: r.id, domain: "process", subject: r.subject, assetId: null, code: r.code, tier: "", severity: r.severity, msg: r.msg, nextAction: r.nextAction, state: r.state, status: r.status, before: null, after: null, itemKey: r.subject,
-        href: r.code === "NO_AUDIT_TOOL" ? "/assets" : `/item/${r.subject}`,
+        href: r.code === "NO_AUDIT_TOOL" ? "/tools/assets" : `/item/${r.subject}`,
     }))
     return { tier, domains, worst: paged(worst, wTotal, wq), blockers: paged(blockers, blockerCount, bq), blockerCodes: blockerCodes.map((c) => c.code).sort(), findings: paged(rows.map(toFinding), total, q), lastRefresh: last?.value ?? "", toolMissing: noTool > 0 }
 }

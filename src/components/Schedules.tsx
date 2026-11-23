@@ -68,7 +68,7 @@ export function Schedules() {
             {!!running.data?.length && (
                 <div className="mb-4 rounded-lg border border-amber-400/25 bg-amber-400/5 px-4 py-2.5 text-[12px]">
                     {running.data.map((r) => (
-                        <Link key={r.id} href={`/runs/${r.id}`} className="flex items-center gap-2 py-0.5 text-amber-200 hover:text-amber-100">
+                        <Link key={r.id} href={`/admin/runs/${r.id}`} className="flex items-center gap-2 py-0.5 text-amber-200 hover:text-amber-100">
                             <span className="size-1.5 animate-pulse rounded-full bg-amber-400" />
                             Run #{r.id} {r.schedule ? `(${r.schedule.name})` : ''} running for {ago(r.startedAt).replace(' ago', '')} →
                         </Link>
@@ -88,7 +88,7 @@ export function Schedules() {
             {list.isLoading && <div className="p-6 text-center text-muted">Loading…</div>}
             {list.data?.rows.length === 0 && <div className="rounded-lg border border-line p-10 text-center text-muted">No schedules. Nothing starts on its own.</div>}
             <div className="space-y-3">
-                {list.data?.rows.map((s) => <ScheduleCard key={s.id} s={s} paused={!doRun} onStarted={(id) => router.push(`/runs/${id}`)} />)}
+                {list.data?.rows.map((s) => <ScheduleCard key={s.id} s={s} paused={!doRun} onStarted={(id) => router.push(`/admin/runs/${id}`)} />)}
             </div>
             {list.data && <Pagination p={list.data} />}
         </div>
@@ -122,7 +122,7 @@ function ScheduleCharts({ schedules, live }: { schedules: Schedule[]; live: { id
                         const last = x?.strip.at(-1)
                         return (
                             <li key={s.id}>
-                                <button type="button" disabled={!last} onClick={() => last && router.push(`/runs/${last.id}`)} title={x ? `${s.name}: ${x.total} runs, median ${fmtMinutes(x.medianMinutes)}` : `${s.name}: no runs yet`}
+                                <button type="button" disabled={!last} onClick={() => last && router.push(`/admin/runs/${last.id}`)} title={x ? `${s.name}: ${x.total} runs, median ${fmtMinutes(x.medianMinutes)}` : `${s.name}: no runs yet`}
                                     className="flex w-full items-center gap-3 rounded px-1 py-0.5 text-left text-[12px] enabled:hover:bg-hover">
                                     <span className="w-24 shrink truncate text-dim">{s.name}</span>
                                     <Sparkline values={x?.roll ?? []} w={64} h={22} color={COLOR.info} label={`${s.name} success rate trend, percent`} />
@@ -182,7 +182,7 @@ function ScheduleCard({ s, paused, onStarted }: { s: Schedule; paused: boolean; 
             </div>
             {start.error && <p className="px-4 pb-2 text-[12px] text-red-300">{start.error.message}</p>}
             {s.lastRun && !open && (
-                <Link href={`/runs/${s.lastRun.id}`} className="flex items-center gap-2 border-t border-line/60 px-4 py-2 text-[12px] text-muted hover:bg-hover/40">
+                <Link href={`/admin/runs/${s.lastRun.id}`} className="flex items-center gap-2 border-t border-line/60 px-4 py-2 text-[12px] text-muted hover:bg-hover/40">
                     last <StatusPill status={s.lastRun.status} /> {ago(s.lastRun.startedAt)}
                     <span className="min-w-0 flex-1 truncate text-dim">{s.lastRun.summary}</span>
                 </Link>

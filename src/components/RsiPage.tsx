@@ -16,7 +16,7 @@ function Trend({ r }: { r: RsiRow }) {
 }
 
 const COLS: Column<RsiRow>[] = [
-    { key: "subject", label: "Subject", sortable: true, render: (r) => <Link href={r.assetId ? `/assets/${r.assetId}` : "/assets"} className="hover:underline">{r.subject}</Link> },
+    { key: "subject", label: "Subject", sortable: true, render: (r) => <Link href={r.assetId ? `/tools/assets/${r.assetId}` : "/tools/assets"} className="hover:underline">{r.subject}</Link> },
     { key: "domain", label: "Domain", sortable: true, className: "text-dim", render: (r) => r.domain },
     { key: "code", label: "Finding", sortable: true, render: (r) => <><span className={`rounded px-1.5 py-px text-[11px] ${sevCls(r.severity)}`}>{r.code}</span>{r.tier && <span className="ml-1 text-[10px] text-muted">{r.tier}</span>}</> },
     { key: "status", label: "Status", sortable: true, render: (r) => r.status },
@@ -32,13 +32,13 @@ export function RsiPage({ d, q }: { d: RsiPageData; q: PageQuery }) {
             <h1 className="mb-3 text-lg font-semibold">RSI findings</h1>
             <div className="mb-3 flex flex-wrap gap-2">
                 {d.domains.map((c) => (
-                    <Link key={c.domain} href={`/rsi?domain=${c.domain}`} className="rounded-lg border border-line bg-panel/60 px-3 py-2 hover:bg-hover/40">
+                    <Link key={c.domain} href={`/tools/rsi?domain=${c.domain}`} className="rounded-lg border border-line bg-panel/60 px-3 py-2 hover:bg-hover/40">
                         <div className="text-[11px] font-semibold uppercase tracking-wide text-dim">{c.domain}</div>
                         <div className="text-[12px] tabular-nums"><span className={c.open ? "text-red-300" : "text-muted"}>{c.open} open</span> <span className="text-muted">/</span> <span className="text-emerald-300">{c.resolved} resolved</span></div>
                     </Link>
                 ))}
             </div>
-            <p className="mb-2 text-[12px] text-dim">Texture findings are judged per video-settings tier; showing <b>{d.tier}</b> ({TIERS.map((t) => <Link key={t} href={`/rsi?tier=${t}`} className="mr-1 underline">{t}</Link>)}).</p>
+            <p className="mb-2 text-[12px] text-dim">Texture findings are judged per video-settings tier; showing <b>{d.tier}</b> ({TIERS.map((t) => <Link key={t} href={`/tools/rsi?tier=${t}`} className="mr-1 underline">{t}</Link>)}).</p>
             <DataTable cols={COLS} data={d.findings} rowKey={(r) => r.id} sort={q.sort} dir={q.dir} q={q.q} active={q.f} searchHint="Search subject, code, message"
                 empty="No findings: run nightly assets refresh."
                 filters={[{ key: "domain", label: "Domain", options: opts(RSI_DOMAINS) }, { key: "status", label: "Status", options: opts(["open", "resolved"]) }, { key: "verdict", label: "Verdict", options: opts(["fail", "unverified", "pass"]) }]} />
