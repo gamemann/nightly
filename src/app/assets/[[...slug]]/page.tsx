@@ -4,7 +4,7 @@ import { AssetDetail, type DetailData, type ReviewHit } from "~/components/Asset
 import { AssetSources } from "~/components/AssetSources"
 import { Assets, type PackTrend } from "~/components/Assets"
 import { parsePage } from "~/lib/paging"
-import { ASSET_SPEC, assetAgg, assetPage, showPieces } from "~/server/assetsList"
+import { ASSET_SPEC, assetAgg, assetPage } from "~/server/assetsList"
 import { db } from "~/server/db"
 import { load } from "../../../../lib/review.mjs"
 
@@ -17,7 +17,7 @@ export default async function AssetsPage({ params, searchParams }: { params: Pro
     if (slug[0] === "sources") return <Suspense><AssetSources /></Suspense>
     if (!slug[0]) {
         const q = parsePage(await searchParams, ASSET_SPEC)
-        const [data, agg] = await Promise.all([assetPage(q), assetAgg(showPieces(q.f.pieces))])
+        const [data, agg] = await Promise.all([assetPage(q), assetAgg()])
         const hist = await db.assetAuditHistory.findMany({ orderBy: [{ at: "asc" }, { id: "asc" }] })
         const byPack = new Map<string, typeof hist>()
         for (const h of hist) byPack.set(h.pack, [...(byPack.get(h.pack) ?? []), h])
