@@ -1,0 +1,140 @@
+- Do a full redesign of Nightly. This includes back-end and front-end.
+    - This is a FULL REDESIGN. DO NOT ASK ME OR BLOCK AND DO NOT HAVE ANYTHING "OPEN" AT THE END. DO IT IN FULL
+    - Use common sense, if you find things we should add for this game/web dev tracker/tool, add it!
+    - Make the front-end redesign space-oriented and dark to resemble "night". Keep the moon icon though, I like that!
+    - Remember to be RSI-focused, we want to provide as many tools and settings for self-improving our projects.
+    - You have full access to everything needed to automatically create all the database entries, nodes, installers, etc. below.
+    - The sidebar should include:
+        - Transcripts
+            - Transcripts are basically "convos" between the user and Claude Code that are stored on the "Planet" Node(s).
+                - Basically like the VS Code chat window, but I want to be able to initiate from the panel as well.
+                - It should basically launch `claude` under whatever user they're logged in as and assuming they have permission to the node/planet they're running it on.
+                - The entire transcript should be reflected in the web panel and include additional tools and ways to see how the agents are working together.
+                - Users should be able to easily switch between "transcripts" on the transcriptions page just like the VS Code Claude Code window.
+                - Include everything Claude Code comes with like model, effort, permission (auto/bypass, etc.), etc.
+                    - Make sure that I can still use VS Code and its window in case Nightly is down like I am doing now.
+                - Make sure this implementation doesn't cost additional usage tokens.
+            - **Child Tabs**:
+                - New (Icon)
+                - History (icon + text)
+                    - This should be a button and when clicked, brings up a nice looking menu where the mouse is that shows all previous transcripts.
+                - Agents
+                    - Lists all current agents and their transcripts.
+        - Projects
+            - This is where the user can manage their projects.
+            - Include filtering, sorting, management options (creating, editing, deleting folders, projects, etc.).
+            - Each project should have its own page that includes management options and such.
+                - It should also include all needed tools and such in secondary tabs ready on that page for that project.
+                    - For example, if it is a game, it should include game tool tabs like below for "Assets", "Maps", etc. that is just for that game.
+        - Tasks
+            - **Child Tabs**: Color-coded like before
+                - Queue
+                - In Progress
+                - Review
+                - Blocked
+                - Issues
+                - Done
+        - Automation
+            - **Child Tabs**:
+                - Workflows
+                    - This is for CI workflows and runs for projects the user has access to.
+                - Checks
+                    - All the checks that the user has configured (if allowed through the permissions).
+        - Usage
+            - A full break down for the user of usage on Claude and transcripts, etc.
+            - Implement GitHub API requests as well since that has become an issue.
+
+        - <hr />
+        - Game Tools (Category)
+            - **Child Tabs**:
+                - Asset Manager
+                    - Just like the assets tab now, but redesigned and allow users to upload all types of assets themselves (but of course keep the CLI tools you use to upload so you can do it yourself still).
+                - Map Manager
+                    - Same thing as above, allow users to upload their own maps if needed.
+                - Map Converter
+                    - A new tool that uses GameSpice's `map-converter` (we can add additional converter if needed).
+                    - Allow users to convert to and from GameSpice's maps and BSP files.
+                    - Add support for others.
+                    - Make sure to keep CLI tools and whatever that you use to do this yourself.
+                    - Add support for seeing models that are mapped, etc. Basically fully integrate into the GameSpice map conversion workflow
+                - Performance
+                - Crashes
+                - Playtest
+                    - Add a way to "trigger" a play test on one of the planets/stations if the user has permission.
+                    - Playtest and performance pages should be linked, but separate pages like it is now. For example, a playtest is needed for performance. Playtest can be automatic though.
+        - <hr />
+        - Account
+            - **Child Tabs**:
+                - Settings
+                    - Basic account settings, etc.
+        - AdminCP (for admins+)
+            - **Child Tabs**:
+                - Schedules
+                - Prompts 
+                - Jobs & Scripts
+                - Runs & reports
+                - Web checks
+                - Crash Log
+                    - This is for system events/heavy, etc.
+                - Settings
+- Projects
+    - Types:
+        - Website: For websites like `website-city`, `website-processing`, `website-gs`, etc.
+        - Game: For full games (e.g. `game-fatal-contact`, `game-zombie-zone`)
+        - Game Addon: For game addons (e.g. `gs-sql`, `gs-core`)
+    - Folders
+        - Projects can be sorted into folders including support for recursive folders and so on.
+        - Users and roles can be assigned to individual projects or folders (which would apply to all projects in that folder).
+        - Folders can have icons uploaded by the user creating/editing that shows. Otherwise, a folder icon should show.
+- Users
+    - Create a full-fledge user system with both role and user-based permissions.
+        - Default roles:
+            - `admin`
+            - `user`
+    - Admins should be able to create additional roles if needed.
+    - Admins should be able to create and manage users.
+    - Use a simple but secure username and password auth system.
+- Installers
+    - Web Panel
+        - Docker Compose:
+            - Use `.env` (with `.env.example` in repo) for things like default username and password for admin, external/internal host and ports, ClickHouse database name,user, and pass, etc.
+        - When started, it should automatically create and/or sync any tables to things like ClickHouse. This goes to all deployment types.
+    - Node Installer
+        - Planet (full) and station (offload) script installers that registers everything needed to `$PATH`, `systemd`, etc.
+- Admin
+    - Nodes
+        - Use a dedicated web socket with TLS or plain support for panel <-> client (both ways).
+        - The node should be the listener and bind to port `4001` by default.
+        - Fields include:
+            - `host`
+            - `port`
+            - `token`
+            - `tls`
+        - Types:
+            - Planet
+                - A "base": What this VM would be considered for example and can be installed onto any server. Includes all `nightly-env` scripts, Claude subs, etc.
+            - Station
+                - For offloading things like builds, playtest, map conversions, performance A/B testing, etc. Anything that will consume resources that should be offloaded to a machine with memory.
+                - There should be an offload support box where you can check what types of offloads are supported for it like builds, map conversions, etc. This way we can only assign GPU-related tasks to staging for example. But staging and PH in our setup will be "stations" in this context still.
+        - Every node should contain spec fields:
+            - Processor model + speeds
+                - Core and thread counts
+            - RAM amount, type, and speed
+            - GPU type and model
+            - Hard drives
+            - Build and heavy slots, etc.
+        - Users from the panel should be able to be assigned to "Nodes"
+            - Add the option to create the user on the node it self.
+    - Communication
+        - This is what is used for how nodes communicate to one another.
+        - For example, how a planet will communicate with a station for builds.
+        - Make a full-fledge UI that shows what is and isn't connected.
+            - Add ways to "connect" each node which includes a user and the SSH keys or password.
+            - Make it so the Node daemon or w/e can automatically "connect" via creating a user or generating an SSH key/generating a user, etc.
+    - Databases
+        - For things like ClickHouse.
+        - When the Docker Compose project is detected during install, automatically create the database row since we should know the credentials, etc.
+    - Builds
+        - What builds are ran and can be configured per project, etc.
+        - Check the status of a build, manage them, etc.
+        - Determine if a build is "heavy".

@@ -138,7 +138,8 @@ Everything below is in the web panel and in the CLI (`bin/nightly`); the panel t
 - **Screenshots.** Pictures agents attach to items or file under a day appear in a gallery, open in a zoomable viewer, and a `.glb` next to a picture opens an orbit 3D viewer where you can pin notes.
 - **Games.** Items, runs, pictures, reviews and QA are grouped per game, taken from the repos an item names.
 - **Usage limits and multiple accounts.** A script reads your Claude plan's 5-hour and weekly usage. Set thresholds in Settings and the runner will not start while usage is over them. With several Claude accounts configured, each run picks the one with the most headroom.
-- **Login.** Optional password (and username) protection for every page, the API and media, off by default.
+- **Accounts and permissions.** Users, roles and per-user grants decide what each person sees: sidebar entries, pages, API calls and single projects (folder-level access inherits down the tree). Sessions are listed and can be signed out under Account.
+- **Projects.** Folders and projects with filters, icons and per-project tabs (overview, tasks, perf, builds, settings; game tools per game).
 - **CLI.** All of the above from a shell, without the panel or a server running: see [CLI](#cli).
 
 ### Reviews
@@ -295,7 +296,9 @@ Sidebar: Queue · In progress · Review · Blocked · Issues · Checks · Done �
 - **Runs & reports:** every run, searchable across reports and logs; a run page shows its summary, the items it noted, the report, the runner's log (live while running, with **Stop**), and the screenshots filed under that day.
 - **Agents:** live sessions with their task and claimed paths, a message feed (send to everyone or one agent), and controls to release a stale claim or end a session that vanished.
 
-**Login:** off by default. Settings → Login turns it on: a password (stored as a scrypt hash), optionally a username. Every page, the API and `/media` then need a sign-in (an HMAC-signed cookie, 90 days; changing the username or password signs every browser out; Sign out in Settings). Locked out: `bin/nightly set-setting authEnabled false` on the machine. Behind anything but your own network, put the panel behind HTTPS too.
+**Sign-in:** every page, the API and `/media` need a user. On first start the panel creates an `admin` user: from the old single-login settings if they were set, else from `NIGHTLY_ADMIN_USER` / `NIGHTLY_ADMIN_PASSWORD` in `.env`, else with a random password printed once to the server log. Sessions last 90 days; changing a password or disabling a user signs them out everywhere. Manage people under AdminCP → Users and Roles, or from a shell: `nightly user add NAME --roles user --password-stdin`, `nightly user set NAME --password-stdin` (also the way back in when locked out), `nightly role ...`. Scripts that post reports (perf, assets, usage, QA) send a Bearer token. Behind anything but your own network, put the panel behind HTTPS too.
+
+**Layout:** the sidebar groups Transcripts, Projects, Tasks, Automation, Usage, Game Tools, Account and AdminCP, and only shows what your permissions allow. Old links (`/queue`, `/games/...`, `/settings` ...) redirect to their new place. Projects live in folders; each project page has its own tabs, and its icon is uploaded under its Settings tab (PNG, JPEG, GIF or WebP, up to 512 KB).
 
 **Item attachments.** `nightly attach <item> <file.png|jpg> [--note ..]` downscales to 1280 px wide, keeps it under 2 MB (JPEG fallback), stores it in `NIGHTLY_ATTACH` (default `data/attachments/<item>/`, with an `index.json`) and keeps the last 20 per item. The item page shows thumbnails (click to enlarge) with notes, `nightly show` lists the URLs (`NIGHTLY_PUBLIC_URL`, default `http://<hostname>:3010`), served at `/attachments/<item>/<file>`. From another machine: copy the image to a temp path and run `ssh <host> nightly attach ...`, which is what a wrapper script does.
 
