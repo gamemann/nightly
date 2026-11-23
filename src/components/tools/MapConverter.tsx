@@ -18,6 +18,8 @@ export function MapConverter({ projectSlug }: { projectSlug?: string }) {
     const [err, setErr] = useState('')
     const [busy, setBusy] = useState(false)
     const input = useRef<HTMLInputElement>(null)
+    const binInput = useRef<HTMLInputElement>(null)
+    const [bin, setBin] = useState<File | null>(null)
     const from = file ? EXT_FROM[file.name.split('.').pop()?.toLowerCase() ?? ''] ?? '' : ''
     const targets = useMemo(() => {
         const rows = formats.data ?? []
@@ -33,7 +35,7 @@ export function MapConverter({ projectSlug }: { projectSlug?: string }) {
     const start = async () => {
         if (!file || !to) return
         setBusy(true); setErr('')
-        const fd = new FormData(); fd.set('file', file); fd.set('to', to); if (projectSlug) fd.set('project', projectSlug)
+        const fd = new FormData(); fd.set('file', file); fd.set('to', to); if (projectSlug) fd.set('project', projectSlug); if (bin && from === 'gs-map') fd.set('bin', bin)
         try {
             const r = await fetch('/api/tools/map-convert', { method: 'POST', body: fd })
             const j = (await r.json()) as { id?: number; error?: string }
@@ -49,6 +51,7 @@ export function MapConverter({ projectSlug }: { projectSlug?: string }) {
             <section className="mt-3 rounded-lg border border-line bg-panel p-3">
                 <div className="flex flex-wrap items-end gap-3">
                     <div className="grid gap-1"><span className="label">Map file</span><button className="btn" onClick={() => input.current?.click()}>{file ? `${file.name} (${kb(file.size)})` : 'Choose a file'}</button><input ref={input} type="file" hidden accept=".bsp,.vmf,.map,.json,.glb,.gltf,.obj,.fbx,.dae" onChange={(e) => setFile(e.target.files?.[0] ?? null)} /></div>
+                    {from === 'gs-map' && <div className="grid gap-1"><span className="label">Geometry (.bin, mesh maps)</span><button className="btn" title="A GameSpice mesh map is a .json manifest plus its .bin geometry" onClick={() => binInput.current?.click()}>{bin ? `${bin.name} (${kb(bin.size)})` : 'Choose the .bin'}</button><input ref={binInput} type="file" hidden accept=".bin" onChange={(e) => setBin(e.target.files?.[0] ?? null)} /></div>}
                     <label className="grid gap-1"><span className="label">Convert to</span><select className="select" value={to} disabled={!file} onChange={(e) => setTo(e.target.value)}><option value="">{file ? (targets.length ? 'choose' : 'no route available') : 'choose a file first'}</option>{targets.map((t) => <option key={t} value={t}>{FORMAT_LABEL[t] ?? t}</option>)}</select></label>
                     <button className="btn-primary btn" disabled={!file || !to || busy} onClick={() => void start()}>{busy ? 'Starting...' : 'Convert'}</button>
                 </div>
