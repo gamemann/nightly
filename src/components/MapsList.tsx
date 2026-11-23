@@ -1,5 +1,6 @@
 "use client"
 import Link from "next/link"
+import { useSearchParams } from "next/navigation"
 import { useMemo, useState } from "react"
 import type { MapRow } from "~/server/mapsList"
 
@@ -8,7 +9,8 @@ type Key = "name" | "pack" | "tris" | "spawns" | "score"
 
 /** The Maps page: every converted map; a row opens the map page with the fly-cam viewer. */
 export function MapsList({ rows }: { rows: MapRow[] }) {
-    const [q, setQ] = useState(""), [pack, setPack] = useState(""), [sort, setSort] = useState<Key>("name"), [desc, setDesc] = useState(false)
+    const sp = useSearchParams()
+    const [q, setQ] = useState(sp.get("q") ?? ""), [pack, setPack] = useState(sp.get("pack") ?? ""), [sort, setSort] = useState<Key>("name"), [desc, setDesc] = useState(false)
     const packs = useMemo(() => [...new Set(rows.map((r) => r.pack))].sort(), [rows])
     const shown = useMemo(() => {
         const n = q.trim().toLowerCase()
@@ -22,7 +24,7 @@ export function MapsList({ rows }: { rows: MapRow[] }) {
             <p className="mt-1 text-[12.5px] text-dim">Every converted map. Open one for the fly-cam viewer (converted / original), its stats and quality flags. The map models are listed under <Link className="text-sky-300 hover:underline" href="/assets?tab=maps">Assets</Link>.</p>
             <div className="my-3 flex flex-wrap gap-2">
                 <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search maps" className="rounded-md border border-line bg-transparent px-2 py-1 text-[13px]" />
-                <select value={pack} onChange={(e) => setPack(e.target.value)} className="rounded-md border border-line bg-transparent px-2 py-1 text-[13px]"><option value="">All packs</option>{packs.map((p) => <option key={p} value={p}>{p}</option>)}</select>
+                <select value={pack} onChange={(e) => { setPack(e.target.value); const u = new URL(window.location.href); if (e.target.value) u.searchParams.set("pack", e.target.value); else u.searchParams.delete("pack"); window.history.replaceState(null, "", u) }} className="rounded-md border border-line bg-transparent px-2 py-1 text-[13px]"><option value="">All packs</option>{packs.map((p) => <option key={p} value={p}>{p}</option>)}</select>
             </div>
             <table className="w-full text-[13px]">
                 <thead><tr className="border-b border-line">{th("name", "Map")}{th("pack", "Pack")}{th("tris", "Tris")}<th className="px-2 py-1 text-left font-normal text-muted">Surfaces</th>{th("spawns", "Spawns")}<th className="px-2 py-1 text-left font-normal text-muted">Original</th>{th("score", "Score")}<th className="px-2 py-1 text-left font-normal text-muted">Flags</th></tr></thead>
