@@ -26,7 +26,7 @@ export async function toolsCli(args: string[]): Promise<unknown> {
 export async function withTempFile<T>(file: File, fn: (p: string) => Promise<T>): Promise<T> {
     const dir = await mkdtemp(path.join(os.tmpdir(), 'nightly-up-'))
     try {
-        const p = path.join(dir, path.basename(file.name).replace(/[^\w.\-]/g, "_") || "upload")
+        const p = path.join(/*turbopackIgnore: true*/ dir, path.basename(file.name).replace(/[^\w.\-]/g, "_") || "upload")
         await writeFile(p, Buffer.from(await file.arrayBuffer()))
         return await fn(p)
     } finally { await rm(dir, { recursive: true, force: true }) }
