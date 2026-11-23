@@ -6,6 +6,7 @@ import { parsePage, type Paged } from '~/lib/paging'
 import { DataTable, type Column } from './DataTable'
 import { useUrlParams } from './Pagination'
 import { ago } from './pills'
+import { FeedForm, field as fieldCls, type FieldDef } from './FeedEdit'
 
 // The DB-driven health pages (releases, crashes, web budgets, playtests, content stats): one shell, one shared DataTable each.
 // Search, sort, facet filters and paging are server-side and live in the URL.
@@ -25,6 +26,33 @@ function Shell({ title, hint, children }: { title: string; hint: string; childre
 const opts = (xs?: string[]) => (xs ?? []).map((value) => ({ value }))
 const input = (q: ReturnType<typeof parsePage>) => ({ page: q.page, size: q.size, sort: q.sort, dir: q.dir, q: q.q || undefined, f: q.f })
 const keep = <T,>(p: T) => p
+
+type Kind = 'crash' | 'playtest' | 'content' | 'web'
+type Editing = { id: number | null; initial: Record<string, string> }
+/** Add / edit / delete state for one page; every write is the CLI's `nightly <kind> add|edit|delete` through the feed router. */
+function useRowEditor(kind: Kind, refresh: () => void) {
+    const [ed, setEd] = useState<Editing | null>(null)
+    const [err, setErr] = useState('')
+    const ok = () => { refresh(); setEd(null); setErr('') }
+    const onError = (e: { message: string }) => setErr(e.message)
+    const add = api.feed.feedAdd.useMutation({ onSuccess: ok, onError })
+    const edit = api.feed.feedEdit.useMutation({ onSuccess: ok, onError })
+    const del = api.feed.feedRemove.useMutation({ onSuccess: ok, onError })
+    return {
+        ed, err, busy: add.isPending || edit.isPending || del.isPending,
+        open: (id: number | null, initial: Record<string, string>) => { setErr(''); setEd({ id, initial }) },
+        close: () => setEd(null),
+        save: (rec: Record<string, string>) => (ed?.id == null ? add.mutate({ kind, rec }) : edit.mutate({ kind, id: ed.id, rec })),
+        remove: () => { if (ed?.id != null) del.mutate({ kind, id: ed.id }) },
+    }
+}
+function RowForm({ e, fields }: { e: ReturnType<typeof useRowEditor>; fields: FieldDef[] }) {
+    if (!e.ed) return null
+    return <FeedForm key={String(e.ed.id)} fields={fields} initial={e.ed.initial} isNew={e.ed.id == null} busy={e.busy} error={e.err} onSave={e.save} onDelete={e.remove} onCancel={e.close} />
+}
+const AddBtn = ({ label, onClick }: { label: string; onClick: () => void }) => <div className="mb-3"><button className={fieldCls} onClick={onClick}>{label}</button></div>
+const EditBtn = ({ onClick }: { onClick: () => void }) => <button className="text-[12px] text-accent hover:underline" onClick={onClick}>Edit</button>
+const str = (o: Record<string, unknown>, ks: string[]) => Object.fromEntries(ks.map((k) => [k, o[k] == null ? '' : String(o[k])]))
 
 function useFeed(name: FeedName) {
     const { sp } = useUrlParams()
@@ -103,12 +131,14 @@ function ReleasesInner() {
     )
 }
 
+const CRASH_FIELDS: FieldDef[] = [{ name: 'game', locked: true }, { name: 'signature', locked: true }, { name: 'version', locked: true }, { name: 'platform', locked: true }, { name: 'count' }, { name: 'status', options: ['open', 'fixed', 'ignored'] }, { name: 'sample', wide: true }]
 type Crash = RouterOutputs['feed']['crashes']['page']['rows'][number]
 function CrashesInner() {
     const q = useFeed('crashes')
     const d = api.feed.crashes.useQuery(input(q), { placeholderData: keep })
     const utils = api.useUtils()
     const set = api.feed.setCrash.useMutation({ onSuccess: () => utils.feed.crashes.invalidate() })
+    const e = useRowEditor('crash', () => utils.feed.crashes.invalidate())
     const cols: Column<Crash>[] = [
         { key: 'game', label: 'Game', sortable: true, render: (r) => r.game },
         { key: 'signature', label: 'Signature', sortable: true, className: 'font-mono text-[12px]', render: (r) => <span title={r.sample}>{r.signature}</span> },
@@ -119,9 +149,12 @@ function CrashesInner() {
             <select value={r.status} onChange={(e) => set.mutate({ game: r.game, signature: r.signature, status: e.target.value as 'open' | 'fixed' | 'ignored' })} className="rounded border border-line bg-panel px-1 text-[12px]"><option>open</option><option>fixed</option><option>ignored</option></select>
         ) },
         { key: 'at', label: 'Last seen', sortable: true, className: 'text-dim', render: (r) => ago(r.at) },
+        { key: 'edit', label: '', render: (r) => <EditBtn onClick={() => e.open(r.id, str(r, ['game', 'signature', 'version', 'platform', 'count', 'status', 'sample']))} /> },
     ]
     return (
-        <Shell title="Health & crashes" hint="Crashes grouped by signature; a fixed group reopens when it recurs. nightly crash add|list|set">
+        <Shell title="Health & crashes" hint="Crashes grouped by signature; a fixed group reopens when it recurs. nightly crash add|list|edit|delete|set|scan|summary (scan runs hourly)">
+            <AddBtn label="Add crash" onClick={() => e.open(null, { status: 'open' })} />
+            <RowForm e={e} fields={CRASH_FIELDS} />
             <DataTable cols={cols} data={d.data?.page ?? empty()} rowKey={(r) => r.id} sort={q.sort} dir={q.dir} q={q.q} active={q.f} searchHint="Search signature, sample, game" empty={none('crashes')}
                 filters={[{ key: 'game', label: 'Game', options: opts(d.data?.facets.game) }, { key: 'status', label: 'Status', options: opts(d.data?.facets.status) }, { key: 'platform', label: 'Platform', options: opts(d.data?.facets.platform) }]} />
         </Shell>
@@ -143,12 +176,30 @@ const WEB_COLS: Column<WebRow>[] = [
     { key: 'trend', label: 'Trend', render: (r) => <Spark v={r.trend} bad={over(r)} /> },
     { key: 'at', label: 'When', sortable: true, className: 'text-dim', render: (r) => (r.at ? ago(r.at) : '-') },
 ]
+const WEB_SAMPLE_FIELDS: FieldDef[] = [{ name: 'game' }, { name: 'metric' }, { name: 'value' }, { name: 'url' }]
+const WEB_BUDGET_FIELDS: FieldDef[] = [{ name: 'game' }, { name: 'metric' }, { name: 'max' }, { name: 'unit' }]
 function WebInner() {
     const q = useFeed('web')
     const d = api.feed.web.useQuery(input(q), { placeholderData: keep })
+    const utils = api.useUtils()
+    const [f, setF] = useState<{ budget: boolean; initial: Record<string, string> } | null>(null)
+    const [err, setErr] = useState('')
+    const done = () => { utils.feed.web.invalidate(); setF(null); setErr('') }
+    const onError = (x: { message: string }) => setErr(x.message)
+    const addSample = api.feed.feedAdd.useMutation({ onSuccess: done, onError })
+    const setBudget = api.feed.setBudget.useMutation({ onSuccess: done, onError })
+    const delBudget = api.feed.deleteBudget.useMutation({ onSuccess: done, onError })
+    const cols: Column<WebRow>[] = [...WEB_COLS, { key: 'edit', label: '', render: (r) => <EditBtn onClick={() => { setErr(''); setF({ budget: true, initial: { game: r.game, metric: r.metric, max: r.max == null ? '' : String(r.max), unit: r.unit } }) }} /> }]
     return (
-        <Shell title="Web checks" hint="Bundle size, web vitals and uptime as budgeted series; a sample over its budget opens an RSI finding. nightly web add|budget|list">
-            <DataTable cols={WEB_COLS} data={d.data?.page ?? empty()} rowKey={(r) => r.key} sort={q.sort} dir={q.dir} q={q.q} active={q.f} searchHint="Search game or metric" empty={none('web samples')}
+        <Shell title="Web checks" hint="Bundle size, web vitals and uptime as budgeted series; a sample over its budget opens an RSI finding. nightly webcheck add|budget|edit|delete|list|probe (probe runs every 15 minutes)">
+            <div className="mb-3 flex gap-2">
+                <button className={fieldCls} onClick={() => { setErr(''); setF({ budget: false, initial: {} }) }}>Add sample</button>
+                <button className={fieldCls} onClick={() => { setErr(''); setF({ budget: true, initial: {} }) }}>Set budget</button>
+            </div>
+            {f && <FeedForm key={String(f.budget) + (f.initial.game ?? '') + (f.initial.metric ?? '')} fields={f.budget ? WEB_BUDGET_FIELDS : WEB_SAMPLE_FIELDS} initial={f.initial} isNew busy={addSample.isPending || setBudget.isPending || delBudget.isPending} error={err} onCancel={() => setF(null)}
+                onSave={(v) => (f.budget ? setBudget.mutate({ game: v.game ?? '', metric: v.metric ?? '', max: Number(v.max), unit: v.unit ?? '' }) : addSample.mutate({ kind: 'web', rec: v }))} />}
+            {f?.budget && f.initial.game && <div className="mb-3"><button className={`${fieldCls} text-red-300`} onClick={() => { if (confirm(`Delete the budget ${f.initial.game}/${f.initial.metric}?`)) delBudget.mutate({ game: f.initial.game, metric: f.initial.metric }) }}>Delete this budget</button></div>}
+            <DataTable cols={cols} data={d.data?.page ?? empty()} rowKey={(r) => r.key} sort={q.sort} dir={q.dir} q={q.q} active={q.f} searchHint="Search game or metric" empty={none('web samples')}
                 filters={[{ key: 'game', label: 'Game', options: opts(d.data?.facets.game) }, { key: 'state', label: 'Budget', options: [{ value: 'over', label: 'over budget' }, { value: 'ok', label: 'within budget' }] }]} />
         </Shell>
     )
@@ -163,12 +214,18 @@ const PLAY_COLS: Column<Play>[] = [
     { key: 'text', label: 'Feedback', render: (r) => <>{r.text}{r.tags && <span className="ml-2 text-[11px] text-dim">{r.tags}</span>}</> },
     { key: 'at', label: 'When', sortable: true, className: 'text-dim', render: (r) => ago(r.at) },
 ]
+const PLAY_FIELDS: FieldDef[] = [{ name: 'game' }, { name: 'build' }, { name: 'tester' }, { name: 'rating' }, { name: 'tags' }, { name: 'text', wide: true }]
 function PlaytestsInner() {
     const q = useFeed('playtests')
     const d = api.feed.playtests.useQuery(input(q), { placeholderData: keep })
+    const utils = api.useUtils()
+    const e = useRowEditor('playtest', () => utils.feed.playtests.invalidate())
+    const cols: Column<Play>[] = [...PLAY_COLS, { key: 'edit', label: '', render: (r) => <EditBtn onClick={() => e.open(r.id, str(r, ['game', 'build', 'tester', 'rating', 'tags', 'text']))} /> }]
     return (
-        <Shell title="Playtests & feedback" hint="Tester notes per build with a 1-5 rating and tags. nightly playtest add|list|summary">
-            <DataTable cols={PLAY_COLS} data={d.data?.page ?? empty()} rowKey={(r) => r.id} sort={q.sort} dir={q.dir} q={q.q} active={q.f} searchHint="Search feedback, tags, build, tester" empty={none('playtests')}
+        <Shell title="Playtests & feedback" hint="Tester notes per build with a 1-5 rating and tags. nightly playtest add|list|edit|delete|summary|record|import-perf (bot runs: nightly playtest record, scheduled daily)">
+            <AddBtn label="Add playtest" onClick={() => e.open(null, {})} />
+            <RowForm e={e} fields={PLAY_FIELDS} />
+            <DataTable cols={cols} data={d.data?.page ?? empty()} rowKey={(r) => r.id} sort={q.sort} dir={q.dir} q={q.q} active={q.f} searchHint="Search feedback, tags, build, tester" empty={none('playtests')}
                 filters={[{ key: 'game', label: 'Game', options: opts(d.data?.facets.game) }, { key: 'tester', label: 'Tester', options: opts(d.data?.facets.tester) }]} />
         </Shell>
     )
@@ -184,12 +241,18 @@ const CONTENT_COLS: Column<Stat>[] = [
     { key: 'value', label: 'Value', sortable: true, className: 'tabular-nums', render: (r) => <span className={outside(r) ? 'text-red-300' : ''}>{r.value}</span> },
     { key: 'band', label: 'Band', className: 'tabular-nums text-dim', render: (r) => `[${r.min ?? '-'}, ${r.max ?? '-'}]` },
 ]
+const CONTENT_FIELDS: FieldDef[] = [{ name: 'game', locked: true }, { name: 'category', locked: true }, { name: 'name', locked: true }, { name: 'metric', locked: true }, { name: 'value' }, { name: 'min' }, { name: 'max' }]
 function ContentInner() {
     const q = useFeed('content')
     const d = api.feed.content.useQuery(input(q), { placeholderData: keep })
+    const utils = api.useUtils()
+    const e = useRowEditor('content', () => utils.feed.content.invalidate())
+    const cols: Column<Stat>[] = [...CONTENT_COLS, { key: 'edit', label: '', render: (r) => <EditBtn onClick={() => e.open(r.id, str(r, ['game', 'category', 'name', 'metric', 'value', 'min', 'max']))} /> }]
     return (
-        <Shell title="Content & balance" hint="Balance numbers per item; a value outside its [min, max] band opens an RSI finding. nightly content add|list|summary">
-            <DataTable cols={CONTENT_COLS} data={d.data?.page ?? empty()} rowKey={(r) => r.id} sort={q.sort} dir={q.dir} q={q.q} active={q.f} searchHint="Search name, metric, category" empty={none('content stats')}
+        <Shell title="Content & balance" hint="Balance numbers per item; a value outside its [min, max] band opens an RSI finding. nightly content add|list|edit|delete|summary|scan (scan runs daily)">
+            <AddBtn label="Add stat" onClick={() => e.open(null, {})} />
+            <RowForm e={e} fields={CONTENT_FIELDS} />
+            <DataTable cols={cols} data={d.data?.page ?? empty()} rowKey={(r) => r.id} sort={q.sort} dir={q.dir} q={q.q} active={q.f} searchHint="Search name, metric, category" empty={none('content stats')}
                 filters={[{ key: 'game', label: 'Game', options: opts(d.data?.facets.game) }, { key: 'category', label: 'Category', options: opts(d.data?.facets.category) }, { key: 'metric', label: 'Metric', options: opts(d.data?.facets.metric) }]} />
         </Shell>
     )

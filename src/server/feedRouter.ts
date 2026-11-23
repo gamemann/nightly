@@ -93,6 +93,14 @@ export const feedRouter = router({
         cli(['web', 'budget', '--game', input.game, '--metric', input.metric, '--max', String(input.max), '--unit', input.unit, '--json'])),
     setCrash: procedure.input(z.object({ game: z.string(), signature: z.string(), status: z.enum(['open', 'fixed', 'ignored']) })).mutation(({ input }) =>
         cli(['crash', 'set', '--game', input.game, '--signature', input.signature, '--status', input.status, '--json'])),
+    /** Generic row writes for crash, playtest and content (and web samples): the same `nightly <kind> add|edit|delete` an agent runs, so lib/feeds.mjs is the only writer. */
+    feedAdd: procedure.input(z.object({ kind: z.enum(FEED_KINDS), rec: z.record(z.string(), z.union([z.string(), z.number()])) })).mutation(({ input }) =>
+        cli(['feed', 'add', input.kind, '-', '--json'], JSON.stringify(input.rec))),
+    feedEdit: procedure.input(z.object({ kind: z.enum(FEED_KINDS), id: z.number().int(), rec: z.record(z.string(), z.union([z.string(), z.number()])) })).mutation(({ input }) =>
+        cli([input.kind, 'edit', String(input.id), ...Object.entries(input.rec).flatMap(([k, v]) => [`--${k}`, String(v)]), '--json'])),
+    feedRemove: procedure.input(z.object({ kind: z.enum(FEED_KINDS), id: z.number().int() })).mutation(({ input }) => cli([input.kind, 'delete', String(input.id), '--json'])),
+    deleteBudget: procedure.input(z.object({ game: z.string().min(1), metric: z.string().min(1) })).mutation(({ input }) =>
+        cli(['web', 'budget', '--delete', '--game', input.game, '--metric', input.metric, '--json'])),
     /** Release writes: the same `nightly releases ...` commands an agent uses, so the panel and the CLI share lib/feeds.mjs. */
     releaseAdd: procedure.input(relKey.extend({ ci: z.enum(CI).default('unknown'), changelog: z.string().default(''), rollback: z.string().default(''), deployedTo: z.string().default(''), game: z.string().default('') })).mutation(({ input }) =>
         cli(['releases', 'add', '--repo', input.repo, '--version', input.version, '--channel', input.channel, '--ci', input.ci, '--changelog', input.changelog, '--rollback', input.rollback, '--deployed-to', input.deployedTo, '--game', input.game, '--json'])),
