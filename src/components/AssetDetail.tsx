@@ -20,7 +20,7 @@ export type DetailData = {
         sounds?: { name: string; len: number; rate: number; bytes: number; channels?: number; format?: string; event?: string; game?: string; kind?: string; synth?: string; file?: string; max_distance?: number; concurrent?: number; source?: string }[]
         compare?: { status: string; pack?: string; weapon_id?: string; diff?: string[] }
         flags?: { code: string; severity: string; msg: string }[]
-        map?: { original?: { source?: string; tris?: number; surfaces?: number; error?: string }; layout: string; tris: number; surfaces: number; materials: number; textured: number; untextured: number; untexturedTris: number; missingTextures: string[]; missingTextureCount: number; mappedMaterials?: number; props?: number; propsPlaced?: number; propsMissing?: number; missingModels?: string[]; textureMb?: number; textureMax?: number; spawns: number; hulls: number; triggers: number; chunks: number; bounds?: { min: number[]; max: number[] } | null }
+        map?: { original?: { source?: string; tris?: number; surfaces?: number; error?: string; textured?: number; noTexture?: string[]; noTextureCount?: number }; layout: string; tris: number; surfaces: number; materials: number; textured: number; untextured: number; untexturedTris: number; missingTextures: string[]; missingTextureCount: number; mappedMaterials?: number; props?: number; propsPlaced?: number; propsMissing?: number; missingModels?: string[]; textureMb?: number; textureMax?: number; spawns: number; hulls: number; triggers: number; chunks: number; bounds?: { min: number[]; max: number[] } | null }
     }
 }
 export type ReviewHit = { key: string; title: string; verdict: string; note: string; media: { slot: string; variant: string; label: string; file: string; waveform?: string; strip?: string; poster?: string }[] }
@@ -208,8 +208,13 @@ function OriginalPane({ d }: { d: DetailData }) {
                     <Stat k="source" v={o.source ?? "-"} /><Stat k="triangles" v={(o.tris ?? 0).toLocaleString("en-GB")} /><Stat k="surfaces" v={(o.surfaces ?? 0).toLocaleString("en-GB")} />
                     {info && <><Stat k="meshes" v={info.meshes} /><Stat k="source materials" v={info.materials.length} /></>}
                 </div>
-                <div className="mt-2 text-[12px] text-dim">Exported from the source BSP with flat material colours; the original's textures are Valve assets and are not bundled, so the converted map is what carries real textures.</div>
+                <div className="mt-2 text-[12px] text-dim">Exported from the source BSP and textured with the images the converted map resolved for the same material names. Materials without a texture show a grey checker; tools/* are black or hidden as in the converted map.</div>
             </Section>
+            {!!o.noTexture?.length && (
+                <Section id="orig-notexture" title={`No texture available (${o.noTextureCount ?? o.noTexture.length})`}>
+                    <div className="grid grid-cols-1 gap-1 sm:grid-cols-2 lg:grid-cols-3">{o.noTexture.map((m) => <div key={m} className="truncate rounded bg-panel/40 px-2 py-1 text-[12px] text-dim" title={m}>{m}</div>)}</div>
+                </Section>
+            )}
             <Section id="orig-materials" title={`Original materials (${info?.materials.length ?? "..."})`}>
                 {info?.error ? <div className="text-[12px] text-red-300">{info.error}</div> : info?.materials.length ? (
                     <div className="grid grid-cols-1 gap-1 sm:grid-cols-2 lg:grid-cols-3">{info.materials.map((m, i) => (
