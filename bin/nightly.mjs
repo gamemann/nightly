@@ -26,9 +26,10 @@ import * as UC from '../lib/usage-ch.mjs'
 import { syncBlockers } from '../lib/rsi-blockers.mjs'
 import { agentLive } from '../lib/cli-agents.mjs'
 import { FEED_COMMANDS, FEED_HELP, runFeedCommand } from '../lib/cli-feeds.mjs'
+import { ACCOUNT_COMMANDS, ACCOUNT_BOOL, ACCOUNT_HELP, runAccountCommand } from '../lib/cli-accounts.mjs'
 
 const argv = process.argv.slice(2)
-const BOOL = new Set(['json', 'all', 'top', 'due', 'help', 'h', 'dryRun', 'force', 'peek', 'strict', 'register', 'noFindings', 'noBudgets', 'noBaseline', 'requireToken', 'tokenOnly', 'png', 'disable', 'enable', 'infra', 'leave', 'purge', 'wait', 'child', 'full', 'noCh', 'resync', 'missing', 'noCi', 'absolute', 'delete', 'noJournal', 'frame'])
+const BOOL = new Set(['json', 'all', 'top', 'due', 'help', 'h', 'dryRun', 'force', 'peek', 'strict', 'register', 'noFindings', 'noBudgets', 'noBaseline', 'requireToken', 'tokenOnly', 'png', 'disable', 'enable', 'infra', 'leave', 'purge', 'wait', 'child', 'full', 'noCh', 'resync', 'missing', 'noCi', 'absolute', 'delete', 'noJournal', 'frame', ...ACCOUNT_BOOL])
 
 const multi = {}
 function parse(args) {
@@ -142,6 +143,9 @@ const HELP = `nightly -- the nightly run's to-do database (${S.DB_PATH})
   perf runs [--game X] [--limit N] | perf compare <runA> <runB> | perf findings [--game X]
   perf finding add --game X --metric M [--item KEY | --title T]   link a perf finding to a queue item
 ${FEED_HELP}
+
+  Users, projects and nodes (the panel's AdminCP does the same):
+${ACCOUNT_HELP}
   tick [--dry-run]                              crontab, every minute: fire the schedules due now
   start <schedule-id|name>                      fire one schedule now (ignores doRun); prints the run id
 
@@ -868,6 +872,7 @@ try {
         checked: cmdChecked, run: cmdRun, get: cmdGet, 'set-setting': cmdSetSetting, brief: cmdBrief,
         prompt: cmdPrompt, prompts: cmdPrompt, schedule: cmdSchedule, schedules: cmdSchedule, tick: cmdTick, start: cmdStart, exec: cmdExec, agent: cmdAgent, account: cmdAccount, accounts: cmdAccount, perf: cmdPerf, assets: cmdAssets, rsi: cmdRsi, usage: cmdUsage }
     for (const c of [...FEED_COMMANDS, 'feed', 'gates']) table[c] = () => runFeedCommand(c, { db, pos, opt, out, die, readStdin })
+    for (const c of ACCOUNT_COMMANDS) table[c] ??= () => runAccountCommand(c, { db, pos, opt, out, die, readStdin })
     const fn = table[cmd] ?? die(`unknown command "${cmd}" (try: nightly help)`)
     await fn()
 } catch (e) {
