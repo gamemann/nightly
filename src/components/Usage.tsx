@@ -233,7 +233,7 @@ function Tables({ days, filter, setFilter }: { days: number; filter?: Record<str
                 <div className="mt-3">
                     <div className="mb-1 text-[12px] font-medium">Sessions</div>
                     <table className="w-full text-[12px]"><thead className="text-left text-muted"><tr><th className="px-2">session</th><th>project</th><th>branch</th><th>last</th><th className="text-right">msgs</th><th className="text-right">total</th><th className="text-right">est.</th></tr></thead>
-                        <tbody>{sess.data?.rows.map((s) => <tr key={s.key} className="border-t border-line"><td className="px-2 font-mono">{s.key.slice(0, 8)}</td><td>{s.project}</td><td>{s.branch}</td><td>{when(s.last)}</td><td className="text-right tabular-nums">{s.messages + s.subMessages}</td><td className="text-right tabular-nums">{fmt(s.total)}</td><td className="text-right tabular-nums">{usd(s.cost)}</td></tr>)}</tbody></table>
+                        <tbody>{sess.data?.rows.map((s) => <tr key={s.key} className="border-t border-line"><td className="px-2 font-mono"><Link className="text-sky-300 hover:underline" title="open the transcript" href={`/transcripts/session/${s.key}`}>{s.key.slice(0, 8)}</Link></td><td>{s.project}</td><td>{s.branch}</td><td>{when(s.last)}</td><td className="text-right tabular-nums">{s.messages + s.subMessages}</td><td className="text-right tabular-nums">{fmt(s.total)}</td><td className="text-right tabular-nums">{usd(s.cost)}</td></tr>)}</tbody></table>
                 </div>
             )}
         </div>

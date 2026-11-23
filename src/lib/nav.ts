@@ -14,6 +14,8 @@ export type NavLink = {
     also?: string[]
     /** Tailwind class of a colored status dot instead of the glyph. */
     dot?: string
+    /** Active only on exactly this path (not its sub pages, which have their own link). */
+    exact?: boolean
     /** item.counts key shown as a badge. */
     count?: 'queue' | 'in_progress' | 'review' | 'blocked' | 'issues' | 'checks' | 'done'
 }
@@ -53,7 +55,12 @@ export const NAV: NavSection[] = [
             { href: '/automation/checks', label: 'Checks', icon: '•', dot: 'bg-teal-300', count: 'checks', perm: ['automation.view', 'tasks.view'] },
         ],
     },
-    { key: 'usage', links: [{ href: '/usage', label: 'Usage', icon: 'Σ', perm: 'usage.view' }] },
+    {
+        key: 'usage', title: 'Usage', perm: 'usage.view', links: [
+            { href: '/usage', label: 'Claude & transcripts', icon: 'Σ', perm: 'usage.view', exact: true },
+            { href: '/usage/github', label: 'GitHub API', icon: '⌥', perm: 'usage.view' },
+        ],
+    },
     {
         key: 'tools', title: 'Game Tools', rule: true, perm: 'tools.view', links: [
             { href: '/tools/assets', label: 'Asset Manager', icon: '◆', perm: 'tools.view', also: ['/tools/rsi', '/tools/reviews', '/tools/content'] },
@@ -86,5 +93,5 @@ export function visibleNav(perms: Perms) {
         .filter((s) => s.links.length || s.href)
 }
 
-export const isActive = (path: string, l: Pick<NavLink, 'href' | 'also'>) =>
-    [l.href, ...(l.also ?? [])].some((h) => path === h || path.startsWith(`${h}/`))
+export const isActive = (path: string, l: Pick<NavLink, 'href' | 'also' | 'exact'>) =>
+    [l.href, ...(l.also ?? [])].some((h) => path === h || (!l.exact && path.startsWith(`${h}/`)))

@@ -5,9 +5,10 @@ export const dynamic = "force-dynamic"
 // POST multipart: file, type? (model|texture|sound|animation|map|other), pack?, note?, project?, bin? (the .bin beside a GameSpice map .json).
 // Validates (type, magic bytes, size limit from the settings uploadMaxMb[.type], 0 = unlimited), stores, converts and scans via `nightly assets upload`.
 export async function POST(req: Request) {
-    const auth = await toolViewer(req, "assets.upload")
-    if ("deny" in auth) return auth.deny
     const form = await req.formData()
+    const proj = form.get("project")
+    const auth = await toolViewer(req, "assets.upload", typeof proj === "string" && proj.trim() ? proj.trim() : undefined)
+    if ("deny" in auth) return auth.deny
     const file = form.get("file")
     if (!(file instanceof File) || !file.size) return Response.json({ error: "no file in the upload" }, { status: 400 })
     const bin = form.get("bin")

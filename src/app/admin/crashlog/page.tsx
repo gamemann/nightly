@@ -1,4 +1,4 @@
-import { CrashLog } from '~/components/later/CrashLog'
+import { CrashLog } from '~/components/admin/CrashLog'
 import { guard } from '~/server/pageGuard'
 
 export default async function CrashLogPage() {

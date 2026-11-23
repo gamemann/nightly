@@ -4,7 +4,10 @@ import os from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
 
+import { canProject } from '../../lib/permissions.mjs'
 import { viewerCan, viewerFromRequest, type Viewer } from './auth'
+import { db } from './db'
+import { projectScope } from './projectsRouter'
 
 const execp = promisify(execFile)
 
@@ -29,10 +32,28 @@ export async function withTempFile<T>(file: File, fn: (p: string) => Promise<T>)
     } finally { await rm(dir, { recursive: true, force: true }) }
 }
 
-/** The signed-in viewer of a tools route holding `perm`, or the refusing Response (401 not signed in, 403 missing the permission). */
-export async function toolViewer(req: Request, perm: string): Promise<{ viewer: Viewer } | { deny: Response }> {
+/** The signed-in viewer of a tools route holding `perm`, or the refusing Response (401 not signed in, 403 missing the permission).
+ *  With `projectSlug` (a project's slug or its perf game slug) the work is filed under that project: the viewer needs `perm`
+ *  and projects.view there, globally or through a project/folder grant; an unknown slug is refused (400). */
+export async function toolViewer(req: Request, perm: string, projectSlug?: string): Promise<{ viewer: Viewer } | { deny: Response }> {
     const viewer = await viewerFromRequest(req)
     if (!viewer) return { deny: Response.json({ error: 'sign in first' }, { status: 401 }) }
-    if (!viewerCan(viewer, perm)) return { deny: Response.json({ error: `missing permission ${perm}` }, { status: 403 }) }
+    if (!projectSlug) {
+        if (!viewerCan(viewer, perm)) return { deny: Response.json({ error: `missing permission ${perm}` }, { status: 403 }) }
+        return { viewer }
+    }
+    const id = await projectIdOf(projectSlug)
+    if (id === null) return { deny: Response.json({ error: `unknown project ${projectSlug}` }, { status: 400 }) }
+    const scope = await projectScope(viewer)
+    for (const k of [perm, 'projects.view']) if (!canProject(viewer.perms, scope, k, id)) return { deny: Response.json({ error: `missing permission ${k} on ${projectSlug}` }, { status: 403 }) }
     return { viewer }
+}
+
+/** A project id by slug, or by the perf game slug in its settings (tools jobs store the game slug). */
+async function projectIdOf(slug: string): Promise<number | null> {
+    const p = await db.project.findUnique({ where: { slug }, select: { id: true } })
+    if (p) return p.id
+    const all = await db.project.findMany({ select: { id: true, settings: true } })
+    const hit = all.find((x) => { try { return (JSON.parse(x.settings || '{}') as { perfGame?: string }).perfGame === slug } catch { return false } })
+    return hit?.id ?? null
 }
