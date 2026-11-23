@@ -1,9 +1,9 @@
 import { db } from './db'
 import { INDEXES, BACKFILL, alterStatements } from '../../lib/asset-cols.mjs'
-import { PIECE_SQL, describe, placeOf } from '../../lib/asset-names.mjs'
+import { ENTITY_KINDS, PIECE_SQL, describe, placeOf } from '../../lib/asset-names.mjs'
 import { offsetOf, likeEsc, paged, type PageQuery, type PageSpec, type Paged } from '~/lib/paging'
 
-export type Tab = 'models' | 'textures' | 'animations' | 'sounds' | 'maps' | 'libraries'
+export type Tab = 'entities' | 'models' | 'textures' | 'animations' | 'sounds' | 'maps' | 'libraries'
 export type AssetRow = {
     id: number; pack: string; game: string; weaponId: string; display: string; group: string; groupKey: string; piece: boolean; pieces: number; worst: number; copies: number; uses: string[]; kind: string; source: string; score: number; pass: boolean; auditedAt: string
     hasModel: boolean; tris: number; verts: number; materials: number; fileHash: string
@@ -59,6 +59,8 @@ function where(q: PageQuery, only: 'rows' | 'pieces' = 'rows') {
     const w: string[] = [], a: unknown[] = []
     const f = q.f
     if (f.kind) { w.push('kind = ?'); a.push(f.kind) }
+    const tb = f.tab || 'entities'
+    if (tb === 'entities' || tb === 'models') { w.push(`kind ${tb === 'models' ? 'NOT ' : ''}IN (${ENTITY_KINDS.map(() => '?').join(',')})`); a.push(...ENTITY_KINDS) }
     if (f.pack) { w.push('pack = ?'); a.push(f.pack) }
     if (f.game) { w.push("(',' || game || ',') LIKE ? ESCAPE '\\'"); a.push(`%,${likeEsc(f.game)},%`) }
     if (f.flag) { w.push("(' ' || flagCodes || ' ') LIKE ? ESCAPE '\\'"); a.push(`% ${likeEsc(f.flag)} %`) }
@@ -162,9 +164,10 @@ const group = (rows: { k: string; total: unknown; pass: unknown }[]) => rows.map
 /** Every chart number of the Assets page as SQL aggregates over the whole table (never the row set). */
 export async function assetAgg(): Promise<Agg> {
     await ensureAssetColumns()
+    const ENT = ENTITY_KINDS.map((k) => `'${k}'`).join(',')
     const W = `WHERE NOT ${PIECE_SQL}`, A = `AND NOT ${PIECE_SQL}`
     const [tot, bins, packs, kinds, flags, worst, games] = await Promise.all([
-        db.$queryRawUnsafe<Record<string, unknown>[]>(`SELECT COUNT(*) total, SUM(source='audit') audited, SUM(hasModel) m, SUM(texCount>0) t, SUM(animCount>0) a, SUM(soundCount>0) s FROM ${UNIQUE}`),
+        db.$queryRawUnsafe<Record<string, unknown>[]>(`SELECT COUNT(*) total, SUM(source='audit') audited, SUM(hasModel AND kind IN (${ENT})) e, SUM(hasModel AND kind NOT IN (${ENT})) m, SUM(texCount>0) t, SUM(animCount>0) a, SUM(soundCount>0) s FROM ${UNIQUE}`),
         db.$queryRawUnsafe<{ b: unknown; c: unknown }[]>(`SELECT MIN(9, MAX(0, score / 10)) b, COUNT(*) c FROM ${UNIQUE} GROUP BY b`),
         db.$queryRawUnsafe<{ k: string; total: unknown; pass: unknown }[]>(`SELECT pack k, COUNT(*) total, SUM(pass) pass FROM AssetWeapon WHERE pack != '' ${A} GROUP BY pack`),
         db.$queryRawUnsafe<{ k: string; total: unknown; pass: unknown }[]>(`SELECT kind k, COUNT(*) total, SUM(pass) pass FROM ${UNIQUE} WHERE kind != '' GROUP BY kind`),
@@ -180,7 +183,7 @@ export async function assetAgg(): Promise<Agg> {
         packs: group(packs), kinds: group(kinds),
         flags: flags.map((f) => ({ code: f.code, severity: f.sev, n: n(f.c), tab: flagTab(f.code) })).sort((a, b) => b.n - a.n || a.code.localeCompare(b.code)),
         worst: worst.map((w) => ({ ...w, id: n(w.id), score: n(w.score) })),
-        tabCounts: { models: n(t.m), textures: n(t.t), animations: n(t.a), sounds: n(t.s), maps: places.filter((p) => p.kind === 'map').length, libraries: places.filter((p) => p.kind === 'library').length },
+        tabCounts: { entities: n(t.e), models: n(t.m), textures: n(t.t), animations: n(t.a), sounds: n(t.s), maps: places.filter((p) => p.kind === 'map').length, libraries: places.filter((p) => p.kind === 'library').length },
         games: [...new Set(games.flatMap((g) => g.game.split(',').filter(Boolean)))].sort(),
     }
 }
