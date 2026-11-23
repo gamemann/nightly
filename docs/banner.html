@@ -1,0 +1,51 @@
+<!doctype html>
+<!-- Editable source of docs/banner.png (1280x640). Render: node scripts/make-banner.mjs [--badge TEXT] [--tagline TEXT] [--out FILE]
+     The three values below are what the script replaces; colors are the panel's tokens (src/app/globals.css). -->
+<html><head><meta charset="utf-8"><title>Nightly banner</title>
+<style>
+:root{--bg:#05070f;--panel:#0c1020;--panel2:#121731;--line:#1e2546;--line2:#2c355f;--glow:#8b8cf8;--fg:#e4e5e9;--dim:#a3a7b1;--muted:#6c717c;
+--font-sans:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Inter,Roboto,sans-serif;--font-mono:ui-monospace,'JetBrains Mono','SF Mono',Menlo,Consolas,monospace}
+*{box-sizing:border-box;margin:0}
+html,body{width:1280px;height:640px;overflow:hidden;background:var(--bg)}
+.banner{position:relative;width:1280px;height:640px;font-family:var(--font-sans);color:var(--fg);
+ background:radial-gradient(900px 520px at 78% 18%,rgba(139,140,248,.22),transparent 60%),radial-gradient(700px 500px at 8% 100%,rgba(44,53,95,.55),transparent 65%),linear-gradient(180deg,#070a18 0%,var(--bg) 70%)}
+svg.stars{position:absolute;inset:0}
+.horizon{position:absolute;left:-10%;right:-10%;bottom:-420px;height:560px;border-radius:50%;
+ background:radial-gradient(ellipse at 50% 0,var(--panel2),var(--panel) 45%,var(--bg) 75%);box-shadow:0 -2px 80px rgba(139,140,248,.28),inset 0 2px 0 rgba(139,140,248,.35)}
+.moon{position:absolute;right:120px;top:70px;width:300px;height:300px;filter:drop-shadow(0 0 40px rgba(139,140,248,.55))}
+.copy{position:absolute;left:72px;top:150px;width:780px}
+.mark{display:flex;align-items:center;gap:22px}
+.mark svg{width:84px;height:84px;filter:drop-shadow(0 0 18px rgba(139,140,248,.6))}
+h1{font-size:108px;line-height:1;font-weight:700;letter-spacing:-3px}
+.tag{margin-top:26px;font-size:30px;line-height:1.35;color:var(--dim);max-width:760px}
+.badge{display:inline-block;margin-top:34px;padding:8px 20px;border:1px solid var(--line2);border-radius:999px;background:rgba(18,23,49,.8);
+ font-family:var(--font-mono);font-size:22px;color:var(--glow);letter-spacing:.5px}
+.badge:empty{display:none}
+.foot{position:absolute;left:72px;bottom:52px;font-family:var(--font-mono);font-size:19px;color:var(--muted)}
+</style></head><body>
+<div class="banner">
+ <svg class="stars" width="1280" height="640" id="stars"></svg>
+ <div class="horizon"></div>
+ <svg class="moon" viewBox="0 0 32 32"><path d="M20.5 7.5a9 9 0 1 0 4 13.2A7.2 7.2 0 0 1 20.5 7.5Z" fill="#8b8cf8"/></svg>
+ <div class="copy">
+  <div class="mark">
+   <svg viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#111217"/><path d="M20.5 7.5a9 9 0 1 0 4 13.2A7.2 7.2 0 0 1 20.5 7.5Z" fill="#8b8cf8"/></svg>
+   <h1>Nightly</h1>
+  </div>
+  <p class="tag" id="tagline">Game and web dev tracker with RSI tooling.</p>
+  <span class="badge" id="badge"></span>
+ </div>
+ <div class="foot" id="foot">find &middot; fix &middot; remeasure</div>
+</div>
+<script>
+// Deterministic starfield (seeded), so re-renders are identical.
+let s=7;const r=()=>(s=(s*1664525+1013904223)%4294967296)/4294967296;
+const svg=document.getElementById('stars');let out='';
+for(let i=0;i<170;i++){const x=r()*1280,y=r()*420,big=r()>.93,o=.25+r()*.6;
+ out+=`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${big?1.8:(.5+r()*.9).toFixed(2)}" fill="${big?'#c9caff':'#e4e5e9'}" opacity="${o.toFixed(2)}"/>`;}
+svg.innerHTML=out;
+const q=new URLSearchParams(location.search);
+if(q.has('tagline'))document.getElementById('tagline').textContent=q.get('tagline');
+if(q.has('badge'))document.getElementById('badge').textContent=q.get('badge');
+if(q.has('foot'))document.getElementById('foot').textContent=q.get('foot');
+</script></body></html>
