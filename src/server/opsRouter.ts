@@ -5,6 +5,7 @@ import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import type { PrismaClient } from '../../generated/prisma/client'
 import { can, canProject } from '../../lib/permissions.mjs'
+import { enqueueJob, nodeFor } from './nodeManager'
 import { projectScope } from './projectsRouter'
 import { procedure as baseProcedure, router } from './trpc'
 
@@ -157,8 +158,19 @@ const offload = router({
     trigger: procedure.input(z.object({ project: slug, target: z.enum(['planet', 'station']), map: z.string().max(60).default(''), bots: z.number().int().min(1).max(64).default(4), duration: z.number().int().min(10).max(3600).default(60) })).mutation(async ({ ctx, input }) => {
         requirePerm(ctx, 'playtest.trigger', input.project)
         const by = ctx.viewer.username
-        const out = await cli('offload', 'start', 'playtest', '--project', input.project, '--target', input.target, '--map', input.map, '--bots', String(input.bots), '--duration', String(input.duration), '--by', by, '--json')
-        return JSON.parse(out) as { id: number; node: string; status: string }
+        const args = ['offload', 'start', 'playtest', '--project', input.project, '--target', input.target, '--map', input.map, '--bots', String(input.bots), '--duration', String(input.duration), '--by', by, '--json']
+        if (input.target === 'station') {
+            // A station that offers 'playtest' runs it (now or once a slot frees); none at all: this machine runs it.
+            const where = await nodeFor(['playtest'], { planetFallback: false })
+            if (where.capable.length) {
+                // The CLI creates the row and returns the cleaned command (lib/offload.mjs playtestCommand).
+                const r = JSON.parse(await cli(...args, '--node', where.node ?? 'station')) as { id: number; node: string; status: string; command: string }
+                const project = await ctx.db.project.findUnique({ where: { slug: input.project }, select: { id: true } })
+                await enqueueJob({ name: `offload:${r.id}`, kind: 'playtest', command: r.command, projectId: project?.id })
+                return { id: r.id, node: r.node, status: r.status }
+            }
+        }
+        return JSON.parse(await cli(...args)) as { id: number; node: string; status: string }
     }),
 })
 

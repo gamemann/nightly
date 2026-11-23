@@ -8,6 +8,10 @@ export type NodeSpecs = {
     gpu?: string[]
     disks?: { name: string; gb: number; ssd: boolean; model: string }[]
     buildSlots?: number; heavySlots?: number; offloadKinds?: string[]; os?: string
+    /** Root on the node that project checkouts live under; a project runs in <workspace>/<repo folder>. */
+    workspace?: string
+    /** Per-project checkout on the node: { slug: absolute path }. Wins over workspace. */
+    projectPaths?: Record<string, string>
     [k: string]: unknown
 }
 export function probeLocal(): NodeSpecs

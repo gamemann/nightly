@@ -4,15 +4,18 @@ import { api, type RouterOutputs } from '~/trpc/react'
 import { Dot, Empty, Err, Field, Page } from './nodes/ui'
 
 type Node = RouterOutputs['nodeOps']['list'][number]
-type Form = { id?: number; name: string; type: string; host: string; port: number; tls: boolean; notes: string; cpuModel: string; cores: number; threads: number; ramGb: number; gpu: string; buildSlots: number; heavySlots: number; kinds: string[] }
+type Form = { id?: number; name: string; type: string; host: string; port: number; tls: boolean; notes: string; cpuModel: string; cores: number; threads: number; ramGb: number; gpu: string; buildSlots: number; heavySlots: number; kinds: string[]; workspace: string; paths: string }
 
-const blank: Form = { name: '', type: 'station', host: '', port: 4001, tls: false, notes: '', cpuModel: '', cores: 0, threads: 0, ramGb: 0, gpu: '', buildSlots: 2, heavySlots: 1, kinds: ['build', 'test'] }
-const toForm = (n: Node): Form => ({ id: n.id, name: n.name, type: n.type, host: n.host, port: n.port, tls: n.tls, notes: n.notes, cpuModel: n.specs.cpu?.model ?? '', cores: n.specs.cpu?.cores ?? 0, threads: n.specs.cpu?.threads ?? 0, ramGb: n.specs.ram?.gb ?? 0, gpu: (n.specs.gpu ?? []).join('; '), buildSlots: n.specs.buildSlots ?? 2, heavySlots: n.specs.heavySlots ?? 1, kinds: n.specs.offloadKinds ?? [] })
+const blank: Form = { name: '', type: 'station', host: '', port: 4001, tls: false, notes: '', cpuModel: '', cores: 0, threads: 0, ramGb: 0, gpu: '', buildSlots: 2, heavySlots: 1, kinds: ['build', 'test'], workspace: '', paths: '' }
+const toForm = (n: Node): Form => ({ id: n.id, name: n.name, type: n.type, host: n.host, port: n.port, tls: n.tls, notes: n.notes, cpuModel: n.specs.cpu?.model ?? '', cores: n.specs.cpu?.cores ?? 0, threads: n.specs.cpu?.threads ?? 0, ramGb: n.specs.ram?.gb ?? 0, gpu: (n.specs.gpu ?? []).join('; '), buildSlots: n.specs.buildSlots ?? 2, heavySlots: n.specs.heavySlots ?? 1, kinds: n.specs.offloadKinds ?? [], workspace: n.specs.workspace ?? '', paths: Object.entries((n.specs.projectPaths ?? {}) as Record<string, string>).map(([k, v]) => `${k}=${v}`).join('; ') })
+/** "fc=/srv/fc; web=/srv/web" -> { fc: '/srv/fc', web: '/srv/web' } */
+const parsePaths = (t: string) => Object.fromEntries(t.split(/[;\n]/).map((x) => x.split('=').map((y) => y.trim())).filter((kv) => kv.length === 2 && kv[0] && kv[1]))
 const specsOf = (f: Form) => ({
     cpu: f.cpuModel ? { model: f.cpuModel, cores: f.cores, threads: f.threads } : undefined,
     ram: f.ramGb ? { gb: f.ramGb } : undefined,
     gpu: f.gpu.split(';').map((s) => s.trim()).filter(Boolean),
     buildSlots: f.buildSlots, heavySlots: f.heavySlots, offloadKinds: f.kinds,
+    workspace: f.workspace.trim(), projectPaths: parsePaths(f.paths),
 })
 
 export function Nodes() {
@@ -70,6 +73,8 @@ export function Nodes() {
                                 ))}
                             </div>
                         </Field>
+                        <Field label="Workspace root on the node" wide><input className="input font-mono" value={form.workspace} placeholder="/home/build/work" title="Jobs for a project run in <workspace>/<repo folder name> unless a project path below says otherwise" onChange={(e) => set('workspace', e.target.value)} /></Field>
+                        <Field label="Project paths (slug=/path; …)" wide><input className="input font-mono" value={form.paths} placeholder="fc-game=/srv/fc-game" title="Where each project's checkout lives on this node; wins over the workspace root" onChange={(e) => set('paths', e.target.value)} /></Field>
                         <label className="flex items-center gap-1 text-[12px]"><input type="checkbox" checked={form.tls} onChange={(e) => set('tls', e.target.checked)} />TLS</label>
                         <Field label="Notes" wide><input className="input" value={form.notes} onChange={(e) => set('notes', e.target.value)} /></Field>
                     </div>
@@ -100,6 +105,8 @@ export function Nodes() {
                         <div className="mt-1 text-[12px] text-muted">
                             {n.specs.cpu?.model ?? 'CPU unknown'} · {n.specs.cpu?.threads ?? '?'} threads · {n.specs.ram?.gb ?? '?'} GB{(n.specs.gpu ?? []).length ? ` · ${(n.specs.gpu ?? []).join(', ')}` : ''}
                             <span className="ml-2">offers: {(n.specs.offloadKinds ?? []).join(', ') || 'nothing'}</span>
+                            {n.specs.workspace && <span className="ml-2">workspace: <code className="font-mono">{n.specs.workspace}</code></span>}
+                            {Object.keys(n.specs.projectPaths ?? {}).length > 0 && <span className="ml-2">{Object.keys(n.specs.projectPaths ?? {}).length} project path(s)</span>}
                         </div>
                         <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px]">
                             <span className="label">Users</span>

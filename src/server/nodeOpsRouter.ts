@@ -33,6 +33,8 @@ const specsIn = z.object({
     buildSlots: z.number().int().min(0).max(256).optional(),
     heavySlots: z.number().int().min(0).max(256).optional(),
     offloadKinds: z.array(KIND).optional(),
+    workspace: z.string().max(500).optional(),
+    projectPaths: z.record(z.string(), z.string().max(500)).optional(),
 }).passthrough()
 
 async function node(id: number) {
@@ -101,7 +103,7 @@ export const nodeOpsRouter = router({
         const n = await node(input.id)
         const fresh = (await call(n.id, 'specs')) as Record<string, any>
         const old = json<Record<string, any>>(n.specs, {})
-        const specs = { ...fresh, ...Object.fromEntries(['buildSlots', 'heavySlots', 'offloadKinds'].filter((k) => old[k] !== undefined).map((k) => [k, old[k]])) }
+        const specs = { ...fresh, ...Object.fromEntries(['buildSlots', 'heavySlots', 'offloadKinds', 'workspace', 'projectPaths'].filter((k) => old[k] !== undefined).map((k) => [k, old[k]])) }
         await ctx.db.node.update({ where: { id: n.id }, data: { specs: JSON.stringify(specs) } })
         return specs
     }),
