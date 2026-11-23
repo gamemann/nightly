@@ -4,6 +4,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
 
+import { viewerCan, viewerFromRequest, type Viewer } from './auth'
+
 const execp = promisify(execFile)
 
 /** The write path of the game tools: `bin/nightly <args> --json`, so the panel and the CLI share one implementation. */
@@ -27,8 +29,10 @@ export async function withTempFile<T>(file: File, fn: (p: string) => Promise<T>)
     } finally { await rm(dir, { recursive: true, force: true }) }
 }
 
-/** Seam for the permission check: the panel login (src/proxy.ts) has already passed when a route runs. `assets.upload` / `tools.run`
- *  are enforced here once the role-based session lands; until then every signed-in user may use the tools. */
-export function toolUser(req: Request): string {
-    return req.headers.get('x-nightly-user') ?? ''
+/** The signed-in viewer of a tools route holding `perm`, or the refusing Response (401 not signed in, 403 missing the permission). */
+export async function toolViewer(req: Request, perm: string): Promise<{ viewer: Viewer } | { deny: Response }> {
+    const viewer = await viewerFromRequest(req)
+    if (!viewer) return { deny: Response.json({ error: 'sign in first' }, { status: 401 }) }
+    if (!viewerCan(viewer, perm)) return { deny: Response.json({ error: `missing permission ${perm}` }, { status: 403 }) }
+    return { viewer }
 }

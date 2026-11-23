@@ -17,6 +17,9 @@ const config: NextConfig = {
     env: { NEXT_PUBLIC_NIGHTLY_OWNER: process.env.NIGHTLY_OWNER ?? '' },
     serverExternalPackages: ['better-sqlite3', '@prisma/adapter-better-sqlite3'],
     allowedDevOrigins: devOrigins,
+    // Asset and map uploads pass through the auth proxy, which buffers request bodies (10 MB by default and then truncates).
+    // Per-file limits are the uploadMaxMb settings; this only has to be above them.
+    experimental: { proxyClientMaxBodySize: '4gb' },
     // Screenshots and QA moved into the Reviews page (tabs); old links keep working.
     redirects: async () => [
         { source: '/screenshots', destination: '/reviews?tab=media', permanent: true },

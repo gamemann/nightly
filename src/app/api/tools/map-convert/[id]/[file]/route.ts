@@ -1,11 +1,14 @@
 import { readFileSync } from "node:fs"
 import path from "node:path"
 import { db } from "~/server/db"
+import { toolViewer } from "~/server/toolsServer"
 
 export const dynamic = "force-dynamic"
 
 // GET /api/tools/map-convert/<job id>/<output file>: a finished job's result file (only names the job lists as outputs).
-export async function GET(_req: Request, { params }: { params: Promise<{ id: string; file: string }> }) {
+export async function GET(req: Request, { params }: { params: Promise<{ id: string; file: string }> }) {
+    const auth = await toolViewer(req, "tools.view")
+    if ("deny" in auth) return auth.deny
     const { id, file } = await params
     if (!/^\d+$/.test(id)) return new Response("bad request", { status: 400 })
     const name = path.basename(decodeURIComponent(file))
