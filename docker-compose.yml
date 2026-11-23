@@ -5,8 +5,9 @@
 services:
   panel:
     build: .
-    container_name: nightly-panel
+    container_name: ${NIGHTLY_PANEL_CONTAINER:-nightly-panel}
     restart: unless-stopped
+    cgroup_parent: ${NIGHTLY_CGROUP_PARENT:-}
     depends_on:
       clickhouse:
         condition: service_healthy
@@ -22,11 +23,19 @@ services:
       - "${NIGHTLY_BIND:-0.0.0.0}:${NIGHTLY_PORT:-3010}:3010"
     volumes:
       - panel-data:/data
+    healthcheck:
+      # node is the only tool the slim image is sure to have; /login is public.
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3010/login').then((r)=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 90s
 
   clickhouse:
     image: clickhouse/clickhouse-server:25.8.33.6
-    container_name: nightly-clickhouse
+    container_name: ${NIGHTLY_CLICKHOUSE_CONTAINER:-nightly-clickhouse}
     restart: unless-stopped
+    cgroup_parent: ${NIGHTLY_CGROUP_PARENT:-}
     environment:
       CLICKHOUSE_DB: ${NIGHTLY_CLICKHOUSE_DB:-nightly_usage}
       CLICKHOUSE_USER: ${NIGHTLY_CLICKHOUSE_USER:-nightly}
@@ -45,9 +54,9 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8123/ping | grep -q Ok"]
       interval: 10s
-      timeout: 3s
+      timeout: 10s
       retries: 10
-      start_period: 15s
+      start_period: 30s
 
 volumes:
   panel-data:

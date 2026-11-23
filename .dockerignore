@@ -1,6 +1,10 @@
-node_modules
-.next
-.git
+archive
 data
+**/*.db
+**/*.db-*
+docs
 .env
 generated
+.git
+.next
+node_modules

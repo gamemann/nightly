@@ -184,6 +184,22 @@ A new database is blank and paused. In the panel: add a runner script named [`ru
 ### Restarting the panel
 After a deploy (`git merge --ff-only`, `npx prisma generate`, `npm run build`) run [`scripts/restart-panel.sh`](./scripts/restart-panel.sh). Where there is no systemd unit the panel is plain `npm start` on port 3010; the script stops whatever listens there and starts a fresh detached `npm start`, logging to `data/panel.log` (`--stop` only stops it). It re-runs itself as the checkout's owner, and runs already started keep going.
 
+### Docker
+`docker compose up -d --build` runs the panel and ClickHouse together; the panel creates its SQLite tables, the ClickHouse tables and the first admin on every start. Copy [`.env.example`](./.env.example) to `.env` first.
+
+| Setting (`.env`) | Default | Meaning |
+|---|---|---|
+| `NIGHTLY_ADMIN_USER` / `NIGHTLY_ADMIN_PASSWORD` | `admin` / generated | First admin; a blank password is generated and printed once in `docker compose logs panel` |
+| `NIGHTLY_PORT` / `NIGHTLY_BIND` | `3010` / `0.0.0.0` | Where the panel is published |
+| `NIGHTLY_CLICKHOUSE_PORT` / `NIGHTLY_CLICKHOUSE_BIND` | `8123` / `127.0.0.1` | Where ClickHouse HTTP is published |
+| `NIGHTLY_CLICKHOUSE_PASSWORD` | dev default | Change before exposing the port |
+| `COMPOSE_PROJECT_NAME`, `NIGHTLY_PANEL_CONTAINER`, `NIGHTLY_CLICKHOUSE_CONTAINER` | `nightly`, fixed names | Set all three to run a second stack beside another |
+| `NIGHTLY_CGROUP_PARENT` | empty (Docker default) | cgroup slice for both containers; see below |
+
+Both services have healthchecks (`docker compose ps`). Data lives in the volumes `panel-data` (`/data`, SQLite) and `clickhouse-data`; `docker compose down` keeps them, `down -v` deletes them. Add a node by registering `host:4001` and its token in the panel (Nodes), after [`install/install-node.sh --station`](./install/install-node.sh) on that machine.
+
+A host can put every container in a memory-capped slice (`cgroup-parent` in `/etc/docker/daemon.json`). When that slice is over its `memory.high`, the kernel throttles every process in it, healthcheck `exec`s included: the container then shows `unhealthy` with `timed out starting health check` and never serves. Set `NIGHTLY_CGROUP_PARENT=system.slice` (or another uncapped slice) in `.env` on such a host. The panel running on the host (`scripts/restart-panel.sh`) does not need Docker; migration to Docker is in [docs/migrate-live-to-docker.md](./docs/migrate-live-to-docker.md).
+
 ### Migrating from the pre-redesign panel
 The redesign adds accounts, projects, folders and nodes on top of the old tables; it never drops or rewrites them. Move an existing database over with [`scripts/migrate-live.sh`](./scripts/migrate-live.sh):
 
