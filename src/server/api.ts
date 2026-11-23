@@ -23,6 +23,7 @@ import { gameRouter } from './gameRouter'
 import { perfRouter } from './perfRouter'
 import { usageRouter } from './usageRouter'
 import { reviewRouter } from './reviewRouter'
+import { transcriptsRouter } from './transcriptsRouter'
 import { modelSibling } from './models'
 import { procedure, router } from './trpc'
 
@@ -639,5 +640,5 @@ const settingRouter = router({
         }),
 })
 
-export const appRouter = router({ perf: perfRouter, usage: usageRouter, item: itemRouter, note: noteRouter, run: runRouter, schedule: scheduleRouter, prompt: promptRouter, attachment: attachmentRouter, qa: qaRouter, agent: agentRouter, setting: settingRouter, ...accountRouters, ...projectRouters, ...nodeRouters, nodeOps: nodeOpsRouter, game: gameRouter, feed: feedRouter, assets: assetsRouter, review: reviewRouter })
+export const appRouter = router({ perf: perfRouter, usage: usageRouter, item: itemRouter, note: noteRouter, run: runRouter, schedule: scheduleRouter, prompt: promptRouter, attachment: attachmentRouter, qa: qaRouter, agent: agentRouter, setting: settingRouter, ...accountRouters, ...projectRouters, ...nodeRouters, nodeOps: nodeOpsRouter, game: gameRouter, feed: feedRouter, assets: assetsRouter, review: reviewRouter, transcripts: transcriptsRouter })
 export type AppRouter = typeof appRouter

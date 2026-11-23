@@ -99,13 +99,12 @@ export function Sidebar({ viewer }: { viewer: ShellViewer }) {
     )
 }
 
-type Row = { key: string; project?: string; branch?: string; cost?: number; last?: number; messages?: number }
-
 /** Transcripts > History: recent sessions in a popover opened where the mouse clicked. */
 function History({ collapsed }: { collapsed: boolean }) {
     const [at, setAt] = useState<{ x: number; y: number } | null>(null)
     const box = useRef<HTMLDivElement>(null)
-    const q = api.usage.sessions.useQuery({ days: 7, page: 1, size: 15 }, { enabled: !!at, staleTime: 30_000 })
+    const [term, setTerm] = useState('')
+    const q = api.transcripts.list.useQuery({ q: term, limit: 25 }, { enabled: !!at, staleTime: 10_000, placeholderData: (p) => p })
     useEffect(() => {
         if (!at) return
         const close = (e: MouseEvent | KeyboardEvent) => {
@@ -115,7 +114,7 @@ function History({ collapsed }: { collapsed: boolean }) {
         document.addEventListener('keydown', close)
         return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', close) }
     }, [at])
-    const rows = (q.data?.rows ?? []) as Row[]
+    const rows = q.data ?? []
     const W = 320, H = 380
     return (
         <>
@@ -127,7 +126,7 @@ function History({ collapsed }: { collapsed: boolean }) {
                 <div ref={box} style={{ left: Math.max(8, at.x), top: Math.max(8, at.y), width: W, maxHeight: H }}
                     className="glow-card fixed z-[60] flex flex-col overflow-hidden p-0 text-[12.5px]">
                     <div className="flex items-center justify-between border-b border-line/70 px-3 py-2">
-                        <span className="font-medium">Last 7 days</span>
+                        <input autoFocus value={term} onChange={(e) => setTerm(e.target.value)} placeholder="Search history" className="input mr-2 min-w-0 flex-1 text-[12px]" />
                         <Link href="/transcripts" onClick={() => setAt(null)} className="text-[11px] text-accent hover:underline">All transcripts</Link>
                     </div>
                     <div className="min-h-0 flex-1 overflow-y-auto">
@@ -135,12 +134,12 @@ function History({ collapsed }: { collapsed: boolean }) {
                         {q.error && <div className="px-3 py-4 text-red-400">{q.error.message}</div>}
                         {!q.isLoading && !q.error && !rows.length && <div className="px-3 py-6 text-center text-muted">No transcripts yet.</div>}
                         {rows.map((r) => (
-                            <Link key={r.key} href={`/transcripts?session=${encodeURIComponent(r.key)}`} onClick={() => setAt(null)} className="block border-b border-line/40 px-3 py-1.5 hover:bg-hover/70">
-                                <div className="truncate text-fg">{r.project || r.key}</div>
+                            <Link key={r.id} href={`/transcripts/${r.id}`} onClick={() => setAt(null)} className="block border-b border-line/40 px-3 py-1.5 hover:bg-hover/70">
+                                <div className="truncate text-fg">{r.title || r.description || r.sessionId.slice(0, 8)}</div>
                                 <div className="flex gap-2 text-[11px] text-muted">
-                                    {r.branch && <span className="truncate">{r.branch}</span>}
-                                    {r.last ? <span>{new Date(r.last).toLocaleString()}</span> : null}
-                                    {r.cost != null && <span className="ml-auto tabular-nums">${r.cost.toFixed(2)}</span>}
+                                    {r.gitBranch && <span className="truncate">{r.gitBranch}</span>}
+                                    {r.lastAt ? <span>{new Date(r.lastAt).toLocaleString()}</span> : null}
+                                    <span className="ml-auto tabular-nums">{r.messageCount} msgs</span>
                                 </div>
                             </Link>
                         ))}
