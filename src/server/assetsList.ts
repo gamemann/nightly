@@ -1,10 +1,11 @@
 import { db } from './db'
 import { INDEXES, BACKFILL, alterStatements } from '../../lib/asset-cols.mjs'
+import { PIECE_SQL, describe } from '../../lib/asset-names.mjs'
 import { offsetOf, likeEsc, paged, type PageQuery, type PageSpec, type Paged } from '~/lib/paging'
 
 export type Tab = 'models' | 'textures' | 'animations' | 'sounds'
 export type AssetRow = {
-    id: number; pack: string; game: string; weaponId: string; kind: string; source: string; score: number; pass: boolean; auditedAt: string
+    id: number; pack: string; game: string; weaponId: string; display: string; group: string; piece: boolean; kind: string; source: string; score: number; pass: boolean; auditedAt: string
     hasModel: boolean; tris: number; verts: number; materials: number; fileHash: string
     texCount: number; texMax: number; texBytes: number; texMaps: string[]
     animCount: number; animLen: number; soundCount: number; soundLen: number; soundBytes: number
@@ -31,13 +32,14 @@ export function flagTab(code: string): Tab {
 
 export const ASSET_SPEC: PageSpec = {
     sorts: ['asset', 'pack', 'game', 'tris', 'verts', 'mats', 'tex', 'texmax', 'texbytes', 'maps', 'clips', 'animlen', 'snd', 'sndlen', 'sndbytes', 'score'],
-    sort: 'score', filters: ['tab', 'kind', 'pack', 'game', 'flag', 'min', 'max'],
+    sort: 'score', filters: ['tab', 'kind', 'pack', 'game', 'flag', 'min', 'max', 'pieces'],
 }
 const SORT_SQL: Record<string, string> = {
     asset: 'weaponId COLLATE NOCASE', pack: 'pack', game: 'game', tris: 'tris', verts: 'verts', mats: 'materials', tex: 'texCount', texmax: 'texMax',
     texbytes: 'texBytes', maps: 'texMaps', clips: 'animCount', animlen: 'animLen', snd: 'soundCount', sndlen: 'soundLen', sndbytes: 'soundBytes', score: 'score',
 }
 const n = (v: unknown) => Number(v ?? 0)
+const asNames = (pack: string, id: string) => { const d = describe(pack, id); return { display: d.name, group: d.group, piece: d.piece } }
 
 let ensured: Promise<void> | undefined
 /** The denormalised columns, their indexes and the backfill of rows not yet shaped (idempotent; once per process). */
@@ -50,6 +52,9 @@ export function ensureAssetColumns() {
     })().catch((e) => { ensured = undefined; throw e }))
 }
 
+/** Map pieces (props inside a map pack's model library or a map's own model folder) are hidden unless `pieces=1`. */
+export const showPieces = (v: string | undefined) => v === '1'
+
 function where(q: PageQuery) {
     const w: string[] = [], a: unknown[] = []
     const f = q.f
@@ -59,6 +64,7 @@ function where(q: PageQuery) {
     if (f.flag) { w.push("(' ' || flagCodes || ' ') LIKE ? ESCAPE '\\'"); a.push(`% ${likeEsc(f.flag)} %`) }
     if (f.min) { w.push('score >= ?'); a.push(Number(f.min) || 0) }
     if (f.max) { w.push('score <= ?'); a.push(Number(f.max) || 0) }
+    if (!showPieces(q.f.pieces)) w.push(`NOT ${PIECE_SQL}`)
     if (q.q) { w.push("(weaponId LIKE ? ESCAPE '\\' OR pack LIKE ? ESCAPE '\\')"); a.push(`%${likeEsc(q.q)}%`, `%${likeEsc(q.q)}%`) }
     return { sql: w.length ? `WHERE ${w.join(' AND ')}` : '', a }
 }
@@ -77,7 +83,7 @@ export async function assetPage(q: PageQuery): Promise<Paged<AssetRow>> {
         let fl: { code: string; severity: string }[] = []
         try { fl = r.flags ? JSON.parse(String(r.flags)) : [] } catch { /* ignore */ }
         return {
-            id: n(r.id), pack: String(r.pack), game: String(r.game), weaponId: String(r.weaponId), kind: String(r.kind), source: String(r.source), score: n(r.score), pass: n(r.pass) === 1, auditedAt: String(r.auditedAt),
+            id: n(r.id), pack: String(r.pack), game: String(r.game), weaponId: String(r.weaponId), ...asNames(String(r.pack), String(r.weaponId)), kind: String(r.kind), source: String(r.source), score: n(r.score), pass: n(r.pass) === 1, auditedAt: String(r.auditedAt),
             hasModel: n(r.hasModel) === 1, tris: n(r.tris), verts: n(r.verts), materials: n(r.materials), fileHash: String(r.fileHash),
             texCount: n(r.texCount), texMax: n(r.texMax), texBytes: n(r.texBytes), texMaps: String(r.texMaps).split(',').filter(Boolean),
             animCount: n(r.animCount), animLen: n(r.animLen), soundCount: n(r.soundCount), soundLen: n(r.soundLen), soundBytes: n(r.soundBytes),
@@ -91,15 +97,16 @@ const group = (rows: { k: string; total: unknown; pass: unknown }[]) => rows.map
     .sort((a, b) => a.rate - b.rate || b.total - a.total || a.key.localeCompare(b.key))
 
 /** Every chart number of the Assets page as SQL aggregates over the whole table (never the row set). */
-export async function assetAgg(): Promise<Agg> {
+export async function assetAgg(pieces = false): Promise<Agg> {
     await ensureAssetColumns()
+    const W = pieces ? '' : `WHERE NOT ${PIECE_SQL}`, A = pieces ? '' : `AND NOT ${PIECE_SQL}`
     const [tot, bins, packs, kinds, flags, worst, games] = await Promise.all([
-        db.$queryRawUnsafe<Record<string, unknown>[]>("SELECT COUNT(*) total, SUM(source='audit') audited, SUM(hasModel) m, SUM(texCount>0) t, SUM(animCount>0) a, SUM(soundCount>0) s FROM AssetWeapon"),
-        db.$queryRawUnsafe<{ b: unknown; c: unknown }[]>('SELECT MIN(9, MAX(0, score / 10)) b, COUNT(*) c FROM AssetWeapon GROUP BY b'),
-        db.$queryRawUnsafe<{ k: string; total: unknown; pass: unknown }[]>("SELECT pack k, COUNT(*) total, SUM(pass) pass FROM AssetWeapon WHERE pack != '' GROUP BY pack"),
-        db.$queryRawUnsafe<{ k: string; total: unknown; pass: unknown }[]>("SELECT kind k, COUNT(*) total, SUM(pass) pass FROM AssetWeapon WHERE kind != '' GROUP BY kind"),
-        db.$queryRawUnsafe<{ code: string; sev: string; c: unknown }[]>("SELECT json_extract(f.value,'$.code') code, json_extract(f.value,'$.severity') sev, COUNT(*) c FROM AssetWeapon, json_each(AssetWeapon.data,'$.flags') f GROUP BY code, sev"),
-        db.$queryRawUnsafe<{ weaponId: string; pack: string; kind: string; score: unknown }[]>('SELECT weaponId, pack, kind, score FROM AssetWeapon ORDER BY score, weaponId LIMIT 8'),
+        db.$queryRawUnsafe<Record<string, unknown>[]>(`SELECT COUNT(*) total, SUM(source='audit') audited, SUM(hasModel) m, SUM(texCount>0) t, SUM(animCount>0) a, SUM(soundCount>0) s FROM AssetWeapon ${W}`),
+        db.$queryRawUnsafe<{ b: unknown; c: unknown }[]>(`SELECT MIN(9, MAX(0, score / 10)) b, COUNT(*) c FROM AssetWeapon ${W} GROUP BY b`),
+        db.$queryRawUnsafe<{ k: string; total: unknown; pass: unknown }[]>(`SELECT pack k, COUNT(*) total, SUM(pass) pass FROM AssetWeapon WHERE pack != '' ${A} GROUP BY pack`),
+        db.$queryRawUnsafe<{ k: string; total: unknown; pass: unknown }[]>(`SELECT kind k, COUNT(*) total, SUM(pass) pass FROM AssetWeapon WHERE kind != '' ${A} GROUP BY kind`),
+        db.$queryRawUnsafe<{ code: string; sev: string; c: unknown }[]>(`SELECT json_extract(f.value,'$.code') code, json_extract(f.value,'$.severity') sev, COUNT(*) c FROM AssetWeapon, json_each(AssetWeapon.data,'$.flags') f ${W} GROUP BY code, sev`),
+        db.$queryRawUnsafe<{ weaponId: string; pack: string; kind: string; score: unknown }[]>(`SELECT weaponId, pack, kind, score FROM AssetWeapon ${W} ORDER BY score, weaponId LIMIT 8`),
         db.$queryRawUnsafe<{ game: string }[]>("SELECT DISTINCT game FROM AssetWeapon WHERE game != ''"),
     ])
     const t = tot[0]

@@ -116,7 +116,7 @@ const HELP = `nightly -- the nightly run's to-do database (${S.DB_PATH})
   assets show <id|pack/weapon_id|weapon_id> [--json]     model, textures, animations, sounds, flags, score
   assets refresh                                run rsi_asset_audit.py for every texture tier (setting rsiTiers), ingest and sync findings (tick does this every rsiRefreshHours)
   rsi board|sync|refresh                        the RSI board: findings per domain; sync = stale/duplicate/blocked pass (auto-closes non-owner stale items)
-  assets thumbs [id...] [--force] [--limit N] [--wait]   (re)generate the 128x96 webp thumbnails (textures downscaled, models rendered in software, cached beside the audit data, regenerated when the file hash changes); runs detached unless --wait
+  assets thumbs [id...] [--force] [--missing] [--limit N] [--wait]   (re)generate the 128x96 webp thumbnails (textures downscaled, models rendered in software, cached beside the audit data, regenerated when the file hash changes); runs detached unless --wait
   assets history [--pack P] [--limit N] [--json]   audit trend: one row per pack per ingest (oldest first; the history keeps counts and average score per pack, not per kind)
   assets summary                                per-pack counts and average score
   usage ingest [--full] [--dir D] [--no-ch] [--resync]   read Claude Code transcripts (usageDirs setting, default ~/.claude/projects) into the usage tables; pushes to ClickHouse when enabled
@@ -671,7 +671,9 @@ function cmdAssets() {
     if (sub === 'source' || sub === 'sources') return ASC.sourceCmd(db, pos, opt, out, die)
     if (sub === 'kind' || sub === 'kinds') return ASC.kindCmd(db, pos, opt, out, die)
     if (sub === 'config') { const c = ASC.config(db); return out(c, () => JSON.stringify(c, null, 2)) }
-    if (sub === 'scan') return ASC.scanCmd(db, pos, opt, out)
+    // a scan or an ingest adds rows with no preview: render those (only those) in the background, never blocking the caller
+    const kickThumbs = () => { if (process.env.NIGHTLY_NO_AUTO_THUMBS) return; try { spawn(process.execPath, [process.argv[1], 'assets', 'thumbs', '--child', '--missing'], { detached: true, stdio: 'ignore', env: process.env }).unref() } catch { /* previews are optional */ } }
+    if (sub === 'scan') { const r = ASC.scanCmd(db, pos, opt, out); kickThumbs(); return r }
     if (sub === 'ingest') {
         const file = pos[0] ?? die('assets ingest <audit.json|->')
         const text = readText(file)
@@ -680,6 +682,7 @@ function cmdAssets() {
         let doc
         try { doc = JSON.parse(text) } catch (e) { die(`not JSON: ${e.message}`) }
         const r = AS.ingestAudit(db, doc, { auditDir: file === '-' ? undefined : path.dirname(path.resolve(file)) })
+        kickThumbs()
         return out(r, () => `ingested: ${r.added} added, ${r.updated} updated, ${r.skipped} skipped`)
     }
     if (sub === 'list' || sub === 'ls') {
@@ -709,12 +712,12 @@ function cmdAssets() {
     if (sub === 'thumbs') {
         // thumbnails: detached by default so a scan or a shell is never blocked; --wait runs in the foreground (also what the background child does)
         if (!opt.wait && !opt.child) {
-            const child = spawn(process.execPath, [process.argv[1], 'assets', 'thumbs', '--child', ...(opt.force ? ['--force'] : []), ...(opt.limit ? ['--limit', String(opt.limit)] : []), ...pos], { detached: true, stdio: 'ignore', env: process.env })
+            const child = spawn(process.execPath, [process.argv[1], 'assets', 'thumbs', '--child', ...(opt.force ? ['--force'] : []), ...(opt.missing ? ['--missing'] : []), ...(opt.limit ? ['--limit', String(opt.limit)] : []), ...pos], { detached: true, stdio: 'ignore', env: process.env })
             child.unref()
             return out({ ok: true, pid: child.pid }, () => `thumbnails generating in the background (pid ${child.pid}); add --wait to run in the foreground`)
         }
         AS.ready(db)
-        return TH.generate(db, { force: !!opt.force, limit: Number(opt.limit) || 0, ids: pos.length ? pos.map(Number).filter(Number.isInteger) : null }).then((r) => out(r, () => `${r.total} assets: ${r.made} made, ${r.fresh} up to date, ${r.none} without an image, ${r.error} failed`))
+        return TH.generate(db, { force: !!opt.force, missing: !!opt.missing, limit: Number(opt.limit) || 0, ids: pos.length ? pos.map(Number).filter(Number.isInteger) : null }).then((r) => out(r, () => `${r.total} assets: ${r.made} made, ${r.fresh} up to date, ${r.none} without an image, ${r.error} failed`))
     }
     die('assets migrate|source|kind|config|scan|ingest|list|show|history|summary|thumbs')
 }

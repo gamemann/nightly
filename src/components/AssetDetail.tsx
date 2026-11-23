@@ -3,6 +3,7 @@ import Link from "next/link"
 import { useEffect, useRef, useState } from "react"
 import { AssetViewer } from "./AssetViewer"
 import { scoreCls, sevCls } from "./Assets"
+import { describe } from "../../lib/asset-names.mjs"
 
 export type DetailData = {
     id: number; pack: string; game: string; weaponId: string; kind: string; source: string; score: number; pass: boolean; auditedAt: string; hasModel: boolean
@@ -62,7 +63,7 @@ export function AssetDetail({ d, reviews }: { d: DetailData; reviews: ReviewHit[
     const texN = (x.textures ?? []).length
     return (
         <div className="mx-auto max-w-6xl px-6 py-5 max-md:px-3">
-            <h1 className="text-[15px] font-semibold tracking-tight"><Link href="/assets" className="hover:text-sky-300">Assets</Link> <span className="text-muted">/</span> {d.pack} <span className="text-muted">/</span> {d.weaponId}</h1>
+            <h1 className="text-[15px] font-semibold tracking-tight"><Link href="/assets" className="hover:text-sky-300">Assets</Link> <span className="text-muted">/</span> {d.pack} <span className="text-muted">/</span> <span title={d.weaponId}>{describe(d.pack, d.weaponId).name}</span> <span className="font-mono text-[11px] font-normal text-muted">{d.weaponId}</span></h1>
             <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px]">
                 <span className={`text-[22px] font-semibold tabular-nums ${scoreCls(d.score)}`}>{d.score}</span>
                 <span className={`rounded px-1.5 ${d.pass ? "bg-emerald-400/15 text-emerald-300" : "bg-red-400/15 text-red-300"}`}>{d.pass ? "pass" : "fail"}</span>

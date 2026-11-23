@@ -7,6 +7,7 @@ import { Legend, Panel, StackedBars } from "./Charts"
 import { DataTable, type Column } from "./DataTable"
 import { useUrlParams } from "./Pagination"
 import { COLOR } from "../../lib/charts.mjs"
+import { describe } from "../../lib/asset-names.mjs"
 import type { Paged } from "~/lib/paging"
 import type { Agg, AssetRow, Tab } from "~/server/assetsList"
 
@@ -91,7 +92,7 @@ function AssetCharts({ agg, tab, set, trend }: { agg: Agg; tab: Tab; set: (o: Re
             </Panel>
             <div className="lg:col-span-2">
                 <Panel title="Worst offenders" subtitle="The eight lowest-scoring weapons. Click one to search for it." empty={worst.length === 0 && "Nothing scored."}>
-                    <BarList unit="" max={100} onClick={(k) => set({ q: k })} rows={worst.map((r) => ({ key: r.weaponId, label: r.weaponId, value: r.score, color: rateColor(r.score / 100), note: `${r.pack}, ${r.kind}` }))} />
+                    <BarList unit="" max={100} onClick={(k) => set({ q: k })} rows={worst.map((r) => ({ key: r.weaponId, label: describe(r.pack, r.weaponId).name, value: r.score, color: rateColor(r.score / 100), note: `${r.pack}, ${r.kind}` }))} />
                 </Panel>
             </div>
         </div>
@@ -108,11 +109,12 @@ export function Assets({ data, agg, kinds, sources, trend = [], packNames }: { d
     const kind = sp.get("kind") ?? ""
     const sort = sp.get("sort") ?? "score", dir = sp.get("dir") === "desc" ? "desc" : "asc"
     const q = sp.get("q") ?? ""
+    const pieces = sp.get("pieces") === "1"
     const flagCodes = [...new Set(agg.flags.filter((f) => f.tab === tab).map((f) => f.code))].sort()
     const kindList = [{ key: "", label: "All" }, ...kinds.filter((k) => agg.kinds.some((x) => x.key === k.key)), ...agg.kinds.filter((k) => !kinds.some((x) => x.key === k.key)).map((k) => ({ key: k.key, label: k.key }))]
     const cols: Column<AssetRow>[] = [
         { key: "thumb", label: "", render: (r) => <Thumb r={r} tab={tab} /> },
-        { key: "asset", label: "Asset", sortable: true, render: (r) => <><Link className="text-sky-300 hover:underline" href={`/assets/${r.id}`}>{r.weaponId}</Link>{r.source !== "audit" && <span className="ml-1 text-[10px] text-muted" title="from a directory scan, not yet audited">scan</span>}</> },
+        { key: "asset", label: "Asset", sortable: true, render: (r) => <><Link className="text-sky-300 hover:underline" href={`/assets/${r.id}`} title={r.weaponId}>{r.display}</Link>{r.group && <span className="ml-1.5 text-[11px] text-muted" title={r.weaponId}>{r.group}</span>}{r.source !== "audit" && <span className="ml-1 text-[10px] text-muted" title="from a directory scan, not yet audited">scan</span>}</> },
         { key: "pack", label: "Pack", sortable: true, className: "text-dim", render: (r) => r.pack },
         { key: "game", label: "Games", sortable: true, className: "text-dim", render: (r) => r.game || "-" },
         ...TAB_COLS[tab],
@@ -149,7 +151,7 @@ export function Assets({ data, agg, kinds, sources, trend = [], packNames }: { d
                     { key: "game", label: "Game", options: agg.games.map((p) => ({ value: p })) },
                     { key: "flag", label: "Flag", options: flagCodes.map((p) => ({ value: p })) },
                 ]}
-                toolbar={<label className="text-[12px] text-dim">score <input className="w-14 rounded-md border border-line bg-panel px-2 py-1 text-[12px]" placeholder="min" defaultValue={sp.get("min") ?? ""} onBlur={(e) => set({ min: e.target.value })} /> <input className="w-14 rounded-md border border-line bg-panel px-2 py-1 text-[12px]" placeholder="max" defaultValue={sp.get("max") ?? ""} onBlur={(e) => set({ max: e.target.value })} /></label>} />
+                toolbar={<><label className="mr-3 text-[12px] text-dim" title="Props inside a map pack's model library or a map's own model folder; they belong to their map and are hidden by default"><input type="checkbox" className="mr-1 align-middle" checked={pieces} onChange={(e) => set({ pieces: e.target.checked ? "1" : "" })} />show map pieces</label><label className="text-[12px] text-dim">score <input className="w-14 rounded-md border border-line bg-panel px-2 py-1 text-[12px]" placeholder="min" defaultValue={sp.get("min") ?? ""} onBlur={(e) => set({ min: e.target.value })} /> <input className="w-14 rounded-md border border-line bg-panel px-2 py-1 text-[12px]" placeholder="max" defaultValue={sp.get("max") ?? ""} onBlur={(e) => set({ max: e.target.value })} /></label></>} />
         </div>
     )
 }
