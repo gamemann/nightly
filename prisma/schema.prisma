@@ -799,6 +799,7 @@ model NodeJob {
 
   @@index([status])
   @@index([nodeId])
+}
 
 // ---- Transcripts (workstream TRANSCRIPTS). DDL twin: lib/transcripts-ddl.mjs. Dates are ISO text. ----
 
