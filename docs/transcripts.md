@@ -7,6 +7,8 @@ Design
 - Runs: `lib/transcripts-run.mjs` starts a detached worker (`transcript exec <runId>`) that runs `claude -p --input-format stream-json --output-format stream-json` as the mapped OS user via `sudo -u`. Commands go in `data/transcripts/run-N/cmd.ndjson`, output comes back in `out.ndjson`, so a run survives a panel restart. A resume within 90 s of the session file's last write forks the session, so an open VS Code window on it is not disturbed.
 - Live view: `/api/transcripts/stream?id=N` (SSE) stat-polls the session file and tails the live run's output for partial text.
 
+The OS user a run uses (`--as USER`, else `transcriptsDefaultUser`) must have its own `claude` login; otherwise the run fails at start with claude's auth error.
+
 Settings: `transcriptDirs`, `transcriptsIdleMinutes`, `transcriptsDefaultUser` (OS user claude runs as until the account system maps users to nodes).
 
 CLI: `nightly transcript list|show|start|send|stop|refresh`.

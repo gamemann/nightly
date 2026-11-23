@@ -41,6 +41,7 @@ const config: NextConfig = {
             ['/content', '/tools/content'],
             ['/screenshots', '/tools/reviews?tab=media'],
             ['/qa', '/tools/reviews?tab=qa'],
+            ['/admin', '/admin/schedules'],
             ['/schedules', '/admin/schedules'],
             ['/prompts/:path*', '/admin/prompts/:path*'],
             ['/jobs/:path*', '/admin/jobs/:path*'],

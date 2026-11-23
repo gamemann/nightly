@@ -183,6 +183,28 @@ A new database is blank and paused. In the panel: add a runner script named [`ru
 ### Restarting the panel
 After a deploy (`git merge --ff-only`, `npx prisma generate`, `npm run build`) run [`scripts/restart-panel.sh`](./scripts/restart-panel.sh). Where there is no systemd unit the panel is plain `npm start` on port 3010; the script stops whatever listens there and starts a fresh detached `npm start`, logging to `data/panel.log` (`--stop` only stops it). It re-runs itself as the checkout's owner, and runs already started keep going.
 
+### Migrating from the pre-redesign panel
+The redesign adds accounts, projects, folders and nodes on top of the old tables; it never drops or rewrites them. Move an existing database over with [`scripts/migrate-live.sh`](./scripts/migrate-live.sh):
+
+```bash
+# Back up and count rows only; changes nothing. Safe while the old panel runs.
+scripts/migrate-live.sh --dry-run
+
+# Stop the old panel, then migrate (default database: $NIGHTLY_DB, else data/nightly.db).
+NIGHTLY_ADMIN_USER=admin NIGHTLY_ADMIN_PASSWORD='...' scripts/migrate-live.sh [--db FILE] [--roots /path/a:/path/b]
+```
+
+It runs in this order:
+1. It takes an online `sqlite3 .backup` (WAL-safe) to `<db dir>/backup/nightly-pre-redesign-<UTC>.db` and runs `quick_check` on it.
+2. It runs `lib/bootstrap.mjs`, which adds tables, columns and roles and creates the admin user. The old login (`authUser`/`authHash`) carries over. Without one, the admin comes from `NIGHTLY_ADMIN_USER`/`NIGHTLY_ADMIN_PASSWORD`, or gets a generated password that is printed once. If the old panel ran without a login, `ingestOpen` stays on so existing ingest clients keep working.
+3. It runs `nightly node planet`.
+4. It runs `nightly project seed` to fill the folders and projects.
+5. It compares row counts and exits 1 if any old table lost a row.
+
+The script is idempotent: a second run only takes another backup. To restore, stop the panel, copy the backup over the database, and delete its `-wal` and `-shm` files. Test the script on a copy first: `sqlite3 "file:data/nightly.db?mode=ro" ".backup /tmp/copy.db"`, then run it with `--db /tmp/copy.db`.
+
+Screenshots of the redesigned panel (dev data; host names redacted, private conversation titles blurred) are in [docs/screenshots](./docs/screenshots).
+
 ### Usage tab
 
 `/usage` shows where your Claude Code tokens go, read from the transcript files Claude Code keeps on disk. Totals (today, 7d, 30d, all), a stacked chart over time (by token kind or by model, daily or hourly, with a table view), sortable breakdowns with share bars (project, session, agent type, model, tool, skill or prompt, branch), drill-down from any row to its sessions, and a "Where it goes" panel whose every finding comes with a concrete suggestion: cache-read versus fresh input, biggest tool results, files re-read, polling loops, idle agents, long thinking, subagent fan-out, compactions, oversized context, model mix.
