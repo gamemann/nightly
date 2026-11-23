@@ -350,8 +350,8 @@ export function MapEditor({ url }: { url: string }) {
                     )}
                 </div>
             </div>
-            <div className="grid border-t border-line text-[12px]" style={{ gridTemplateColumns: "1fr 1fr", maxHeight: 280 }}>
-                <div className="overflow-auto border-r border-line p-2" data-testid="materials-panel">
+            <div className="grid border-t border-line text-[12px]" style={{ gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gridTemplateRows: "minmax(0,1fr)", height: 280 }}>
+                <div className="min-h-0 overflow-auto border-r border-line p-2" data-testid="materials-panel">
                     <div className="mb-1 font-medium">Materials / textures <span className="text-muted">{ed.materials.length}</span></div>
                     <table className="w-full"><tbody>
                         {ed.materials.map((m) => (
@@ -363,7 +363,7 @@ export function MapEditor({ url }: { url: string }) {
                         ))}
                     </tbody></table>
                 </div>
-                <div className="overflow-auto p-2" data-testid="props-panel">
+                <div className="min-h-0 overflow-auto p-2" data-testid="props-panel">
                     <div className="mb-1 font-medium">Props / models <span className="text-muted">{ed.props.length}</span></div>
                     <table className="w-full"><tbody>
                         {ed.props.map((p) => (
