@@ -30,7 +30,7 @@ export function Settings() {
     return (
         <div className="mx-auto max-w-4xl px-6 py-5 max-md:px-3">
             <h1 className="mb-4 text-[15px] font-semibold tracking-tight">Settings</h1>
-            <OverviewStats />
+            <OverviewStats runsLink />
             <div className="flex items-center justify-between gap-6 rounded-lg border border-line bg-panel/60 p-4">
                 <div>
                     <div className="font-medium">Nightly run</div>

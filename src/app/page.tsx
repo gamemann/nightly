@@ -17,5 +17,5 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
     const q = parsePage(sp, FINDING_SPEC)
     const bq = parsePage(sp, BLOCKER_SPEC, "b")
     const wq = parsePage(sp, WORST_SPEC, "w")
-    return <RsiBoard b={await loadBoard(tier, q, bq, wq)} q={q} bq={bq} wq={wq} />
+    return <RsiBoard b={await loadBoard(tier, q, bq, wq)} q={q} bq={bq} wq={wq} runsLink={allowed(v.perms, 'admin.runs')} />
 }

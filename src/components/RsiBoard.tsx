@@ -52,10 +52,10 @@ const BLOCKER_COLS: Column<Finding>[] = [
     { key: "next", label: "Next action", render: (x) => x.nextAction },
 ]
 
-export function RsiBoard({ b, q, bq, wq }: { b: Board; q: PageQuery; bq: PageQuery; wq: PageQuery }) {
+export function RsiBoard({ b, q, bq, wq, runsLink = false }: { b: Board; q: PageQuery; bq: PageQuery; wq: PageQuery; runsLink?: boolean }) {
     return (
         <div className="mx-auto max-w-6xl px-6 py-6">
-            <OverviewStats />
+            <OverviewStats runsLink={runsLink} />
             <div className="mb-4 flex flex-wrap items-baseline justify-between gap-3">
                 <div>
                     <h1 className="glow-text text-[18px] font-semibold tracking-tight">RSI board</h1>
