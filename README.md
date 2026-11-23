@@ -338,6 +338,20 @@ A prompt is text an agent is told; a **job** is a runnable script (kind `script`
 
 Generic, DB-driven pages, each with a CLI and a Bearer ingest (`POST /api/ingest/<kind>`, token from `nightly perf token add`): Releases (`/releases`, `nightly release`), Crashes (`/crashes`, `nightly crash`), Web checks (`/web`, bundle size, web vitals, uptime with budgets, `nightly web`), Playtests (`/playtests`, `nightly playtest`), Content (`/content`, `nightly content`). Failing checks raise RSI findings. The perf, visual and netchaos gates (`lib/gates.mjs`) open one RSI finding per failing check and close it when a later run passes; the finding says to re-baseline only if the change is intended.
 
+#### Releases and deploys
+
+`/releases` lists one row per version tag: repo, version, channel, CI, deployed to, rollback target, age. The **Releases sync** schedule (hourly, script `releases-sync.sh`) runs `nightly releases sync`, which imports the `v*.*.*` tags of every real git repo directly under the setting `releasesRoots` (default `/home/gamedev/godot:/home/core/projects`; symlinked aliases are skipped), with tag date, notes (annotation subject plus the commits since the previous tag) and the rollback target (previous version of the channel). A prerelease tag (`v1.2.3-rc1`) is channel `dev`, the rest `stable`. CI comes from `gh run list` for the 10 newest tags of a repo, one call per repo, only while a tag is unresolved, never below 500 GitHub requests left and at most 40 s per run (the next run continues). Sync never writes **Deployed to**: nothing records deploys except you.
+
+The panel (Add release, Edit, Mark deployed, Remove env, Delete, Sync now) and the CLI use the same functions in `lib/feeds.mjs`; the panel calls the CLI. `nightly releases ...` (add `--json` for machine output):
+
+- `list [--game G] [--limit N]`
+- `add --repo R --version V [--channel stable] [--ci passing] [--changelog T] [--rollback V] [--deployed-to dev,prod] [--game G] [--at DATE]` creates or updates a release
+- `set --repo R --version V [--channel C] [--changelog T] [--ci unknown|pending|passing|failing] [--rollback V] [--game G] [--commit SHA] [--at DATE]` edits an existing one
+- `deploy --repo R --version V --to ENV [--channel C]` marks it deployed (the environment moves off older versions); `undeploy --repo R --version V --from ENV` removes the mark
+- `rm --repo R --version V [--channel C]` deletes a record
+- `sync [--no-ci]` the importer above
+- ingest: `nightly feed add release -` or `POST /api/ingest/release` with the perf Bearer token
+
 ## Agents liveness
 
 `nightly agent join|heartbeat|leave` (or `POST /api/agents/heartbeat` with the ingest token) registers any runner. An agent is live for an hour after its last heartbeat, then stale, then left after the setting `agentLeftHours` (default 12). The Agents page lists a "Running (unregistered)" section from the setting `agentSourceCmd` (a command printing one agent per line) or `agentSourceFile`.

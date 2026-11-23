@@ -1,5 +1,5 @@
 'use client'
-import { Suspense, type ReactNode } from 'react'
+import { Suspense, useState, type ReactNode } from 'react'
 import { api, type RouterOutputs } from '~/trpc/react'
 import { FEED_SPECS, type FeedName } from '~/lib/feedSpecs'
 import { parsePage, type Paged } from '~/lib/paging'
@@ -42,12 +42,62 @@ const RELEASE_COLS: Column<Rel>[] = [
     { key: 'rollback', label: 'Rollback', className: 'font-mono', render: (r) => r.rollback || '-' },
     { key: 'at', label: 'When', sortable: true, className: 'text-dim', render: (r) => ago(r.at) },
 ]
+type RelForm = { repo: string; version: string; channel: string; ci: string; changelog: string; rollback: string; deployedTo: string; isNew: boolean; env: string }
+const BLANK: RelForm = { repo: '', version: '', channel: 'stable', ci: 'unknown', changelog: '', rollback: '', deployedTo: '', isNew: true, env: '' }
+const field = 'rounded border border-line bg-panel px-2 py-1 text-[12px]'
 function ReleasesInner() {
     const q = useFeed('releases')
     const d = api.feed.releases.useQuery(input(q), { placeholderData: keep })
+    const utils = api.useUtils()
+    const done = () => utils.feed.releases.invalidate()
+    const [f, setF] = useState<RelForm | null>(null)
+    const [msg, setMsg] = useState('')
+    const fail = (e: { message: string }) => setMsg(e.message)
+    const add = api.feed.releaseAdd.useMutation({ onSuccess: () => { done(); setF(null); setMsg('') }, onError: fail })
+    const set = api.feed.releaseSet.useMutation({ onSuccess: () => { done(); setF(null); setMsg('') }, onError: fail })
+    const deploy = api.feed.releaseDeploy.useMutation({ onSuccess: () => { done(); setF(null); setMsg('') }, onError: fail })
+    const undeploy = api.feed.releaseUndeploy.useMutation({ onSuccess: () => { done(); setF(null); setMsg('') }, onError: fail })
+    const remove = api.feed.releaseRemove.useMutation({ onSuccess: () => { done(); setF(null) }, onError: fail })
+    const sync = api.feed.releasesSync.useMutation({ onSuccess: (o) => { done(); setMsg(`sync: ${o}`) }, onError: fail })
+    const cols: Column<Rel>[] = [...RELEASE_COLS, { key: 'edit', label: '', render: (r) => (
+        <button className="text-[12px] text-accent hover:underline" onClick={() => { setMsg(''); setF({ repo: r.repo, version: r.version, channel: r.channel, ci: r.ci, changelog: r.changelog, rollback: r.rollback, deployedTo: r.deployedTo, isNew: false, env: '' }) }}>Edit</button>
+    ) }]
+    const key = f ? { repo: f.repo, version: f.version, channel: f.channel || 'stable' } : null
+    const up = (p: Partial<RelForm>) => setF((x) => (x ? { ...x, ...p } : x))
     return (
-        <Shell title="Releases & deploys" hint="Version, CI state, where it is deployed and the rollback target. nightly releases add|deploy|list">
-            <DataTable cols={RELEASE_COLS} data={d.data?.page ?? empty()} rowKey={(r) => r.id} sort={q.sort} dir={q.dir} q={q.q} active={q.f} searchHint="Search repo, version, changelog" empty={none('releases')}
+        <Shell title="Releases & deploys" hint="Version, CI state, where it is deployed and the rollback target. Tags are synced hourly (nightly releases sync); everything here is also nightly releases add|set|deploy|undeploy|rm|sync|list">
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+                <button className={field} onClick={() => { setMsg(''); setF({ ...BLANK }) }}>Add release</button>
+                <button className={field} disabled={sync.isPending} onClick={() => sync.mutate()}>{sync.isPending ? 'Syncing...' : 'Sync now'}</button>
+                {msg && <span className="text-[12px] text-dim">{msg}</span>}
+            </div>
+            {f && key && (
+                <div className="mb-4 grid gap-2 rounded-lg border border-line p-3 text-[12px]">
+                    <div className="flex flex-wrap gap-2">
+                        <input className={field} placeholder="repo" value={f.repo} disabled={!f.isNew} onChange={(e) => up({ repo: e.target.value })} />
+                        <input className={`${field} font-mono`} placeholder="version (v1.2.3)" value={f.version} disabled={!f.isNew} onChange={(e) => up({ version: e.target.value })} />
+                        <input className={field} placeholder="channel" value={f.channel} disabled={!f.isNew} onChange={(e) => up({ channel: e.target.value })} />
+                        <select className={field} value={f.ci} onChange={(e) => up({ ci: e.target.value })} aria-label="CI">{['unknown', 'pending', 'passing', 'failing'].map((c) => <option key={c}>{c}</option>)}</select>
+                        <input className={`${field} font-mono`} placeholder="rollback version" value={f.rollback} onChange={(e) => up({ rollback: e.target.value })} />
+                    </div>
+                    <textarea className={`${field} min-h-[80px] font-mono`} placeholder="release notes" value={f.changelog} onChange={(e) => up({ changelog: e.target.value })} />
+                    <div className="flex flex-wrap items-center gap-2">
+                        {f.isNew
+                            ? <input className={field} placeholder="deployed to (dev,prod)" value={f.deployedTo} onChange={(e) => up({ deployedTo: e.target.value })} />
+                            : <>
+                                <span className="text-dim">Deployed to: {f.deployedTo || '-'}</span>
+                                <input className={field} placeholder="environment (prod)" value={f.env} onChange={(e) => up({ env: e.target.value })} />
+                                <button className={field} disabled={!f.env} onClick={() => deploy.mutate({ ...key, to: f.env })}>Mark deployed</button>
+                                <button className={field} disabled={!f.env} onClick={() => undeploy.mutate({ ...key, from: f.env })}>Remove env</button>
+                            </>}
+                        <span className="flex-1" />
+                        <button className={field} disabled={!f.repo || !f.version} onClick={() => (f.isNew ? add.mutate({ ...key, ci: f.ci as 'unknown', changelog: f.changelog, rollback: f.rollback, deployedTo: f.deployedTo }) : set.mutate({ ...key, ci: f.ci as 'unknown', changelog: f.changelog, rollback: f.rollback }))}>{f.isNew ? 'Add' : 'Save'}</button>
+                        {!f.isNew && <button className={`${field} text-red-300`} onClick={() => { if (confirm(`Delete ${f.repo} ${f.version}?`)) remove.mutate(key) }}>Delete</button>}
+                        <button className={field} onClick={() => setF(null)}>Cancel</button>
+                    </div>
+                </div>
+            )}
+            <DataTable cols={cols} data={d.data?.page ?? empty()} rowKey={(r) => r.id} sort={q.sort} dir={q.dir} q={q.q} active={q.f} searchHint="Search repo, version, changelog" empty={none('releases')}
                 filters={[{ key: 'game', label: 'Game', options: opts(d.data?.facets.game) }, { key: 'channel', label: 'Channel', options: opts(d.data?.facets.channel) }, { key: 'ci', label: 'CI', options: opts(d.data?.facets.ci) }]} />
         </Shell>
     )

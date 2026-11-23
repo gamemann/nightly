@@ -54,6 +54,8 @@ async function feedPage<T>(d: Delegate, name: Exclude<FeedName, 'web'>, search: 
     return { page: paged(rows, total, input), facets }
 }
 
+const CI = ['unknown', 'pending', 'passing', 'failing'] as const
+const relKey = z.object({ repo: z.string().min(1), version: z.string().min(1), channel: z.string().min(1).default('stable') })
 const nn = (v: unknown) => Number(v ?? 0)
 type WebRow = { game: string; metric: string; latest: number | null; at: unknown; max: number | null; unit: string | null }
 export const feedRouter = router({
@@ -91,6 +93,17 @@ export const feedRouter = router({
         cli(['web', 'budget', '--game', input.game, '--metric', input.metric, '--max', String(input.max), '--unit', input.unit, '--json'])),
     setCrash: procedure.input(z.object({ game: z.string(), signature: z.string(), status: z.enum(['open', 'fixed', 'ignored']) })).mutation(({ input }) =>
         cli(['crash', 'set', '--game', input.game, '--signature', input.signature, '--status', input.status, '--json'])),
+    /** Release writes: the same `nightly releases ...` commands an agent uses, so the panel and the CLI share lib/feeds.mjs. */
+    releaseAdd: procedure.input(relKey.extend({ ci: z.enum(CI).default('unknown'), changelog: z.string().default(''), rollback: z.string().default(''), deployedTo: z.string().default(''), game: z.string().default('') })).mutation(({ input }) =>
+        cli(['releases', 'add', '--repo', input.repo, '--version', input.version, '--channel', input.channel, '--ci', input.ci, '--changelog', input.changelog, '--rollback', input.rollback, '--deployed-to', input.deployedTo, '--game', input.game, '--json'])),
+    releaseSet: procedure.input(relKey.extend({ ci: z.enum(CI).optional(), changelog: z.string().optional(), rollback: z.string().optional() })).mutation(({ input }) =>
+        cli(['releases', 'set', '--repo', input.repo, '--version', input.version, '--channel', input.channel, ...(['ci', 'changelog', 'rollback'] as const).flatMap((k) => (input[k] === undefined ? [] : [`--${k}`, input[k] as string])), '--json'])),
+    releaseDeploy: procedure.input(relKey.extend({ to: z.string().min(1) })).mutation(({ input }) =>
+        cli(['releases', 'deploy', '--repo', input.repo, '--version', input.version, '--channel', input.channel, '--to', input.to, '--json'])),
+    releaseUndeploy: procedure.input(relKey.extend({ from: z.string().min(1) })).mutation(({ input }) =>
+        cli(['releases', 'undeploy', '--repo', input.repo, '--version', input.version, '--channel', input.channel, '--from', input.from, '--json'])),
+    releaseRemove: procedure.input(relKey).mutation(({ input }) => cli(['releases', 'rm', '--repo', input.repo, '--version', input.version, '--channel', input.channel, '--json'])),
+    releasesSync: procedure.mutation(() => cli(['releases', 'sync', '--json'])),
     unregistered: procedure.query(() => runningUnregistered()),
     kinds: procedure.query(() => [...FEED_KINDS]),
 })
