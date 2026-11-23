@@ -90,7 +90,7 @@ export function AssetViewer({ url, bbox, textures, map, original }: { url: strin
                 const p = spawnList[i]
                 if (!p) return
                 camera.position.set(p.x, p.y + 1.7, p.z)
-                fly.yaw = (p.yaw * Math.PI) / 180; fly.pitch = 0; setAngles()
+                fly.yaw = (p.yaw * Math.PI) / 180 - Math.PI / 2; fly.pitch = 0; setAngles()   // Source yaw 0 = +X, 90 = +Y (= -Z in glTF); a three.js camera at yaw 0 looks down -Z
             }
             const resize = () => { const w = el.clientWidth, h = el.clientHeight; renderer.setSize(w, h); camera.aspect = (view === "split" ? w / 2 : w) / h; camera.updateProjectionMatrix() }
             const ro = new ResizeObserver(resize)
