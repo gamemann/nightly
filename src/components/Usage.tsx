@@ -1,4 +1,5 @@
 "use client"
+import Link from "next/link"
 import { useMemo, useState } from "react"
 import { api, type RouterOutputs } from "~/trpc/react"
 import { ago } from "./pills"
@@ -32,6 +33,7 @@ export function Usage() {
         <div className="mx-auto max-w-6xl px-6 py-5 max-md:px-3">
             <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-[15px] font-semibold tracking-tight">Usage</h1>
+                <Link href="/usage/github" className="rounded bg-hover px-1.5 text-[11px] text-sky-300 hover:underline">GitHub API</Link>
                 <span className="rounded bg-hover px-1.5 text-[11px] text-muted">{state.data?.source === "ch" ? "ClickHouse" : state.data?.source === "sqlite" ? "local sqlite" : "no data yet"}</span>
                 {state.data?.lastIngestAt && <span className="text-[11px] text-muted">ingested {ago(state.data.lastIngestAt)}</span>}
                 <div className="ml-auto flex gap-1">

@@ -195,7 +195,7 @@ const budgetText = (b: Game["budgets"][number]) => {
     return `${b.metric}${b.max !== undefined ? "<=" + b.max : ">=" + b.min}${keys.length ? "@" + keys.map((k) => `${k}=${b[k]}`).join(",") : ""}`
 }
 
-function GameView({ slug }: { slug: string }) {
+export function GameView({ slug }: { slug: string }) {
     const games = api.perf.games.useQuery()
     const facets = api.perf.facets.useQuery({ game: slug })
     const [tab, setTab] = useState<"trends" | "runs" | "offenders" | "findings" | "rsi" | "budgets">("trends")

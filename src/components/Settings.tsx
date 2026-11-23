@@ -16,7 +16,12 @@ const ACCOUNT_LIMITS = [
     { key: 'accountMaxWeekly', label: 'Skip account at weekly', fallback: '98', unit: '%', max: 100 },
     { key: 'spillMaxRestarts', label: 'Restarts after a limit', fallback: '3', unit: 'times', max: 10 },
 ]
-const HIDDEN = new Set(['doRun', 'runner', 'lastTickAt', 'lastTickBy', 'authEnabled', 'authUser', ...USAGE_LIMITS.map((u) => u.key), ...ACCOUNT_LIMITS.map((u) => u.key)])
+// Ops group: validated numeric limits and a switch; the CLI tick reads the same keys (lib/ops-cli.mjs tickHook).
+const OPS_LIMITS = [
+    { key: 'ghWarnPct', label: 'GitHub budget warning', fallback: '20', unit: '% left', min: 1, max: 90 },
+    { key: 'ghMinLeft', label: 'GitHub reserve', fallback: '100', unit: 'calls', min: 0, max: 5000 },
+]
+const HIDDEN = new Set(['ciAutoSync', ...OPS_LIMITS.map((u) => u.key), 'doRun', 'runner', 'lastTickAt', 'lastTickBy', 'authEnabled', 'authUser', ...USAGE_LIMITS.map((u) => u.key), ...ACCOUNT_LIMITS.map((u) => u.key)])
 
 export function Settings() {
     const utils = api.useUtils()
@@ -78,6 +83,23 @@ export function Settings() {
                             }}
                             onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
                             className="w-20 rounded border border-line bg-transparent px-2 py-1 font-mono" />
+                        <span className="text-muted">{unit}</span>
+                    </label>
+                ))}
+            </div>
+            <div className="mt-4 rounded-lg border border-line bg-panel/60 p-4">
+                <div className="font-medium">Automation and GitHub</div>
+                <p className="mt-0.5 mb-3 text-[12px] text-muted">CI sync and the GitHub API budget (<Link href="/usage/github" className="text-accent hover:underline">usage</Link>). Out-of-range values are rejected.</p>
+                <label className="flex items-center gap-3 py-1 text-[12px]">
+                    <span className="w-40 text-dim">Sync CI on each tick</span>
+                    <input type="checkbox" disabled={!s.data || set.isPending} checked={s.data?.ciAutoSync === 'true'} onChange={(e) => set.mutate({ key: 'ciAutoSync', value: String(e.target.checked) })} />
+                </label>
+                {OPS_LIMITS.map(({ key, label, fallback, unit, min, max }) => (
+                    <label key={key} className="flex items-center gap-3 py-1 text-[12px]">
+                        <span className="w-40 text-dim">{label}</span>
+                        <input type="number" min={min} max={max} step={1} disabled={!s.data || set.isPending} key={s.data?.[key] ?? fallback} defaultValue={s.data?.[key] ?? fallback}
+                            onBlur={(e) => { const n = Math.round(Number(e.target.value)); if (n >= min && n <= max && String(n) !== (s.data?.[key] ?? fallback)) set.mutate({ key, value: String(n) }); else e.target.value = s.data?.[key] ?? fallback }}
+                            onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }} className="w-20 rounded border border-line bg-transparent px-2 py-1 font-mono" />
                         <span className="text-muted">{unit}</span>
                     </label>
                 ))}

@@ -87,12 +87,15 @@ export function Sidebar() {
                     <span className="w-2 text-center text-[11px] text-muted">◉</span><span className="max-md:hidden">Reviews &amp; QA</span>
                 </Link>
                 <div className="px-2 pb-0.5 pt-2 text-[11px] uppercase tracking-wide text-muted max-md:hidden">Health</div>
-                {([['/releases', 'Releases', '⇪'], ['/crashes', 'Crashes', '✖'], ['/web', 'Web checks', '◎'], ['/playtests', 'Playtests', '☺'], ['/content', 'Content', '▤']] as const).map(([h, l, i]) => (
+                {([['/releases', 'Releases', '⇪'], ['/crashes', 'Crashes', '✖'], ['/web', 'Web checks', '◎'], ['/playtests', 'Playtests', '☺'], ['/tools/playtest', 'Trigger playtest', '▷'], ['/content', 'Content', '▤']] as const).map(([h, l, i]) => (
                     <Link key={h} href={h} className={link(h, path === h)} title={l}><span className="w-2 text-center text-[11px] text-muted">{i}</span><span className="max-md:hidden">{l}</span></Link>
                 ))}
                 <div className="px-2 pb-0.5 pt-2 text-[11px] uppercase tracking-wide text-muted max-md:hidden">Automation</div>
                 <Link href="/schedules" className={link('/schedules', path === '/schedules')} title="Schedules">
                     <span className="w-2 text-center text-[11px] text-muted">◷</span><span className="max-md:hidden">Schedules</span>
+                </Link>
+                <Link href="/automation/workflows" className={link('/automation/workflows', path.startsWith('/automation'))} title="Workflows (CI) and checks">
+                    <span className="w-2 text-center text-[11px] text-muted">⟳</span><span className="max-md:hidden">Workflows / Checks</span>
                 </Link>
                 <Link href="/prompts" className={link('/prompts', path.startsWith('/prompts'))} title="Prompts">
                     <span className="w-2 text-center text-[11px] text-muted">¶</span><span className="max-md:hidden">Prompts</span>
