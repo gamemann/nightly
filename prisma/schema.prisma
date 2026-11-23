@@ -799,4 +799,101 @@ model NodeJob {
 
   @@index([status])
   @@index([nodeId])
+
+// ---- Transcripts (workstream TRANSCRIPTS). DDL twin: lib/transcripts-ddl.mjs. Dates are ISO text. ----
+
+/// One Claude Code session file (main or subagent). Text stays in the file; rows hold metadata and byte ranges.
+model Transcript {
+  id               Int     @id @default(autoincrement())
+  uid              String  @unique
+  nodeId           Int?
+  osUser           String  @default("")
+  sessionId        String
+  agentId          String  @default("")
+  parentId         Int?
+  agentType        String  @default("")
+  description      String  @default("")
+  toolUseId        String  @default("")
+  title            String  @default("")
+  cwd              String  @default("")
+  projectSlug      String?
+  gitBranch        String  @default("")
+  model            String  @default("")
+  filePath         String  @unique
+  offset           Int     @default(0)
+  size             Int     @default(0)
+  mtimeMs          Int     @default(0)
+  startedAt        String  @default("")
+  lastAt           String  @default("")
+  messageCount     Int     @default(0)
+  toolCount        Int     @default(0)
+  inTokens         Int     @default(0)
+  outTokens        Int     @default(0)
+  cacheReadTokens  Int     @default(0)
+  cacheWriteTokens Int     @default(0)
+  status           String  @default("idle")
+  source           String  @default("cli")
+  ownerUserId      Int?
+  forkedFrom       String  @default("")
+  state            String  @default("{}")
+  createdAt        String  @default("")
+  updatedAt        String  @default("")
+
+  @@index([lastAt])
+  @@index([sessionId])
+  @@index([parentId])
+  @@index([toolUseId])
+}
+
+/// One conversation entry of a Transcript: ids, counts and the byte range of its line.
+model TranscriptMessage {
+  id           Int    @id @default(autoincrement())
+  transcriptId Int
+  seq          Int
+  uuid         String @default("")
+  parentUuid   String @default("")
+  msgId        String @default("")
+  role         String
+  kind         String @default("text")
+  ts           String @default("")
+  byteStart    Int
+  byteLen      Int
+  model        String @default("")
+  sidechain    Int    @default(0)
+  meta         Int    @default(0)
+  inTok        Int    @default(0)
+  outTok       Int    @default(0)
+  cacheRead    Int    @default(0)
+  cacheWrite   Int    @default(0)
+  tools        String @default("[]")
+  toolUseIds   String @default("[]")
+  spawnIds     String @default("[]")
+
+  @@unique([transcriptId, byteStart])
+  @@index([transcriptId, seq])
+}
+
+/// A `claude` process the panel or CLI started. status: starting | running | idle | ended | failed.
+model TranscriptRun {
+  id             Int     @id @default(autoincrement())
+  transcriptId   Int?
+  sessionId      String  @default("")
+  userId         Int?
+  osUser         String  @default("")
+  nodeId         Int?
+  pid            Int     @default(0)
+  status         String  @default("starting")
+  model          String  @default("")
+  effort         String  @default("")
+  permissionMode String  @default("default")
+  cwd            String  @default("")
+  resumeOf       String  @default("")
+  dir            String  @default("")
+  error          String  @default("")
+  exitCode       Int?
+  startedAt      String  @default("")
+  endedAt        String?
+
+  @@index([status])
+  @@index([transcriptId])
 }

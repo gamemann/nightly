@@ -25,11 +25,13 @@ import * as UQ from '../lib/usage-query.mjs'
 import * as UC from '../lib/usage-ch.mjs'
 import { syncBlockers } from '../lib/rsi-blockers.mjs'
 import { agentLive } from '../lib/cli-agents.mjs'
+import { runTranscriptCommand, TRANSCRIPT_HELP } from '../lib/cli-transcripts.mjs'
+import * as TS from '../lib/transcripts-store.mjs'
 import { FEED_COMMANDS, FEED_HELP, runFeedCommand } from '../lib/cli-feeds.mjs'
 import { ACCOUNT_COMMANDS, ACCOUNT_BOOL, ACCOUNT_HELP, runAccountCommand } from '../lib/cli-accounts.mjs'
 
 const argv = process.argv.slice(2)
-const BOOL = new Set(['json', 'all', 'top', 'due', 'help', 'h', 'dryRun', 'force', 'peek', 'strict', 'register', 'noFindings', 'noBudgets', 'noBaseline', 'requireToken', 'tokenOnly', 'png', 'disable', 'enable', 'infra', 'leave', 'purge', 'wait', 'child', 'full', 'noCh', 'resync', 'missing', 'noCi', 'absolute', 'delete', 'noJournal', 'frame', ...ACCOUNT_BOOL])
+const BOOL = new Set(['json', 'all', 'top', 'due', 'help', 'h', 'dryRun', 'force', 'peek', 'strict', 'register', 'noFindings', 'noBudgets', 'noBaseline', 'requireToken', 'tokenOnly', 'png', 'disable', 'enable', 'infra', 'leave', 'purge', 'wait', 'child', 'full', 'noCh', 'resync', 'missing', 'noCi', 'absolute', 'delete', 'noJournal', 'frame', 'fork', 'interrupt', ...ACCOUNT_BOOL])
 
 const multi = {}
 function parse(args) {
@@ -120,6 +122,7 @@ const HELP = `nightly -- the nightly run's to-do database (${S.DB_PATH})
   assets thumbs [id...] [--force] [--missing] [--limit N] [--wait]   (re)generate the 128x96 webp thumbnails (textures downscaled, models rendered in software, cached beside the audit data, regenerated when the file hash changes); runs detached unless --wait
   assets history [--pack P] [--limit N] [--json]   audit trend: one row per pack per ingest (oldest first; the history keeps counts and average score per pack, not per kind)
   assets summary                                per-pack counts and average score
+${TRANSCRIPT_HELP}
   usage ingest [--full] [--dir D] [--no-ch] [--resync]   read Claude Code transcripts (usageDirs setting, default ~/.claude/projects) into the usage tables; pushes to ClickHouse when enabled
   usage summary [--days N] [--source ch]        tokens and estimated cost today/7d/30d/all
   usage top <project|session|agent_type|model|skill|tool|branch> [--days N] [--limit N] [--source ch]   biggest consumers
@@ -489,11 +492,17 @@ function cmdSchedule() {
         `${s.prompt.padEnd(12)} ${s.error ? `BAD: ${s.error}` : `next ${S.local(s.next)}`}`).join('\n') || '(no schedules)')
 }
 
+const ROOT_DIR = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..')
+async function cmdTranscript() {
+    await runTranscriptCommand({ db, pos, opt, out, die, root: ROOT_DIR, idleMinutes: Number(S.getSetting(db, 'transcriptsIdleMinutes') ?? 30) })
+}
+
 async function cmdTick() {
     const lines = R.tick(db, new Date(), { dryRun: !!opt.dryRun })
     if (!opt.dryRun) { try { const m = PR.maybeSchedule(db); if (m) lines.push(m) } catch (e) { lines.push(`perf schedule: ${e.message}`) }
         try { lines.push(...RSI.tickHook(db)) } catch (e) { lines.push(`rsi: ${e.message}`) }
-        try { lines.push(...await US.tickHook(db)) } catch (e) { lines.push(`usage: ${e.message}`) } }
+        try { lines.push(...await US.tickHook(db)) } catch (e) { lines.push(`usage: ${e.message}`) }
+        try { TS.ensure(db); const r = TS.ingestAll(db); if (r.changed) lines.push(`transcripts: ${r.changed} files, ${r.added} entries`) } catch (e) { lines.push(`transcripts: ${e.message}`) } }
     if (J) return out(lines, () => '')
     if (lines.length) process.stdout.write(lines.join('\n') + '\n')
 }
@@ -870,7 +879,7 @@ try {
     db = S.open()
     const table = { list: cmdList, ls: cmdList, show: cmdShow, add: cmdAdd, set: cmdSet, note: cmdNote, attach: cmdAttach, attachments: cmdAttachments, review: cmdReview, reviews: cmdReview, checks: cmdChecks,
         checked: cmdChecked, run: cmdRun, get: cmdGet, 'set-setting': cmdSetSetting, brief: cmdBrief,
-        prompt: cmdPrompt, prompts: cmdPrompt, schedule: cmdSchedule, schedules: cmdSchedule, tick: cmdTick, start: cmdStart, exec: cmdExec, agent: cmdAgent, account: cmdAccount, accounts: cmdAccount, perf: cmdPerf, assets: cmdAssets, rsi: cmdRsi, usage: cmdUsage }
+        prompt: cmdPrompt, prompts: cmdPrompt, schedule: cmdSchedule, schedules: cmdSchedule, tick: cmdTick, start: cmdStart, exec: cmdExec, agent: cmdAgent, account: cmdAccount, accounts: cmdAccount, transcript: cmdTranscript, transcripts: cmdTranscript, perf: cmdPerf, assets: cmdAssets, rsi: cmdRsi, usage: cmdUsage }
     for (const c of [...FEED_COMMANDS, 'feed', 'gates']) table[c] = () => runFeedCommand(c, { db, pos, opt, out, die, readStdin })
     for (const c of ACCOUNT_COMMANDS) table[c] ??= () => runAccountCommand(c, { db, pos, opt, out, die, readStdin })
     const fn = table[cmd] ?? die(`unknown command "${cmd}" (try: nightly help)`)
