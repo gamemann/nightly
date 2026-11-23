@@ -117,13 +117,14 @@ export const gameRouter = router({
 
 /** The game's items and the QA `game` values that classify to it. Classification is JS-only (lib/games), so this reads the light columns of every item and the distinct QA games. */
 async function members(db: Db, slug: string) {
-    const [all, qaGames] = await Promise.all([
-        db.item.findMany({ select: { id: true, key: true, title: true, kind: true, status: true, repos: true, updatedAt: true }, orderBy: [{ updatedAt: 'desc' }] }),
+    const [links, qaGames] = await Promise.all([
+        // every item linked to this project (ItemProject, many-to-many: an item with several projects is listed under each)
+        db.itemProject.findMany({ where: { project: { slug } }, select: { item: { select: { id: true, key: true, title: true, kind: true, status: true, repos: true, updatedAt: true } } } }),
         db.qaRun.findMany({ select: { game: true }, distinct: ['game'] }),
     ])
-    const known = knownGames([...all.map((i) => i.repos), ...qaGames.map((q) => q.game)])
-    const items = all.filter((i) => gameOf(i.repos, known, i.key, i.title) === slug)
-    return { items, ids: items.map((i) => i.id), games: qaGames.map((q) => q.game).filter((g) => gameOf(g, known) === slug) }
+    const items = links.map((l) => l.item).sort((x, y) => y.updatedAt.getTime() - x.updatedAt.getTime())
+    const known = new Set<string>([slug, ...qaGames.map((q) => q.game)])
+    return { items, ids: items.map((i) => i.id), games: qaGames.map((q) => q.game).filter((g) => g === slug || gameOf(g, known) === slug) }
 }
 
 async function runIdsOf(db: Db, ids: number[]) {

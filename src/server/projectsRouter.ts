@@ -1,6 +1,7 @@
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { can, canProject, folderTree, validGrant, wouldCycle, type ProjectScope } from '../../lib/permissions.mjs'
+import { countSqls } from '../../lib/project-map.mjs'
 import { PROJECT_TYPES, checkSlug, parseSettings } from '../../lib/projects-core.mjs'
 import { checked } from './accountsRouter'
 import type { Viewer } from './auth'
@@ -125,6 +126,41 @@ const projectRouter = router({
             const scope = await projectScope(v)
             return out.filter((p) => canProject(v.perms, scope, 'projects.view', p.id))
         }),
+    /**
+     * Task, open-task, asset and map counts per project and per folder. A folder rolls up every project in it and its subfolders
+     * with DISTINCT counts (an item linked to two projects counts once). Same SQL as the CLI report (lib/project-map.mjs).
+     */
+    counts: procedure.query(async ({ ctx }) => {
+        const v = ctx.viewer!
+        const [projects, folders] = await Promise.all([ctx.db.project.findMany({ select: { id: true, folderId: true } }), ctx.db.folder.findMany({ select: { id: true, parentId: true } })])
+        const scope = can(v.perms, 'projects.view') ? null : await projectScope(v)
+        const visible = projects.filter((p) => !scope || canProject(v.perms, scope, 'projects.view', p.id))
+        const n = (x: unknown) => Number(x ?? 0)
+        type Row = { pid?: number | bigint; tasks?: unknown; open?: unknown; assets?: unknown; maps?: unknown }
+        const run = async (ids: number[], grouped: boolean) => {
+            const q = countSqls(ids, grouped)
+            const [t, a] = await Promise.all([ctx.db.$queryRawUnsafe<Row[]>(q.tasks), ctx.db.$queryRawUnsafe<Row[]>(q.assets)])
+            return { t, a }
+        }
+        const zero = () => ({ tasks: 0, open: 0, assets: 0, maps: 0 })
+        const byProject: Record<number, ReturnType<typeof zero>> = {}
+        for (const p of visible) byProject[p.id] = zero()
+        const all = await run(visible.map((p) => p.id), true)
+        for (const r of all.t) if (byProject[n(r.pid)]) { byProject[n(r.pid)].tasks = n(r.tasks); byProject[n(r.pid)].open = n(r.open) }
+        for (const r of all.a) if (byProject[n(r.pid)]) { byProject[n(r.pid)].assets = n(r.assets); byProject[n(r.pid)].maps = n(r.maps) }
+        const kids = new Map<number, number[]>()
+        for (const f of folders) if (f.parentId != null) kids.set(f.parentId, [...(kids.get(f.parentId) ?? []), f.id])
+        const byFolder: Record<number, ReturnType<typeof zero>> = {}
+        for (const f of folders) {
+            const sub = new Set([f.id])
+            for (const stack = [f.id]; stack.length;) for (const k of kids.get(stack.pop()!) ?? []) if (!sub.has(k)) { sub.add(k); stack.push(k) }
+            const ids = visible.filter((p) => p.folderId != null && sub.has(p.folderId)).map((p) => p.id)
+            if (!ids.length) { byFolder[f.id] = zero(); continue }
+            const r = await run(ids, false)
+            byFolder[f.id] = { tasks: n(r.t[0]?.tasks), open: n(r.t[0]?.open), assets: n(r.a[0]?.assets), maps: n(r.a[0]?.maps) }
+        }
+        return { projects: byProject, folders: byFolder }
+    }),
     get: procedure.input(z.object({ slug: z.string() })).query(async ({ ctx, input }) => {
         const p = await ctx.db.project.findUnique({ where: { slug: input.slug }, include: { folder: true, builds: true } })
         if (!p) throw new TRPCError({ code: 'NOT_FOUND', message: `no project ${input.slug}` })

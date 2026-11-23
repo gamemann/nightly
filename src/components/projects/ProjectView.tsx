@@ -6,6 +6,7 @@ import { PROJECT_TYPES } from '../../../lib/projects-core.mjs'
 import { Card, ErrorLine, Field, Table, when } from '~/components/shell/form'
 import { api } from '~/trpc/react'
 import { ProjectIcon } from './ProjectIcon'
+import { Counts } from './Projects'
 
 // The client halves of /projects/[slug]: the overview (with the edit form for editors), project
 // settings (icon) and the builds list. Phase 2+ tabs render their own components from the page.
@@ -13,10 +14,12 @@ import { ProjectIcon } from './ProjectIcon'
 export function ProjectOverview({ slug }: { slug: string }) {
     const q = api.project.get.useQuery({ slug })
     const me = api.account.me.useQuery()
+    const counts = api.project.counts.useQuery()
     const [editing, setEditing] = useState(false)
     const p = q.data
     if (!p) return <div className="p-6"><ErrorLine error={q.error} /></div>
     const rows: [string, ReactNode][] = [
+        ['Contents', counts.data?.projects[p.id] ? <Counts c={counts.data.projects[p.id]} /> : '-'],
         ['Type', p.type], ['Folder', p.folder?.name ?? '-'], ['Repository path', p.repoPath || '-'],
         ['Repository URL', p.repoUrl ? <a className="text-accent hover:underline" href={p.repoUrl} target="_blank" rel="noreferrer">{p.repoUrl}</a> : '-'],
         ['Settings', Object.keys(p.settings).length ? <code className="text-[12px]">{JSON.stringify(p.settings)}</code> : '-'],

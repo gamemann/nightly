@@ -1,17 +1,19 @@
 import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs"
 import path from "node:path"
 import { db } from "./db"
+import { projectPacks } from "./projectPacks"
 
 export type MapRow = { id: number; name: string; pack: string; score: number; pass: boolean; tris: number; surfaces: number; spawns: number; hulls: number; untextured: number; hasOriginal: boolean; flags: string[]; title?: string; gameMap?: boolean; reason?: string }
 
 /** Every converted map (kind `level`), one row per pack that ships it. */
-export async function mapRows(): Promise<MapRow[]> {
-    const rows = await db.assetWeapon.findMany({ where: { kind: "level" }, select: { id: true, pack: true, weaponId: true, score: true, pass: true, tris: true, flagCodes: true, data: true }, orderBy: [{ weaponId: "asc" }, { pack: "asc" }] })
+export async function mapRows(project?: string): Promise<MapRow[]> {
+    const packs = await projectPacks(project)
+    const rows = await db.assetWeapon.findMany({ where: { kind: "level", ...(packs ? { pack: { in: packs } } : {}) }, select: { id: true, pack: true, weaponId: true, score: true, pass: true, tris: true, flagCodes: true, data: true }, orderBy: [{ weaponId: "asc" }, { pack: "asc" }] })
     const out = rows.map((r) => {
         const m = (JSON.parse(r.data) as { map?: { surfaces?: number; spawns?: number; hulls?: number; untextured?: number; original?: { error?: string; source?: string } } }).map ?? {}
         return { id: r.id, name: r.weaponId, pack: r.pack, score: r.score, pass: r.pass === 1, tris: r.tris, surfaces: m.surfaces ?? 0, spawns: m.spawns ?? 0, hulls: m.hulls ?? 0, untextured: m.untextured ?? 0, hasOriginal: !!m.original && !m.original.error, flags: String(r.flagCodes ?? "").split(" ").filter(Boolean) }
     })
-    return [...out, ...(await definitionOnly(new Set(out.map((r) => `${r.pack}/${r.name}`))))].sort((a, b) => a.name.localeCompare(b.name) || a.pack.localeCompare(b.pack))
+    return [...out, ...(await definitionOnly(new Set(out.map((r) => `${r.pack}/${r.name}`)))).filter((r) => !packs || packs.includes(r.pack))].sort((a, b) => a.name.localeCompare(b.name) || a.pack.localeCompare(b.pack))
 }
 
 /** Maps a pack lists in manifests (the source's `maps` globs) that have no converted geometry to view (a game's map definition: spawns, rules, environment). Shown on the Maps page without a viewer. */

@@ -23,6 +23,7 @@ export function Projects() {
     const me = api.account.me.useQuery()
     const tree = api.folder.tree.useQuery()
     const list = api.project.list.useQuery({ q: q || undefined, type: (PROJECT_TYPES as string[]).includes(type ?? '') ? type ?? undefined : undefined, folderId, deep: true, archived, sort: 'sort' })
+    const counts = api.project.counts.useQuery()
     const flat = flattenTree(tree.data ?? [])
     const mayCreate = can(me.data?.perms, 'projects.create')
     const setParam = (k: string, v?: string) => {
@@ -44,7 +45,7 @@ export function Projects() {
                     <button onClick={() => setParam('folder')} className={`block w-full rounded px-2 py-1 text-left ${folderId == null ? 'nav-active' : 'text-dim hover:bg-hover/60'}`}>All folders</button>
                     {flat.map(({ folder, depth }) => (
                         <button key={folder.id} onClick={() => setParam('folder', String(folder.id))} style={{ paddingLeft: 8 + depth * 14 }}
-                            className={`block w-full truncate rounded py-1 pr-2 text-left ${folderId === folder.id ? 'nav-active' : 'text-dim hover:bg-hover/60'}`}>▸ {folder.name}</button>
+                            className={`block w-full truncate rounded py-1 pr-2 text-left ${folderId === folder.id ? 'nav-active' : 'text-dim hover:bg-hover/60'}`}>▸ {folder.name}{counts.data?.folders[folder.id] ? <span className="ml-1 text-[11px] text-muted" title="distinct tasks / assets / maps in this folder and below">{counts.data.folders[folder.id].tasks}/{counts.data.folders[folder.id].assets}/{counts.data.folders[folder.id].maps}</span> : null}</button>
                     ))}
                     {!flat.length && !tree.isLoading && <p className="px-2 py-1 text-[12px] text-muted">No folders yet.</p>}
                 </aside>
@@ -69,6 +70,7 @@ export function Projects() {
                                 <div className="min-w-0">
                                     <div className="truncate text-[13.5px] font-medium">{p.name}{p.archived && <span className="ml-1.5 text-[11px] text-muted">archived</span>}</div>
                                     <div className="truncate text-[11.5px] text-muted">{TYPE_LABEL[p.type] ?? p.type}{p.folder ? ` · ${p.folder.name}` : ''} · {p.slug}</div>
+                                    {counts.data?.projects[p.id] && <Counts c={counts.data.projects[p.id]} />}
                                 </div>
                             </Link>
                         ))}
@@ -77,6 +79,10 @@ export function Projects() {
             </div>
         </div>
     )
+}
+
+export function Counts({ c }: { c: { tasks: number; open: number; assets: number; maps: number } }) {
+    return <div className="truncate text-[11.5px] text-dim">{c.tasks} tasks ({c.open} open) · {c.assets} assets · {c.maps} maps</div>
 }
 
 type FolderOpt = { id: number; label: string }

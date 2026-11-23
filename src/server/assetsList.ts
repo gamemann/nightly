@@ -1,7 +1,8 @@
+import { projectPacks } from './projectPacks'
 import { db } from './db'
 import { INDEXES, BACKFILL, alterStatements } from '../../lib/asset-cols.mjs'
 import { PIECE_SQL, describe, placeOf } from '../../lib/asset-names.mjs'
-import { DEDUPE_KEY, TAB_SQL, UNIQUE, aggCountSql, effectiveFilters } from '../../lib/asset-tabs.mjs'
+import { DEDUPE_KEY, TAB_SQL, aggCountSql, effectiveFilters, packIn, uniqueFor } from '../../lib/asset-tabs.mjs'
 import { offsetOf, likeEsc, paged, type PageQuery, type PageSpec, type Paged } from '~/lib/paging'
 
 export type Tab = 'entities' | 'avatars' | 'models' | 'textures' | 'animations' | 'sounds' | 'maps' | 'libraries'
@@ -58,13 +59,14 @@ export function ensureAssetColumns() {
 /** Map pieces (props inside a map pack's model library or a map's own model folder) live on the Maps tab, one row per map or set; `pieces=1` lists the individual pieces (the link target of a map row). Every other tab is standalone assets only. */
 export const showPieces = (v: string | undefined) => v === '1'
 
-function where(q: PageQuery, only: 'rows' | 'pieces' = 'rows') {
+function where(q: PageQuery, only: 'rows' | 'pieces' = 'rows', packs: string[] | null = null) {
     const w: string[] = [], a: unknown[] = []
     const f = effectiveFilters(q.f)
     if (f.kind) { w.push('kind = ?'); a.push(f.kind) }
     const tb = (f.tab || 'entities') as keyof typeof TAB_SQL
     if (TAB_SQL[tb]) w.push(TAB_SQL[tb])
     if (f.pack) { w.push('pack = ?'); a.push(f.pack) }
+    if (packs) w.push(packIn(packs).slice(5))
     if (f.game) { w.push("(',' || game || ',') LIKE ? ESCAPE '\\'"); a.push(`%,${likeEsc(f.game)},%`) }
     if (f.flag) { w.push("(' ' || flagCodes || ' ') LIKE ? ESCAPE '\\'"); a.push(`% ${likeEsc(f.flag)} %`) }
     if (f.min) { w.push('score >= ?'); a.push(Number(f.min) || 0) }
@@ -78,8 +80,9 @@ function where(q: PageQuery, only: 'rows' | 'pieces' = 'rows') {
 /** One page of the Assets table: filter, search, sort and limit all in SQL; only the visible rows are parsed. */
 export async function assetPage(q: PageQuery): Promise<Paged<AssetRow>> {
     await ensureAssetColumns()
-    if ((q.f.tab === 'maps' || q.f.tab === 'libraries') && !showPieces(q.f.pieces)) return mapPage(q, q.f.tab === 'maps' ? 'map' : 'library')
-    const { sql, a } = where(q)
+    const packs = await projectPacks(q.f.project)
+    if ((q.f.tab === 'maps' || q.f.tab === 'libraries') && !showPieces(q.f.pieces)) return mapPage(q, q.f.tab === 'maps' ? 'map' : 'library', packs)
+    const { sql, a } = where(q, 'rows', packs)
     const dedupe = !showPieces(q.f.pieces)
     const total = n((await db.$queryRawUnsafe<{ c: unknown }[]>(dedupe ? `SELECT COUNT(*) c FROM (SELECT 1 FROM AssetWeapon ${sql} GROUP BY ${DEDUPE_KEY})` : `SELECT COUNT(*) c FROM AssetWeapon ${sql}`, ...a))[0].c)
     const off = offsetOf(total, q)
@@ -147,9 +150,9 @@ const MAP_SORT: Record<string, (r: MapGroup) => string | number> = {
     asset: (r) => r.display.toLowerCase(), pack: (r) => r.pack, game: (r) => r.game, tris: (r) => r.tris, verts: (r) => r.verts, mats: (r) => r.materials, tex: (r) => r.texCount, texbytes: (r) => r.texBytes, maps: (r) => r.pieces, score: (r) => r.score, worst: (r) => r.worst,
 }
 /** The Maps tab: the map rows, filtered, searched, sorted and paged in memory (a few hundred rows at most). */
-async function mapPage(q: PageQuery, type: 'map' | 'library'): Promise<Paged<AssetRow>> {
+async function mapPage(q: PageQuery, type: 'map' | 'library', packs: string[] | null = null): Promise<Paged<AssetRow>> {
     const f = q.f, needle = (q.q ?? '').toLowerCase()
-    let rows = (await mapGroups()).filter((r) => r.kind === type && (!f.pack || r.uses.includes(f.pack)) && (!f.game || r.uses.includes(f.game)) && (!f.flag || r.flags.some((x) => x.code === f.flag)) && (!f.min || r.score >= Number(f.min)) && (!f.max || r.score <= Number(f.max)) && (!needle || r.display.toLowerCase().includes(needle) || r.pack.toLowerCase().includes(needle)))
+    let rows = (await mapGroups()).filter((r) => r.kind === type && (!packs || r.uses.some((u) => packs.includes(u))) && (!f.pack || r.uses.includes(f.pack)) && (!f.game || r.uses.includes(f.game)) && (!f.flag || r.flags.some((x) => x.code === f.flag)) && (!f.min || r.score >= Number(f.min)) && (!f.max || r.score <= Number(f.max)) && (!needle || r.display.toLowerCase().includes(needle) || r.pack.toLowerCase().includes(needle)))
     const key = MAP_SORT[q.sort] ?? MAP_SORT.score, sgn = q.dir === 'desc' ? -1 : 1
     rows = rows.sort((a, b) => { const x = key(a), y = key(b); return (x < y ? -1 : x > y ? 1 : 0) * sgn || a.display.localeCompare(b.display) || a.pack.localeCompare(b.pack) })
     const off = offsetOf(rows.length, q)
@@ -160,9 +163,10 @@ const group = (rows: { k: string; total: unknown; pass: unknown }[]) => rows.map
     .sort((a, b) => a.rate - b.rate || b.total - a.total || a.key.localeCompare(b.key))
 
 /** Every chart number of the Assets page as SQL aggregates over the whole table (never the row set). */
-export async function assetAgg(): Promise<Agg> {
+export async function assetAgg(project?: string): Promise<Agg> {
     await ensureAssetColumns()
-    const W = `WHERE NOT ${PIECE_SQL}`, A = `AND NOT ${PIECE_SQL}`
+    const scope = await projectPacks(project), UNIQUE = uniqueFor(scope)
+    const A = `AND NOT ${PIECE_SQL}${packIn(scope)}`
     const [tot, bins, packs, kinds, flags, worst, games, kt] = await Promise.all([
         db.$queryRawUnsafe<Record<string, unknown>[]>(`SELECT COUNT(*) total, SUM(source='audit') audited, SUM(${TAB_SQL.entities}) e, SUM(${TAB_SQL.avatars}) v, SUM(${TAB_SQL.models}) m, SUM(${TAB_SQL.textures}) t, SUM(${TAB_SQL.animations}) a, SUM(${TAB_SQL.sounds}) s FROM ${UNIQUE}`),
         db.$queryRawUnsafe<{ b: unknown; c: unknown }[]>(`SELECT MIN(9, MAX(0, score / 10)) b, COUNT(*) c FROM ${UNIQUE} GROUP BY b`),
@@ -171,9 +175,9 @@ export async function assetAgg(): Promise<Agg> {
         db.$queryRawUnsafe<{ code: string; sev: string; c: unknown }[]>(`SELECT json_extract(f.value,'$.code') code, json_extract(f.value,'$.severity') sev, COUNT(*) c FROM ${UNIQUE}, json_each(AssetWeapon.data,'$.flags') f GROUP BY code, sev`),
         db.$queryRawUnsafe<{ id: unknown; weaponId: string; pack: string; kind: string; score: unknown }[]>(`SELECT id, weaponId, pack, kind, score FROM ${UNIQUE} ORDER BY score, weaponId LIMIT 8`),
         db.$queryRawUnsafe<{ game: string }[]>("SELECT DISTINCT game FROM AssetWeapon WHERE game != ''"),
-        db.$queryRawUnsafe<Record<string, unknown>[]>(aggCountSql()),
+        db.$queryRawUnsafe<Record<string, unknown>[]>(aggCountSql(scope)),
     ])
-    const t = tot[0], places = await mapGroups()
+    const t = tot[0], places = (await mapGroups()).filter((p) => !scope || p.uses.some((u) => scope.includes(u)))
     const bn = new Map(bins.map((r) => [n(r.b), n(r.c)]))
     return {
         total: n(t.total), audited: n(t.audited),

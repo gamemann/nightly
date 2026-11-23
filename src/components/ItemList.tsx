@@ -131,7 +131,7 @@ function QuickAdd({ view, onAdded }: { view: View; onAdded: () => unknown }) {
     })
     const submit = (go: boolean) => {
         if (!title.trim()) return
-        create.mutate({ title, kind, repos, position, status }, { onSuccess: (it) => go && router.push(`/item/${it.key}`) })
+        create.mutate({ title, kind, projects: repos.split(',').map((x) => x.trim()).filter(Boolean), repos, position, status }, { onSuccess: (it) => go && router.push(`/item/${it.key}`) })
     }
     return (
         <div className={`rounded-lg border bg-panel transition ${open ? 'border-line-strong shadow-lg shadow-black/30' : 'border-line'}`}>
@@ -152,7 +152,7 @@ function QuickAdd({ view, onAdded }: { view: View; onAdded: () => unknown }) {
                     <select value={kind} onChange={(e) => setKind(e.target.value as Kind)} className="select">
                         {KINDS.map((k) => <option key={k}>{k}</option>)}
                     </select>
-                    <input value={repos} onChange={(e) => setRepos(e.target.value)} placeholder="repos (comma list)" className="input w-56 py-1" />
+                    <input value={repos} onChange={(e) => setRepos(e.target.value)} placeholder="projects (one or more, comma list)" title="Project slugs; an item can belong to several projects" className="input w-56 py-1" />
                     <div className="flex overflow-hidden rounded-md border border-line">
                         {(['top', 'bottom'] as const).map((p) => (
                             <button key={p} onClick={() => setPosition(p)}

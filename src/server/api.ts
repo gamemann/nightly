@@ -28,6 +28,7 @@ import { reviewRouter } from './reviewRouter'
 import { transcriptsRouter } from './transcriptsRouter'
 import { modelSibling } from './models'
 import { procedure, router } from './trpc'
+import { reposText, syncItemLinks } from './itemLinks'
 
 const run = promisify(execFile)
 /** Starting and stopping runs goes through the CLI, so the runner is a child of `nightly exec`
@@ -105,7 +106,7 @@ const itemRouter = router({
             const q = input.q?.trim()
             const where: Prisma.ItemWhereInput = {
                 ...(q ? {} : whereFor(input.view)),
-                ...(input.project ? { repos: { contains: input.project } } : {}),
+                ...(input.project ? { projects: { some: { project: { slug: input.project } } } } : {}),
                 ...(q ? { OR: [{ title: { contains: q } }, { key: { contains: q } }, { body: { contains: q } }, { repos: { contains: q } }] } : {}),
                 ...((KINDS as readonly string[]).includes(input.kind ?? '') ? { kind: input.kind } : {}),
                 ...((STATUSES as readonly string[]).includes(input.status ?? '') ? { status: input.status } : {}),
@@ -153,6 +154,8 @@ const itemRouter = router({
             kind: z.enum(KINDS).default('task'),
             status: z.enum(STATUSES).default('queue'),
             repos: z.string().default(''),
+            /** Project slugs (one or more); wins over repos and keeps ItemProject in step. */
+            projects: z.array(z.string()).optional(),
             body: z.string().default(''),
             doneWhen: z.string().optional(),
             cadence: z.enum(CADENCES).optional(),
@@ -167,13 +170,14 @@ const itemRouter = router({
             const it = await tx.item.create({
                 data: {
                     key, title: input.title, kind: input.kind, status: input.status, body: input.body,
-                    repos: input.repos.split(',').map((s) => s.trim()).filter(Boolean).join(', ') || suggestRepos(key, input.title),
+                    repos: reposText(input.repos, input.projects) || suggestRepos(key, input.title),
                     doneWhen: input.doneWhen || null, addedBy: OWNER,
                     cadence: input.kind === 'check' ? (input.cadence ?? 'nightly') : null,
                     priority: 1_000_000, completedAt: closed ? new Date() : null,
                 },
             })
             await place(tx, it.id, input.position)
+            await syncItemLinks(tx, it.id)
             return it
         })),
 
@@ -186,6 +190,7 @@ const itemRouter = router({
                 kind: z.enum(KINDS).optional(),
                 status: z.enum(STATUSES).optional(),
                 repos: z.string().optional(),
+                projects: z.array(z.string()).optional(),
                 doneWhen: z.string().nullable().optional(),
                 cadence: z.enum(CADENCES).nullable().optional(),
                 newKey: z.string().trim().regex(/^[\w.-]+$/).optional(),
@@ -194,13 +199,13 @@ const itemRouter = router({
         .mutation(async ({ ctx, input }) => ctx.db.$transaction(async (tx) => {
             const it = await tx.item.findUnique({ where: { key: input.key } })
             if (!it) throw new TRPCError({ code: 'NOT_FOUND' })
-            const { newKey, status, repos, ...rest } = input.patch
+            const { newKey, status, repos, projects, ...rest } = input.patch
             const data: Prisma.ItemUpdateInput = { ...rest }
             if (newKey && newKey !== it.key) {
                 if (await tx.item.findUnique({ where: { key: newKey } })) throw new TRPCError({ code: 'CONFLICT', message: `key ${newKey} exists` })
                 data.key = newKey
             }
-            if (repos !== undefined) data.repos = repos.split(',').map((s) => s.trim()).filter(Boolean).join(', ')
+            if (projects !== undefined || repos !== undefined) data.repos = reposText(repos, projects)
             const statusChanged = status !== undefined && status !== it.status
             if (statusChanged) {
                 data.status = status
@@ -208,6 +213,7 @@ const itemRouter = router({
             }
             const out = await tx.item.update({ where: { id: it.id }, data })
             if (statusChanged || (rest.kind && rest.kind !== it.kind)) await place(tx, it.id, out.status === 'queue' ? 'bottom' : 'top')
+            if (projects !== undefined || repos !== undefined) await syncItemLinks(tx, it.id)
             return out
         })),
 

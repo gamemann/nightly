@@ -18,6 +18,7 @@
 #      without a login, ingest stays open (ingestOpen), so existing ingest clients keep working.
 #   3. nightly node planet: this machine as the planet node.
 #   4. nightly project seed: folders and projects from the repo roots and the repos the data already names.
+#      nightly project map --remap-tasks: link every task, asset pack and map to its projects (many-to-many; Item.repos stays as is).
 #   5. A summary: row counts of the old tables before and after (none may drop), users, nodes, folders, projects.
 # Restore: stop the panel, then copy the backup over FILE and delete FILE-wal and FILE-shm.
 set -euo pipefail
@@ -75,6 +76,8 @@ node --no-warnings "$ROOT/lib/bootstrap.mjs"
 "${NIGHTLY[@]}" node planet
 # 4. Folders and projects.
 "${NIGHTLY[@]}" project seed "${ROOTS[@]}"
+# 4b. Tasks, asset packs and maps linked to their projects (ItemProject, ProjectPack); idempotent, re-resolves every task.
+"${NIGHTLY[@]}" project map --remap-tasks
 
 # 5. Summary.
 AFTER="$(counts "$DB")"

@@ -141,7 +141,7 @@ export function ItemDetail({ itemKey }: { itemKey: string }) {
                             <p className="mt-1 text-[11px] text-muted">Last run {ago(it.lastRunAt)}{it.due && <span className="text-teal-300"> · due</span>}</p>
                         </Field>
                     )}
-                    <TextField label="Repos" value={it.repos} placeholder="a, b" onSave={(repos) => save({ repos })} />
+                    <TextField label="Projects" value={it.repos} placeholder="one or more project slugs: a, b" onSave={(repos) => save({ projects: repos.split(',').map((x) => x.trim()).filter(Boolean), repos })} />
                     <div className="-mt-1"><RepoChips repos={it.repos} max={20} /></div>
                     <TextField label="Done when" value={it.doneWhen ?? ''} multiline onSave={(v) => save({ doneWhen: v || null })} />
                     <TextField label="Key" value={it.key} mono onSave={(v) => v && save({ newKey: v })} />

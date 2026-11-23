@@ -1,7 +1,10 @@
 import { notFound } from 'next/navigation'
 import { parseSettings } from '../../../../../lib/projects-core.mjs'
 import { canProject } from '../../../../../lib/permissions.mjs'
+import { Suspense } from 'react'
 import { Workflows } from '~/components/automation/Workflows'
+import { Assets, type PackTrend } from '~/components/Assets'
+import { MapsList } from '~/components/MapsList'
 import { GamePage } from '~/components/Game'
 import { AssetManager } from '~/components/tools/AssetManager'
 import { CrashesTab } from '~/components/tools/CrashesTab'
@@ -13,6 +16,9 @@ import { ProjectIcon } from '~/components/projects/ProjectIcon'
 import { LinkTabs, NoAccess, PageHeader } from '~/components/shell/ui'
 import { getViewer } from '~/server/auth'
 import { db } from '~/server/db'
+import { parsePage } from '~/lib/paging'
+import { ASSET_SPEC, assetAgg, assetPage } from '~/server/assetsList'
+import { mapRows } from '~/server/mapsList'
 import { assertProject, projectScope } from '~/server/projectsRouter'
 
 // One project: /projects/<slug>/<tab>. Each tab names the permission it needs (global or granted on this
@@ -33,7 +39,7 @@ const TABS: readonly (readonly [string, string, string | null, readonly string[]
     ['settings', 'Settings', 'projects.edit', ALL],
 ]
 
-export default async function ProjectPage({ params }: { params: Promise<{ slug: string; tab?: string[] }> }) {
+export default async function ProjectPage({ params, searchParams }: { params: Promise<{ slug: string; tab?: string[] }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
     const { slug, tab: rest } = await params
     const v = await getViewer()
     const p = await db.project.findUnique({ where: { slug }, include: { folder: { select: { name: true } } } })
@@ -59,8 +65,8 @@ export default async function ProjectPage({ params }: { params: Promise<{ slug: 
         : tab === 'perf' ? <PerfTab projectSlug={game} />
         : tab === 'playtest' ? <PlaytestTab projectSlug={game} />
         : tab === 'crashes' ? <CrashesTab projectSlug={game} />
-        : tab === 'assets' ? <AssetManager projectSlug={p.slug} />
-        : tab === 'maps' ? <MapManager projectSlug={p.slug} />
+        : tab === 'assets' ? await assetsTab(p.slug, await searchParams)
+        : tab === 'maps' ? <MapManager projectSlug={p.slug}><MapsList rows={await mapRows(p.slug)} /></MapManager>
         : tab === 'workflows' ? <Workflows projectSlug={p.slug} embedded />
         : tab === 'builds' ? <ProjectBuilds projectId={p.id} />
         : <ProjectSettings slug={p.slug} />
@@ -72,4 +78,21 @@ export default async function ProjectPage({ params }: { params: Promise<{ slug: 
             {body}
         </div>
     )
+}
+
+/** The project's Assets tab: the Asset Manager list restricted to the packs the project owns or uses (ProjectPack). */
+async function assetsTab(slug: string, sp: Record<string, string | string[] | undefined>) {
+    const q = parsePage(sp, ASSET_SPEC)
+    q.f.project = slug
+    const [data, agg, hist, kinds, sources] = await Promise.all([
+        assetPage(q), assetAgg(slug),
+        db.assetAuditHistory.findMany({ orderBy: [{ at: 'asc' }, { id: 'asc' }] }),
+        db.assetKind.findMany({ orderBy: [{ sort: 'asc' }, { key: 'asc' }], select: { key: true, label: true } }),
+        db.assetSource.count(),
+    ])
+    const names = new Set(agg.packs.map((x) => x.key))
+    const byPack = new Map<string, typeof hist>()
+    for (const h of hist) if (names.has(h.pack)) byPack.set(h.pack, [...(byPack.get(h.pack) ?? []), h])
+    const trend: PackTrend[] = [...byPack].map(([pack, hs]) => ({ pack, scores: hs.slice(-30).map((h) => h.avgScore), last: hs[hs.length - 1].avgScore, total: hs[hs.length - 1].total, pass: hs[hs.length - 1].pass })).sort((a, b) => a.last - b.last)
+    return <AssetManager projectSlug={slug}><Suspense><Assets data={data} agg={agg} kinds={kinds} sources={sources} trend={trend} packNames={[...names].sort()} /></Suspense></AssetManager>
 }

@@ -27,6 +27,7 @@ model Item {
   updatedAt   DateTime  @updatedAt
   completedAt DateTime?
   notes       Note[]
+  projects    ItemProject[]
 
   @@index([status, priority])
   @@index([kind, status])
@@ -662,6 +663,8 @@ model Project {
   folder    Folder?         @relation(fields: [folderId], references: [id], onDelete: SetNull)
   access    ProjectAccess[]
   builds    BuildConfig[]
+  items     ItemProject[]
+  packs     ProjectPack[]
 
   @@index([folderId])
   @@index([type])
@@ -897,4 +900,35 @@ model TranscriptRun {
 
   @@index([status])
   @@index([transcriptId])
+}
+
+/// A task belongs to one or more projects (many-to-many). Derived from Item.repos (the recoverable original text) by lib/project-map.mjs;
+/// kept in step by item create/edit in the CLI and the panel. via = how the token resolved (slug, alias, rename, path, prefix, text).
+model ItemProject {
+  id        Int      @id @default(autoincrement())
+  itemId    Int
+  projectId Int
+  via       String   @default("slug")
+  token     String   @default("")
+  createdAt DateTime @default(now())
+  item      Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([itemId, projectId])
+  @@index([projectId])
+}
+
+/// A pack (AssetWeapon.pack / AssetSource.name: a game checkout, a map pack, a weapon or content pack) linked to a project.
+/// role: owner (the pack is the project itself, or its renamed twin) | uses (a map or weapon pack the project's game uses). Assets and Maps tabs read this.
+model ProjectPack {
+  id        Int      @id @default(autoincrement())
+  projectId Int
+  pack      String
+  role      String   @default("owner")
+  via       String   @default("slug")
+  createdAt DateTime @default(now())
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, pack])
+  @@index([pack])
 }

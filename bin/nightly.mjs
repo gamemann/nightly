@@ -90,10 +90,10 @@ const HELP = `nightly -- the nightly run's to-do database (${S.DB_PATH})
   list [--status a,b] [--kind a,b] [--all]      open items (or --all), by status then priority
   show <key>                                    full body + notes
   add --title T [--key K] [--kind task|issue|check|study] [--body B | --body-file F | stdin]
-      [--repos a,b] [--done-when ..] [--status S] [--cadence C]
+      [--repos a,b | --project slug,slug] [--done-when ..] [--status S] [--cadence C]
       [--priority N | --top | --after KEY] [--by <owner>|nightly|session (owner = NIGHTLY_OWNER)]
   set <key> [--status S] [--priority N | --top | --after KEY] [--title ..] [--body B | --body-file F]
-      [--repos ..] [--done-when ..] [--kind ..] [--cadence ..]
+      [--repos .. | --project slug,slug (one or more projects)] [--done-when ..] [--kind ..] [--cadence ..]
   attach <key> <file.png|jpg> [--note ..] [--by ..]   store a screenshot on the item (max 1280 px wide, 2 MB, last 20 kept)
   attachments [--item KEY] [--json]            every screenshot on every item, newest first
   review new "TITLE" [--key K] | list | show KEY | open KEY | media KEY WEAPON FILE --slot filmstrip|clip|audio|image|screenshot [--variant before|after] [--label L] [--licence ..] [--source URL] [--title T] [--waveform W.png] [--look TEXT] [--metrics JSON] | verdict KEY WEAPON good|wrong [--note ..]
@@ -244,6 +244,7 @@ function cmdAdd() {
         status: opt.status,
         body: bodyOpt(true),
         repos: csv(opt.repos)?.join(', '),
+        projects: csv(opt.project),
         doneWhen: opt.doneWhen,
         cadence: opt.cadence,
         addedBy: opt.by ?? 'nightly',
@@ -259,6 +260,7 @@ function cmdSet() {
         title: opt.title,
         body: bodyOpt(false),
         repos: opt.repos !== undefined ? csv(opt.repos).join(', ') : undefined,
+        projects: opt.project !== undefined ? csv(opt.project) : undefined,
         doneWhen: opt.doneWhen,
         kind: opt.kind,
         cadence: opt.cadence,
