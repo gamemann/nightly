@@ -2,8 +2,13 @@
 import Link from "next/link"
 import { useEffect, useRef, useState } from "react"
 import { AssetViewer } from "./AssetViewer"
+import { MapEditor } from "./MapEditor"
 import { scoreCls, sevCls } from "./Assets"
 import { describe } from "../../lib/asset-names.mjs"
+
+const tabOf = (kind: string) => (["avatar", "npc", "monster", "character"].includes(kind) ? "avatars" : kind === "map" ? "maps" : "entities")
+/** The asset list filtered by what was clicked: it reads pack, kind and game from the URL, and the tab follows the asset's kind. */
+const listHref = (assetKind: string, f: Record<string, string>) => assetKind === "level" ? `/maps?${new URLSearchParams(f)}` : `/assets?${new URLSearchParams({ tab: tabOf(assetKind), ...f })}`
 
 export type DetailData = {
     id: number; pack: string; game: string; weaponId: string; kind: string; source: string; score: number; pass: boolean; auditedAt: string; hasModel: boolean
@@ -61,14 +66,16 @@ export function AssetDetail({ d, reviews }: { d: DetailData; reviews: ReviewHit[
     const flags = x.flags ?? []
     const [big, setBig] = useState<number | null>(null)
     const texN = (x.textures ?? []).length
+    const hasOrig = !!x.map?.original && !x.map.original.error
+    const [view, setView] = useState<"converted" | "original">("converted")
     return (
         <div className="mx-auto max-w-6xl px-6 py-5 max-md:px-3">
-            <h1 className="text-[15px] font-semibold tracking-tight"><Link href="/assets" className="hover:text-sky-300">Assets</Link> <span className="text-muted">/</span> {d.pack} <span className="text-muted">/</span> <span title={d.weaponId}>{describe(d.pack, d.weaponId).name}</span> <span className="font-mono text-[11px] font-normal text-muted">{d.weaponId}</span></h1>
+            <h1 className="text-[15px] font-semibold tracking-tight"><Link href={d.kind === "level" ? "/maps" : "/assets"} className="hover:text-sky-300">{d.kind === "level" ? "Maps" : "Assets"}</Link> <span className="text-muted">/</span> <Link href={listHref(d.kind, { pack: d.pack })} className="hover:text-sky-300">{d.pack}</Link> <span className="text-muted">/</span> <span title={d.weaponId}>{describe(d.pack, d.weaponId).name}</span> <span className="font-mono text-[11px] font-normal text-muted">{d.weaponId}</span></h1>
             <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px]">
                 <span className={`text-[22px] font-semibold tabular-nums ${scoreCls(d.score)}`}>{d.score}</span>
                 <span className={`rounded px-1.5 ${d.pass ? "bg-emerald-400/15 text-emerald-300" : "bg-red-400/15 text-red-300"}`}>{d.pass ? "pass" : "fail"}</span>
-                <span className="rounded bg-hover px-1.5 text-dim">{d.kind}</span>
-                <span className="text-dim">games: {d.game || "-"}</span>
+                <Link href={listHref(d.kind, { pack: d.pack, kind: d.kind })} title={`all ${d.kind} assets in ${d.pack}`} className="rounded bg-hover px-1.5 text-dim hover:text-sky-300">{d.kind}</Link>
+                <span className="text-dim">games: {d.game ? d.game.split(",").map((g, i) => <span key={g}>{i > 0 && ","}<Link href={listHref(d.kind, { game: g.trim() })} className="hover:text-sky-300 hover:underline">{g.trim()}</Link></span>) : "-"}</span>
                 <span className="text-dim">{d.source === "audit" ? `audited ${d.auditedAt.slice(0, 16).replace("T", " ")}` : `listed from a directory scan ${d.auditedAt.slice(0, 10)} (no audit yet)`}</span>
                 {x.source_commit && <span className="font-mono text-muted">{x.source_commit}</span>}
                 {x.last_changed && <span className="text-muted">changed {x.last_changed}</span>}
@@ -76,8 +83,14 @@ export function AssetDetail({ d, reviews }: { d: DetailData; reviews: ReviewHit[
             </div>
             {!!flags.length && <div className="mt-2 flex flex-wrap gap-1.5">{flags.map((f) => <span key={f.code} title={f.msg} className={`rounded px-1.5 py-0.5 text-[11px] ${sevCls(f.severity)}`}>{f.code}: {f.msg}</span>)}</div>}
 
+            {x.map && (
+                <div className="mt-4 flex gap-1 border-b border-line text-[13px]">
+                    {(["converted", "original"] as const).map((v) => <button key={v} onClick={() => setView(v)} data-testid={`tab-${v}`} className={`-mb-px border-b-2 px-3 py-1.5 capitalize ${view === v ? "border-sky-300 text-fg" : "border-transparent text-dim hover:text-fg"}`}>{v}{v === "original" && !hasOrig ? " (none)" : ""}</button>)}
+                </div>
+            )}
+            {x.map && view === "original" ? <OriginalPane d={d} /> : <>
             <Section id="model" title="Model">
-                {d.hasModel ? <AssetViewer url={fileUrl(d.id, "glb", 0)} bbox={x.model?.bbox} textures={(x.textures ?? []).map((t, i) => ({ name: t.name, url: fileUrl(d.id, "tex", i) }))} map={!!x.map} original={x.map?.original && !x.map.original.error ? fileUrl(d.id, "orig", 0) : undefined} /> : <div className="rounded-lg border border-line p-6 text-center text-[12px] text-muted">No model file for this asset.</div>}
+                {d.hasModel ? (x.map ? <MapModel d={d} x={x} /> : <AssetViewer url={fileUrl(d.id, "glb", 0)} bbox={x.model?.bbox} textures={(x.textures ?? []).map((t, i) => ({ name: t.name, url: fileUrl(d.id, "tex", i) }))} />) : <div className="rounded-lg border border-line p-6 text-center text-[12px] text-muted">No model file for this asset.</div>}
                 <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-6">
                     <Stat k="triangles" v={(x.model?.tris ?? 0).toLocaleString("en-GB")} /><Stat k="vertices" v={(x.model?.verts ?? 0).toLocaleString("en-GB")} /><Stat k="materials" v={x.model?.materials ?? 0} /><Stat k="meshes" v={x.model?.meshes ?? 0} />
                     <Stat k="bbox (m)" v={(x.model?.bbox ?? []).map((v) => v.toFixed(2)).join(" x ") || "-"} /><Stat k="primitive meshes" v={(x.model?.primitive_meshes ?? []).length} />
@@ -160,7 +173,50 @@ export function AssetDetail({ d, reviews }: { d: DetailData; reviews: ReviewHit[
                         {r.note && <p className="mt-1 whitespace-pre-wrap text-dim">{r.note}</p>}
                     </div>)) : <div className="text-[12px] text-muted">No review item mentions this asset.</div>}
             </Section>
+            </>}
         </div>
+    )
+}
+
+type OrigInfo = { materials: { name: string; color: number[] | null }[]; meshes: number; nodes: number; images: number; error?: string }
+/** Maps: the editor-style inspector (default) or the side-by-side compare viewer (converted / original / split). */
+function MapModel({ d, x }: { d: DetailData; x: DetailData["data"] }) {
+    const [mode, setMode] = useState<"editor" | "compare">("editor")
+    const orig = x.map?.original && !x.map.original.error ? fileUrl(d.id, "orig", 0) : undefined
+    return (
+        <div>
+            <div className="mb-2 flex gap-1 text-[12px]">
+                {(["editor", "compare"] as const).map((m) => <button key={m} onClick={() => setMode(m)} data-testid={`maptab-${m}`} className={`rounded border px-2 py-0.5 capitalize ${mode === m ? "border-sky-300 text-fg" : "border-line text-dim hover:text-fg"}`}>{m === "compare" ? "Compare / fly" : "Editor"}</button>)}
+            </div>
+            {mode === "editor" ? <MapEditor url={fileUrl(d.id, "glb", 0)} /> : <AssetViewer url={fileUrl(d.id, "glb", 0)} bbox={x.model?.bbox} textures={(x.textures ?? []).map((t, i) => ({ name: t.name, url: fileUrl(d.id, "tex", i) }))} map original={orig} />}
+        </div>
+    )
+}
+
+function OriginalPane({ d }: { d: DetailData }) {
+    const o = d.data.map?.original
+    const [info, setInfo] = useState<OrigInfo | null>(null)
+    const ok = !!o && !o.error
+    useEffect(() => { if (ok) void fetch(`/api/assets/original/${d.id}`).then((r) => r.json()).then(setInfo).catch(() => setInfo({ materials: [], meshes: 0, nodes: 0, images: 0, error: "failed to load" })) }, [d.id, ok])
+    if (!ok) return <div className="mt-4 rounded-lg border border-line p-6 text-center text-[12px] text-muted">{o?.error ? `The original failed to convert: ${o.error}` : "No original source map (BSP) was found for this map, so there is nothing to show."}</div>
+    const hex = (c: number[] | null) => c ? `rgb(${c.slice(0, 3).map((v) => Math.round(Math.pow(Math.min(1, v), 1 / 2.2) * 255)).join(",")})` : "transparent"
+    return (
+        <>
+            <Section id="orig-model" title="Original model">
+                <AssetViewer url={fileUrl(d.id, "orig", 0)} map />
+                <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-6">
+                    <Stat k="source" v={o.source ?? "-"} /><Stat k="triangles" v={(o.tris ?? 0).toLocaleString("en-GB")} /><Stat k="surfaces" v={(o.surfaces ?? 0).toLocaleString("en-GB")} />
+                    {info && <><Stat k="meshes" v={info.meshes} /><Stat k="source materials" v={info.materials.length} /></>}
+                </div>
+                <div className="mt-2 text-[12px] text-dim">Exported from the source BSP with flat material colours; the original's textures are Valve assets and are not bundled, so the converted map is what carries real textures.</div>
+            </Section>
+            <Section id="orig-materials" title={`Original materials (${info?.materials.length ?? "..."})`}>
+                {info?.error ? <div className="text-[12px] text-red-300">{info.error}</div> : info?.materials.length ? (
+                    <div className="grid grid-cols-1 gap-1 sm:grid-cols-2 lg:grid-cols-3">{info.materials.map((m, i) => (
+                        <div key={i} className="flex items-center gap-2 rounded bg-panel/40 px-2 py-1 text-[12px]"><span className="h-3 w-3 shrink-0 rounded-sm border border-line" style={{ background: hex(m.color) }} /><span className="truncate font-mono" title={m.name}>{m.name || "(unnamed)"}</span></div>))}</div>
+                ) : <div className="text-[12px] text-muted">{info ? "No materials." : "Loading..."}</div>}
+            </Section>
+        </>
     )
 }
 
