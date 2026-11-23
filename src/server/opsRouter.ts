@@ -4,7 +4,9 @@ import { promisify } from 'node:util'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import type { PrismaClient } from '../../generated/prisma/client'
-import { procedure, router } from './trpc'
+import { can, canProject } from '../../lib/permissions.mjs'
+import { projectScope } from './projectsRouter'
+import { procedure as baseProcedure, router } from './trpc'
 
 // Ops pages: CI workflows, script checks, GitHub API budget, offloaded jobs (playtests), perf<->playtest links.
 // Reads: Prisma (raw SQL for the tables lib/ops-store.mjs creates). Writes: `bin/nightly gh|ci|check|offload ...` (one writer).
@@ -19,13 +21,27 @@ async function cli(...args: string[]) {
     }
 }
 
-/** Permission seam. The session layer (foundation) puts `perms` on the tRPC context; until it does (legacy single-login mode)
- *  every key is allowed. With `perms` present a missing grant is FORBIDDEN. `project` narrows to a project's grants. */
+/** Permission seam: `ctx.perms.can(key, projectSlug?)`. Global grants first; with a project slug, the viewer's
+ *  project and folder grants (ProjectAccess) count too. No perms on the context means FORBIDDEN, never allow-all. */
 export type Perms = { can(key: string, projectSlug?: string): boolean }
 export function requirePerm(ctx: unknown, key: string, projectSlug?: string) {
     const perms = (ctx as { perms?: Perms }).perms
-    if (perms && !perms.can(key, projectSlug)) throw new TRPCError({ code: 'FORBIDDEN', message: `missing permission ${key}${projectSlug ? ` on ${projectSlug}` : ''}` })
+    if (!perms || !perms.can(key, projectSlug)) throw new TRPCError({ code: 'FORBIDDEN', message: `missing permission ${key}${projectSlug ? ` on ${projectSlug}` : ''}` })
 }
+/** Every ops procedure: signed in (baseProcedure), plus `perms` built from the viewer's roles and project scope. */
+const procedure = baseProcedure.use(async ({ ctx, next }) => {
+    const v = ctx.viewer
+    const [scope, projects] = await Promise.all([projectScope(v), ctx.db.project.findMany({ select: { id: true, slug: true } })])
+    const ids = new Map(projects.map((p) => [p.slug, p.id]))
+    const perms: Perms = {
+        can(key, projectSlug) {
+            if (can(v.perms, key)) return true
+            const id = projectSlug ? ids.get(projectSlug) : undefined
+            return id !== undefined && canProject(v.perms, scope, key, id)
+        },
+    }
+    return next({ ctx: { ...ctx, perms } })
+})
 const canDo = (ctx: unknown, key: string, projectSlug?: string) => { try { requirePerm(ctx, key, projectSlug); return true } catch { return false } }
 
 type Row = Record<string, unknown>
@@ -140,7 +156,7 @@ const offload = router({
     }),
     trigger: procedure.input(z.object({ project: slug, target: z.enum(['planet', 'station']), map: z.string().max(60).default(''), bots: z.number().int().min(1).max(64).default(4), duration: z.number().int().min(10).max(3600).default(60) })).mutation(async ({ ctx, input }) => {
         requirePerm(ctx, 'playtest.trigger', input.project)
-        const by = (ctx as { user?: { name?: string } }).user?.name ?? ''
+        const by = ctx.viewer.username
         const out = await cli('offload', 'start', 'playtest', '--project', input.project, '--target', input.target, '--map', input.map, '--bots', String(input.bots), '--duration', String(input.duration), '--by', by, '--json')
         return JSON.parse(out) as { id: number; node: string; status: string }
     }),
