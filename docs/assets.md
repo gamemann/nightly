@@ -23,3 +23,79 @@
 
 
 The map converter and map manager are covered in [map-converter](map-converter.md); the RSI audit settings are in [settings](settings.md).
+
+## Asset manager reference
+
+### List page
+
+![Asset list](screenshots/mgr-asset-list.png)
+
+| Control | What it does |
+| --- | --- |
+| Kind chips (All, Grenades, Weapons, Vehicles, Pickups) | Narrow the current tab to one asset kind; the chips follow the tab. |
+| Tabs: Entities, Characters, Models, Map models, Textures, Animations, Sounds, Libraries | One table per asset type, each with its own columns (Animations shows clips and total length). Counts are unique assets after de-duplication. |
+| Search | Matches the asset name or pack. |
+| Pack, Game, Flag | Filter by owning pack, by game using it, or by audit flag. |
+| score min / max | Keep rows inside a score range. |
+| Column headers | Click to sort; Score sorts ascending by default so the worst assets come first. |
+| per page, Prev, Next | Server paging; the footer shows the row range. |
+| Charts above the table | Most common flags (click one to filter), average score per audit per pack (a sparkline per pack) and the worst offenders (click to open). |
+
+![Filter](screenshots/mgr-asset-filter.png)
+
+![Browse and filter](gifs/asset-browse.gif)
+
+### Detail page and model viewer
+
+`/tools/assets/<id>` shows the score, verdict, kind, owning pack, audit time and file hash, a stats strip (triangles, vertices, materials, meshes, bounding box, primitive meshes), then Model, Textures, Animations and Sounds sections.
+
+![Asset detail](screenshots/mgr-asset-detail.png)
+
+| Viewer control | What it does |
+| --- | --- |
+| Left drag, right drag, wheel | Orbit, pan, zoom. |
+| wireframe | Draw the mesh edges. |
+| lit | Switch between lit and unlit shading. |
+| bbox | Show the bounding box with its size in metres. |
+| grid | Show the floor grid. |
+| Lighting select | studio, outdoor, dark rim or flat. |
+| reset view | Frame the model again. |
+
+![Model viewer orbit](gifs/model-orbit.gif)
+
+| Section | Shows |
+| --- | --- |
+| Textures | Every texture of the model with its size and map type. |
+| Animations | Clips with length and whether they are static; procedural clips play in the viewer. |
+| Sounds | Audio files with a player. |
+
+![Textures](screenshots/mgr-model-textures.png)
+
+![Animations](screenshots/mgr-model-animations.png)
+
+### Sources and kinds
+
+![Sources](screenshots/mgr-asset-sources.png)
+
+`/tools/assets/sources` adds, edits, scans and removes sources (the form takes a name, a type of pack or game, and a root directory), filters them by type and state, and edits the kinds with their match regex and audit budgets. The CLI equivalents are in [Point it at your own game](#point-it-at-your-own-game).
+
+### Mapping to projects and packs
+
+An asset belongs to a pack (the source it was scanned from). `nightly project map` links packs, and the maps in them, to projects (idempotent, `--dry-run` previews, `--json` for scripts). The Game column lists every game whose source ships the same file hash, so a shared file is one row with its copies counted.
+
+### RSI findings
+
+Every audit run turns each failing flag into a finding on the `/rsi` board under the `models`, `textures`, `animations` or `sounds` domain, with the before score. When a later audit no longer raises the flag the finding closes as remeasured and keeps both scores. The RSI findings tab next to Assets lists them; a flag chip in the asset list jumps to the assets carrying it.
+
+### CLI and API summary
+
+| Command | Purpose |
+| --- | --- |
+| `assets migrate`, `config` | Prepare the database, export `rsi-config/1`. |
+| `assets source add/set/list/rm/scan`, `assets kind ...` | Manage sources and kinds. |
+| `assets scan`, `assets ingest FILE`, `assets refresh` | Discover files, load an audit, recompute. |
+| `assets list`, `show ID`, `summary`, `history` | Inspect. |
+| `assets thumbs [--missing]` | Render previews. |
+| `assets upload`, `assets uploads` | Add a file and list uploads. |
+| `POST /api/assets/ingest` | Same as `assets ingest`. |
+| `GET /api/assets/file/<id>/<glb\|tex\|snd>/<index>` | Serve a file with Range support. |

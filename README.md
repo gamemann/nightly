@@ -29,7 +29,7 @@ Nightly is the database and web panel that autonomous [Claude Code](https://clau
 | [Install](#install) | Docker Compose, bare host, nodes, nginx, first run, upgrades. |
 | [License](#license) | MIT. |
 
-Deep references live in `docs/`: [automation](docs/automation.md), [panel](docs/panel.md), [cli](docs/cli.md), [settings](docs/settings.md), [nodes](docs/nodes.md), [usage](docs/usage.md), [perf](docs/perf.md), [assets](docs/assets.md), [map-converter](docs/map-converter.md), [health-feeds](docs/health-feeds.md), [transcripts](docs/transcripts.md) and [migrate-live-to-docker](docs/migrate-live-to-docker.md).
+Deep references live in `docs/`: [automation](docs/automation.md), [panel](docs/panel.md), [cli](docs/cli.md), [settings](docs/settings.md), [nodes](docs/nodes.md), [usage](docs/usage.md), [perf](docs/perf.md), [assets](docs/assets.md), [map-manager](docs/map-manager.md), [map-converter](docs/map-converter.md), [health-feeds](docs/health-feeds.md), [transcripts](docs/transcripts.md) and [migrate-live-to-docker](docs/migrate-live-to-docker.md).
 
 ## What RSI means here
 
@@ -258,24 +258,83 @@ Per-game tools in the sidebar. Their health feeds (releases, crashes, web checks
 
 ### Asset manager
 
-Asset packs, their models, textures and sounds, upload and licence tracking, mapped to projects. Reference: [docs/assets.md](docs/assets.md).
+Asset packs, their models, textures, animations and sounds, with upload, quality audit and project mapping. Reference: [docs/assets.md](docs/assets.md).
 
 ![Asset manager](docs/screenshots/tool-asset-manager.png)
 
+#### List, tabs and filters
+
+Eight tabs, kind chips, search, pack, game and flag filters, a score range, sortable columns and charts of common flags, score trend and worst offenders.
+
+![Asset list](docs/screenshots/mgr-asset-list.png)
+
+| Control | What it does |
+| --- | --- |
+| Tabs | Entities, Characters, Models, Map models, Textures, Animations, Sounds, Libraries. |
+| Search, Pack, Game, Flag, score min/max | Narrow the table. |
+| Charts | Flag counts (click to filter), average score per pack, worst offenders. |
+
+![Browse and filter](docs/gifs/asset-browse.gif)
+
+#### Detail page and model viewer
+
+A three.js viewer with orbit, pan and zoom, plus stats, textures, animations and sounds.
+
+![Model viewer](docs/screenshots/mgr-model-viewer.png)
+
+| Control | What it does |
+| --- | --- |
+| wireframe, lit, bbox, grid | Toggle mesh edges, shading, bounding box and floor grid. |
+| Lighting select | studio, outdoor, dark rim, flat. |
+| reset view | Frame the model again. |
+
+![Model orbit](docs/gifs/model-orbit.gif)
+
+#### Sources, projects and RSI
+
 | What | Command / where | Notes |
 | --- | --- | --- |
-| CLI | `nightly assets ...` | See [cli](docs/cli.md). |
+| Sources and kinds | `/tools/assets/sources`, `nightly assets source ...`, `assets kind ...` | Directories to scan and audit budgets. |
+| Projects and packs | `nightly project map` | Links packs and maps to projects. |
+| RSI findings | `/rsi`, `nightly rsi board` | Failing flags become findings, closed when remeasured. |
+| CLI | `nightly assets ...` | See [cli](docs/cli.md) and [assets](docs/assets.md#cli-and-api-summary). |
 | Your own game | [Point it at your own game](docs/assets.md#point-it-at-your-own-game) | |
+
+![Asset sources](docs/screenshots/mgr-asset-sources.png)
 
 ### Map manager
 
-Maps per game, their packs, conversions and status.
+Every converted map per pack, with a fly-camera viewer, a map editor view and original-versus-converted comparison. Reference: [docs/map-manager.md](docs/map-manager.md).
 
 ![Map manager](docs/screenshots/tool-map-manager.png)
 
+#### Map list
+
+![Map list](docs/screenshots/mgr-map-list.png)
+
+| Control | What it does |
+| --- | --- |
+| Search, pack select | Filter maps. |
+| Columns | Tris, surfaces, spawns, original present, score, flags; click to sort. |
+| Convert a map, Upload map | Open the converter or add a file. |
+
+#### Map viewer and editor
+
+![Map editor](docs/screenshots/mgr-map-editor.png)
+
+| Control | What it does |
+| --- | --- |
+| View | 3D lit, 3D unlit, wireframe, flat colour. |
+| Show, Layout | Everything, brushes or entities only; one 3D pane or 3D plus top/front/side. |
+| Outliner, Inspector | Toggle groups and visgroups, inspect the selected item. |
+| Compare / Fly | Fly or orbit, collision, triggers and spawns, jump to a spawn, converted, original or split view. |
+
+![Map navigation](docs/gifs/map-navigate.gif)
+
 | What | Command / where | Notes |
 | --- | --- | --- |
-| CLI | `nightly maps ...` | See [cli](docs/cli.md). |
+| CLI | `nightly maps list`, `maps upload` | See [cli](docs/cli.md) and [map-manager](docs/map-manager.md#cli). |
+| Projects and RSI | `nightly project map`, `/rsi` | Maps follow the pack's project; audit flags become findings. |
 
 ### Map converter
 

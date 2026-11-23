@@ -46,4 +46,4 @@ The `mapOriginal*` keys are per-source config of an asset source (`nightly asset
 
 ![Map manager](screenshots/tool-map-manager.png)
 
-Lists converted maps per project with triangle and spawn counts and opens them in a viewer; it reads the same tables `nightly maps list` prints.
+Lists converted maps per project with triangle and spawn counts and opens them in a viewer; it reads the same tables `nightly maps list` prints. Full reference: [map-manager](map-manager.md).
