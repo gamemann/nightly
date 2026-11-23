@@ -42,3 +42,8 @@ export const router = t.router
 export const procedure = t.procedure.use(guard)
 /** Signed in and holding every one of `keys`. */
 export const permProcedure = (...keys: string[]) => procedure.use(requirePerm(...keys))
+/** Signed in and holding at least one of `keys`. */
+export const anyPermProcedure = (...keys: string[]) => procedure.use(t.middleware(({ ctx, next }) => {
+    if (!keys.some((k) => can(ctx.viewer?.perms, k))) throw forbidden(keys.join(' or '))
+    return next()
+}))

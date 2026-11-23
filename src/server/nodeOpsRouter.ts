@@ -8,9 +8,15 @@ import { detectCompose } from '../../lib/db-detect.mjs'
 import { detectHeavy, inferKinds, pickNode } from '../../lib/node-sched.mjs'
 import { cancelJob, dispatchQueued, enqueueJob, nodeMgr, syncNodes } from './nodeManager'
 import { db as prisma } from './db'
-import { permProcedure, router } from './trpc'
+import { anyPermProcedure, permProcedure, router } from './trpc'
 
+// One router, four AdminCP pages: Nodes (admin.nodes), Communication (admin.comm), Databases (admin.databases),
+// Builds and their node jobs (admin.builds). meta is shared, so any of the four may read it.
 const adminProc = permProcedure('admin.nodes')
+const commProc = permProcedure('admin.comm')
+const dbProc = permProcedure('admin.databases')
+const buildProc = permProcedure('admin.builds')
+const metaProc = anyPermProcedure('admin.nodes', 'admin.comm', 'admin.databases', 'admin.builds')
 const checkSpecs = (s: unknown) => check(s as NodeSpecs)
 const json = <T,>(s: string | null | undefined, d: T): T => { try { return s ? (JSON.parse(s) as T) : d } catch { return d } }
 const NAME = z.string().regex(/^[a-z0-9][a-z0-9._-]{0,62}$/i, 'letters, digits, . _ - (max 63)')
@@ -44,7 +50,7 @@ const saveLink = (fromId: number, toId: number, username: string, auth: string, 
 }
 
 export const nodeOpsRouter = router({
-    meta: adminProc.query(() => ({ types: NODE_TYPES, kinds: OFFLOAD_KINDS, linkAuth: LINK_AUTH, dbKinds: DB_KINDS })),
+    meta: metaProc.query(() => ({ types: NODE_TYPES, kinds: OFFLOAD_KINDS, linkAuth: LINK_AUTH, dbKinds: DB_KINDS })),
 
     list: adminProc.query(async ({ ctx }) => {
         const rows = await ctx.db.node.findMany({ include: { users: { include: { user: { select: { username: true } } } } }, orderBy: [{ type: 'desc' }, { name: 'asc' }] })
@@ -121,7 +127,7 @@ export const nodeOpsRouter = router({
     }),
 
     links: router({
-        graph: adminProc.query(async ({ ctx }) => {
+        graph: commProc.query(async ({ ctx }) => {
             const [nodes, links] = await Promise.all([ctx.db.node.findMany({ orderBy: { name: 'asc' } }), ctx.db.nodeLink.findMany()])
             return {
                 nodes: nodes.map((n) => ({ id: n.id, name: n.name, type: n.type, state: live(n.id)?.state ?? 'offline', host: n.host })),
@@ -129,7 +135,7 @@ export const nodeOpsRouter = router({
             }
         }),
         /** Connect: the from-node ssh's to the to-node as username (key, or password via sshpass); the result is recorded. */
-        connect: adminProc.input(z.object({ fromId: z.number().int(), toId: z.number().int(), username: OSUSER, auth: z.enum(LINK_AUTH as ['ssh-key', 'password']).default('ssh-key'), password: z.string().max(200).optional(), sshPort: z.number().int().min(1).max(65535).default(22) }))
+        connect: commProc.input(z.object({ fromId: z.number().int(), toId: z.number().int(), username: OSUSER, auth: z.enum(LINK_AUTH as ['ssh-key', 'password']).default('ssh-key'), password: z.string().max(200).optional(), sshPort: z.number().int().min(1).max(65535).default(22) }))
             .mutation(async ({ input }) => {
                 if (input.fromId === input.toId) fail(new Error('a node cannot link to itself'))
                 const to = await node(input.toId)
@@ -139,7 +145,7 @@ export const nodeOpsRouter = router({
                 return r
             }),
         /** Auto-connect: make a key on the from-node, create the user on the to-node when missing, authorize the key, verify. */
-        auto: adminProc.input(z.object({ fromId: z.number().int(), toId: z.number().int(), username: OSUSER, sshPort: z.number().int().min(1).max(65535).default(22) }))
+        auto: commProc.input(z.object({ fromId: z.number().int(), toId: z.number().int(), username: OSUSER, sshPort: z.number().int().min(1).max(65535).default(22) }))
             .mutation(async ({ input }) => {
                 if (input.fromId === input.toId) fail(new Error('a node cannot link to itself'))
                 const steps: string[] = []
@@ -154,19 +160,19 @@ export const nodeOpsRouter = router({
                 await saveLink(input.fromId, input.toId, input.username, 'ssh-key', r.ok)
                 return { ok: r.ok, steps }
             }),
-        remove: adminProc.input(z.object({ id: z.number().int() })).mutation(async ({ ctx, input }) => { await ctx.db.nodeLink.delete({ where: { id: input.id } }).catch(() => fail(new Error('no such link'))); return { ok: true } }),
+        remove: commProc.input(z.object({ id: z.number().int() })).mutation(async ({ ctx, input }) => { await ctx.db.nodeLink.delete({ where: { id: input.id } }).catch(() => fail(new Error('no such link'))); return { ok: true } }),
     }),
 
     databases: router({
-        list: adminProc.query(({ ctx }) => ctx.db.dbConnection.findMany({ orderBy: { name: 'asc' } })),
-        save: adminProc.input(z.object({ id: z.number().int().optional(), name: NAME, kind: z.enum(DB_KINDS as [string, ...string[]]), host: z.string().max(253).default(''), port: z.number().int().min(0).max(65535).default(0), database: z.string().max(120).default(''), username: z.string().max(120).default(''), secretRef: z.string().max(300).regex(/^[A-Za-z_/][A-Za-z0-9_.:/-]*$|^$/, 'an env var or file:VAR name, never the password').default('') }))
+        list: dbProc.query(({ ctx }) => ctx.db.dbConnection.findMany({ orderBy: { name: 'asc' } })),
+        save: dbProc.input(z.object({ id: z.number().int().optional(), name: NAME, kind: z.enum(DB_KINDS as [string, ...string[]]), host: z.string().max(253).default(''), port: z.number().int().min(0).max(65535).default(0), database: z.string().max(120).default(''), username: z.string().max(120).default(''), secretRef: z.string().max(300).regex(/^[A-Za-z_/][A-Za-z0-9_.:/-]*$|^$/, 'an env var or file:VAR name, never the password').default('') }))
             .mutation(async ({ ctx, input }) => {
                 const { id, ...d } = input
                 return id ? ctx.db.dbConnection.update({ where: { id }, data: d }) : ctx.db.dbConnection.create({ data: d })
             }),
-        remove: adminProc.input(z.object({ id: z.number().int() })).mutation(async ({ ctx, input }) => { await ctx.db.dbConnection.delete({ where: { id: input.id } }).catch(() => fail(new Error('no such connection'))); return { ok: true } }),
+        remove: dbProc.input(z.object({ id: z.number().int() })).mutation(async ({ ctx, input }) => { await ctx.db.dbConnection.delete({ where: { id: input.id } }).catch(() => fail(new Error('no such connection'))); return { ok: true } }),
         /** Look for Docker Compose files with database services in the panel dir and every project repo; add the missing connections. */
-        detect: adminProc.mutation(async ({ ctx }) => {
+        detect: dbProc.mutation(async ({ ctx }) => {
             const dirs = new Set<string>([process.cwd()])
             for (const p of await ctx.db.project.findMany({ select: { repoPath: true } })) if (p.repoPath) dirs.add(p.repoPath)
             const created: string[] = [], existing: string[] = []
@@ -181,22 +187,22 @@ export const nodeOpsRouter = router({
     }),
 
     builds: router({
-        list: adminProc.query(async ({ ctx }) => {
+        list: buildProc.query(async ({ ctx }) => {
             const [rows, projects] = await Promise.all([ctx.db.buildConfig.findMany({ include: { project: { select: { slug: true, name: true } } }, orderBy: [{ projectId: 'asc' }, { name: 'asc' }] }), ctx.db.project.findMany({ select: { id: true, slug: true, name: true }, orderBy: { slug: 'asc' } })])
             const last = await ctx.db.nodeJob.findMany({ where: { buildId: { not: null } }, orderBy: { id: 'desc' }, take: 300 })
             return { projects, builds: rows.map((b) => ({ ...b, heavyAuto: detectHeavy(b.command, false).heavy, last: last.find((j) => j.buildId === b.id) ?? null })) }
         }),
-        save: adminProc.input(z.object({ id: z.number().int().optional(), projectId: z.number().int(), name: NAME, command: z.string().min(1).max(2000), heavy: z.boolean().default(false), nodeKinds: z.string().max(200).default('build'), timeout: z.number().int().min(0).default(0), enabled: z.boolean().default(true) }))
+        save: buildProc.input(z.object({ id: z.number().int().optional(), projectId: z.number().int(), name: NAME, command: z.string().min(1).max(2000), heavy: z.boolean().default(false), nodeKinds: z.string().max(200).default('build'), timeout: z.number().int().min(0).default(0), enabled: z.boolean().default(true) }))
             .mutation(async ({ ctx, input }) => {
                 const kinds = input.nodeKinds.split(',').map((s) => s.trim()).filter(Boolean)
                 if (kinds.some((k) => !OFFLOAD_KINDS.includes(k))) fail(new Error(`kinds: ${OFFLOAD_KINDS.join(', ')}`))
                 const { id, ...d } = input
                 return id ? ctx.db.buildConfig.update({ where: { id }, data: d }) : ctx.db.buildConfig.upsert({ where: { projectId_name: { projectId: d.projectId, name: d.name } }, create: d, update: d })
             }),
-        remove: adminProc.input(z.object({ id: z.number().int() })).mutation(async ({ ctx, input }) => { await ctx.db.buildConfig.delete({ where: { id: input.id } }).catch(() => fail(new Error('no such build'))); return { ok: true } }),
+        remove: buildProc.input(z.object({ id: z.number().int() })).mutation(async ({ ctx, input }) => { await ctx.db.buildConfig.delete({ where: { id: input.id } }).catch(() => fail(new Error('no such build'))); return { ok: true } }),
         /** A command's offload kinds and heavy-ness, shown in the form before saving. */
-        detect: adminProc.input(z.object({ command: z.string().max(2000) })).query(({ input }) => ({ kinds: inferKinds(input.command), ...detectHeavy(input.command, false) })),
-        run: adminProc.input(z.object({ id: z.number().int() })).mutation(async ({ ctx, input }) => {
+        detect: buildProc.input(z.object({ command: z.string().max(2000) })).query(({ input }) => ({ kinds: inferKinds(input.command), ...detectHeavy(input.command, false) })),
+        run: buildProc.input(z.object({ id: z.number().int() })).mutation(async ({ ctx, input }) => {
             const b = await ctx.db.buildConfig.findUnique({ where: { id: input.id } })
             if (!b) return fail(new Error('no such build'))
             const j = await enqueueJob({ name: b.name, command: b.command, kinds: b.nodeKinds.split(',').filter(Boolean), heavy: b.heavy, projectId: b.projectId, buildId: b.id })
@@ -205,15 +211,15 @@ export const nodeOpsRouter = router({
     }),
 
     jobs: router({
-        list: adminProc.input(z.object({ take: z.number().int().min(1).max(200).default(50) }).default({ take: 50 })).query(async ({ ctx, input }) => {
+        list: buildProc.input(z.object({ take: z.number().int().min(1).max(200).default(50) }).default({ take: 50 })).query(async ({ ctx, input }) => {
             const [jobs, nodes] = await Promise.all([ctx.db.nodeJob.findMany({ orderBy: { id: 'desc' }, take: input.take }), ctx.db.node.findMany({ select: { id: true, name: true } })])
             const name = new Map(nodes.map((n) => [n.id, n.name]))
             return jobs.map((j) => ({ ...j, node: j.nodeId ? name.get(j.nodeId) ?? null : null }))
         }),
-        enqueue: adminProc.input(z.object({ name: z.string().max(120).default('adhoc'), command: z.string().min(1).max(2000), kind: KIND.optional(), heavy: z.boolean().optional() })).mutation(async ({ input }) => ({ id: (await enqueueJob(input)).id })),
-        cancel: adminProc.input(z.object({ id: z.number().int() })).mutation(async ({ input }) => { await cancelJob(input.id); return { ok: true } }),
+        enqueue: buildProc.input(z.object({ name: z.string().max(120).default('adhoc'), command: z.string().min(1).max(2000), kind: KIND.optional(), heavy: z.boolean().optional() })).mutation(async ({ input }) => ({ id: (await enqueueJob(input)).id })),
+        cancel: buildProc.input(z.object({ id: z.number().int() })).mutation(async ({ input }) => { await cancelJob(input.id); return { ok: true } }),
         /** Which node would take this right now, and why not. */
-        plan: adminProc.input(z.object({ command: z.string(), kind: z.string().optional(), heavy: z.boolean().optional() })).query(async ({ ctx, input }) => {
+        plan: buildProc.input(z.object({ command: z.string(), kind: z.string().optional(), heavy: z.boolean().optional() })).query(async ({ ctx, input }) => {
             const rows = await ctx.db.node.findMany()
             const nodes = rows.map((n) => ({ id: n.id, name: n.name, type: n.type, online: live(n.id)?.state === 'online', specs: json(n.specs, {}), live: live(n.id)?.live ?? null }))
             const r = pickNode(nodes, { kinds: [input.kind ?? inferKinds(input.command)[0] ?? 'build'], heavy: detectHeavy(input.command, input.heavy).heavy })

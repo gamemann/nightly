@@ -1,29 +1,17 @@
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
-import { newToken, sha256 } from '../../lib/passwords.mjs'
-import { DB_KINDS, LINK_AUTH, NODE_TYPES, OFFLOAD_KINDS, checkSpecs } from '../../lib/node-specs.mjs'
-import { checked } from './accountsRouter'
+import { DB_KINDS, LINK_AUTH, OFFLOAD_KINDS, checkSpecs } from '../../lib/node-specs.mjs'
 import { permProcedure, router } from './trpc'
 
-// The node registry (phase 1: records only; the node daemon that dials in with its token lands in
-// a later phase). A node's token is shown once at creation or rotation and stored as sha256; its
-// shared secret is never returned. Database connections hold a secretRef (an env var or file name),
+// Read-only node views (nodes.view) plus node users, links, database connections and build configs by id.
+// Node create/rotate is nodeOps only. A node's token is shown once at creation or rotation; it is never
+// returned again. Database connections hold a secretRef (an env var or file name),
 // never a password. Hosts live only in this database, never in the repository.
 const bad = (message: string) => new TRPCError({ code: 'BAD_REQUEST', message })
 const NAME = /^[a-z0-9][a-z0-9._-]{0,62}$/
 const name = z.string().trim().toLowerCase().regex(NAME, 'name: a-z 0-9 . _ -')
 const nodeSelect = { id: true, name: true, type: true, host: true, port: true, tls: true, specs: true, status: true, notes: true, lastSeenAt: true, createdAt: true, updatedAt: true } as const
 const withSpecs = <T extends { specs: string }>(n: T) => ({ ...n, specs: checkSpecs(n.specs) })
-
-const nodeShape = z.object({
-    name,
-    type: z.enum(NODE_TYPES as [string, ...string[]]).default('station'),
-    host: z.string().max(255).default(''),
-    port: z.number().int().min(1).max(65535).default(4001),
-    tls: z.boolean().default(false),
-    specs: z.record(z.string(), z.unknown()).default({}),
-    notes: z.string().max(2000).default(''),
-})
 
 const nodeRouter = router({
     list: permProcedure('nodes.view').query(async ({ ctx }) => (await ctx.db.node.findMany({ select: nodeSelect, orderBy: [{ type: 'asc' }, { name: 'asc' }] })).map(withSpecs)),
@@ -33,31 +21,8 @@ const nodeRouter = router({
         return withSpecs(n)
     }),
     offloadKinds: permProcedure('nodes.view').query(() => OFFLOAD_KINDS),
-    /** Returns the node token once. */
-    create: permProcedure('admin.nodes').input(nodeShape).mutation(async ({ ctx, input }) => {
-        if (await ctx.db.node.findUnique({ where: { name: input.name } })) throw bad(`node ${input.name} exists`)
-        if (input.type === 'planet' && (await ctx.db.node.findFirst({ where: { type: 'planet' } }))) throw bad('there is already a planet')
-        const specs = JSON.stringify(checked(() => checkSpecs(input.specs)))
-        const token = `nn_${newToken(24)}`
-        const now = new Date()
-        const n = await ctx.db.node.create({ data: { ...input, specs, tokenHash: sha256(token), secret: newToken(32), createdAt: now, updatedAt: now }, select: nodeSelect })
-        return { node: withSpecs(n), token }
-    }),
-    edit: permProcedure('admin.nodes').input(nodeShape.partial().extend({ id: z.number().int() })).mutation(async ({ ctx, input }) => {
-        const { id, specs, ...rest } = input
-        if (rest.type === 'planet' && (await ctx.db.node.findFirst({ where: { type: 'planet', NOT: { id } } }))) throw bad('there is already a planet')
-        const data = { ...rest, updatedAt: new Date(), ...(specs ? { specs: JSON.stringify(checked(() => checkSpecs(specs))) } : {}) }
-        return withSpecs(await ctx.db.node.update({ where: { id }, data, select: nodeSelect }))
-    }),
-    rotateToken: permProcedure('admin.nodes').input(z.object({ id: z.number().int() })).mutation(async ({ ctx, input }) => {
-        const token = `nn_${newToken(24)}`
-        await ctx.db.node.update({ where: { id: input.id }, data: { tokenHash: sha256(token), updatedAt: new Date() } })
-        return { token }
-    }),
-    delete: permProcedure('admin.nodes').input(z.object({ id: z.number().int() })).mutation(async ({ ctx, input }) => {
-        await ctx.db.node.delete({ where: { id: input.id } })
-        return { ok: true }
-    }),
+    // Creating, editing, rotating and deleting nodes live in nodeOps (src/server/nodeOpsRouter.ts) only, so every
+    // create stores the daemon token the panel dials with (Node.secret) and syncs the node manager.
 })
 
 const nodeUserRouter = router({
@@ -77,13 +42,13 @@ const nodeLinkRouter = router({
     list: permProcedure('nodes.view').query(({ ctx }) =>
         ctx.db.nodeLink.findMany({ include: { from: { select: { name: true } }, to: { select: { name: true } } }, orderBy: { id: 'asc' } }),
     ),
-    create: permProcedure('admin.nodes')
+    create: permProcedure('admin.comm')
         .input(z.object({ fromId: z.number().int(), toId: z.number().int(), username: z.string().trim().max(32).default(''), auth: z.enum(LINK_AUTH as [string, ...string[]]).default('ssh-key') }))
         .mutation(({ ctx, input }) => {
             if (input.fromId === input.toId) throw bad('a node cannot link to itself')
             return ctx.db.nodeLink.create({ data: { ...input, createdAt: new Date() } })
         }),
-    delete: permProcedure('admin.nodes').input(z.object({ id: z.number().int() })).mutation(async ({ ctx, input }) => {
+    delete: permProcedure('admin.comm').input(z.object({ id: z.number().int() })).mutation(async ({ ctx, input }) => {
         await ctx.db.nodeLink.delete({ where: { id: input.id } })
         return { ok: true }
     }),
