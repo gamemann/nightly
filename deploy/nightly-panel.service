@@ -1,4 +1,4 @@
-# systemd user unit for the nightly panel (production build on :3010).
+# systemd user unit (install/install-node.sh --panel installs a system unit instead) for the nightly panel (production build on :3010).
 # Not installed. To use it:
 #   cd ~/stack/nightly && npm run build
 #   cp deploy/nightly-panel.service ~/.config/systemd/user/
@@ -16,6 +16,8 @@ Environment=NODE_ENV=production
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
 # Optional: NIGHTLY_DB=... in this file (the login is set in the panel)
 EnvironmentFile=-%h/stack/nightly/.env
+# Bring the schema up to date (tables, ClickHouse, first admin) before every start; the panel also does this itself.
+ExecStartPre=/usr/local/bin/node --no-warnings lib/bootstrap.mjs
 ExecStart=/usr/local/bin/npm run start
 Restart=on-failure
 RestartSec=5

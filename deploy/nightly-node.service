@@ -1,0 +1,20 @@
+# systemd unit for the nightly node daemon. install/install-node.sh fills in the @@ markers and installs it as
+# /etc/systemd/system/nightly-node.service; do not copy it by hand.
+[Unit]
+Description=nightly node daemon (@@MODE@@)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@@USER@@
+WorkingDirectory=@@ROOT@@
+EnvironmentFile=@@ENVFILE@@
+ExecStart=@@ROOT@@/bin/nightly-node
+Restart=always
+RestartSec=3
+# The daemon runs jobs as its own user; it can only create users or touch other accounts when started as root.
+NoNewPrivileges=@@NNP@@
+
+[Install]
+WantedBy=multi-user.target

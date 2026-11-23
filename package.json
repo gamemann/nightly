@@ -15,7 +15,9 @@
         "postinstall": "prisma generate",
         "db:push": "prisma db push",
         "db:import": "node --no-warnings scripts/import-markdown.ts",
-        "db:studio": "prisma studio"
+        "db:studio": "prisma studio",
+        "db:baseline": "prisma migrate diff --from-empty --to-schema prisma/schema.prisma --script > prisma/baseline.sql",
+        "bootstrap": "node --no-warnings lib/bootstrap.mjs"
     },
     "dependencies": {
         "@prisma/adapter-better-sqlite3": "^7.4.1",

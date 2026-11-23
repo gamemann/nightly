@@ -1,7 +1,28 @@
-# Optional services for nightly. The panel and the CLI work without any of this:
-# ClickHouse only adds long-range history for the Usage tab (see README, "Usage").
-#   docker compose up -d clickhouse
+# nightly in Docker: the panel plus ClickHouse. Copy .env.example to .env, set the admin and passwords, then
+#   docker compose up -d
+# The panel creates and syncs its tables (SQLite and ClickHouse) on every start. ClickHouse alone, for a panel
+# run outside Docker:  docker compose up -d clickhouse
 services:
+  panel:
+    build: .
+    container_name: nightly-panel
+    restart: unless-stopped
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    environment:
+      NIGHTLY_ADMIN_USER: ${NIGHTLY_ADMIN_USER:-admin}
+      NIGHTLY_ADMIN_PASSWORD: ${NIGHTLY_ADMIN_PASSWORD:-}
+      NIGHTLY_PUBLIC_URL: ${NIGHTLY_PUBLIC_URL:-}
+      NIGHTLY_CLICKHOUSE_URL: http://clickhouse:8123
+      NIGHTLY_CLICKHOUSE_DB: ${NIGHTLY_CLICKHOUSE_DB:-nightly_usage}
+      NIGHTLY_CLICKHOUSE_USER: ${NIGHTLY_CLICKHOUSE_USER:-nightly}
+      NIGHTLY_CLICKHOUSE_PASSWORD: ${NIGHTLY_CLICKHOUSE_PASSWORD:-nightly-dev-password}
+    ports:
+      - "${NIGHTLY_BIND:-0.0.0.0}:${NIGHTLY_PORT:-3010}:3010"
+    volumes:
+      - panel-data:/data
+
   clickhouse:
     image: clickhouse/clickhouse-server:25.8.33.6
     container_name: nightly-clickhouse
@@ -29,4 +50,5 @@ services:
       start_period: 15s
 
 volumes:
+  panel-data:
   clickhouse-data:

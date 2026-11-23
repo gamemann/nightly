@@ -703,6 +703,8 @@ model Node {
   tokenHash  String     @default("")
   secret     String     @default("")
   specs      String     @default("{}")
+  /// JSON connection options for the daemon link: {fingerprint, ca, tlsVerify}.
+  conn       String     @default("{}")
   status     String     @default("unknown")
   notes      String     @default("")
   lastSeenAt DateTime?
@@ -773,4 +775,28 @@ model BuildConfig {
   project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@unique([projectId, name])
+}
+
+/// An offload job the panel sent to a node (or kept queued until a node is free). status: queued |
+/// running | ok | failed | cancelled. log holds the tail of the output.
+model NodeJob {
+  id         Int       @id @default(autoincrement())
+  jobKey     String    @unique
+  nodeId     Int?
+  projectId  Int?
+  buildId    Int?
+  name       String    @default("")
+  kind       String    @default("build")
+  command    String    @default("")
+  heavy      Boolean   @default(false)
+  status     String    @default("queued")
+  exitCode   Int?
+  reason     String    @default("")
+  log        String    @default("")
+  createdAt  DateTime  @default(now())
+  startedAt  DateTime?
+  finishedAt DateTime?
+
+  @@index([status])
+  @@index([nodeId])
 }

@@ -1,4 +1,4 @@
-import { Communication } from '~/components/later/Communication'
+import { Communication } from '~/components/Communication'
 import { guard } from '~/server/pageGuard'
 
 export default async function CommunicationPage() {

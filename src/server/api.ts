@@ -16,6 +16,7 @@ import { AUTH_KEYS, PRIVATE_SETTINGS, forgetIngest } from './auth'
 import { accountRouters } from './accountsRouter'
 import { projectRouters } from './projectsRouter'
 import { nodeRouters } from './nodesRouter'
+import { nodeOpsRouter } from './nodeOpsRouter'
 import { ATTACH_DIR, MEDIA_DIR, MEDIA_EXT } from './media'
 import { assetsRouter } from './assetsRouter'
 import { gameRouter } from './gameRouter'
@@ -638,5 +639,5 @@ const settingRouter = router({
         }),
 })
 
-export const appRouter = router({ perf: perfRouter, usage: usageRouter, item: itemRouter, note: noteRouter, run: runRouter, schedule: scheduleRouter, prompt: promptRouter, attachment: attachmentRouter, qa: qaRouter, agent: agentRouter, setting: settingRouter, ...accountRouters, ...projectRouters, ...nodeRouters, game: gameRouter, feed: feedRouter, assets: assetsRouter, review: reviewRouter })
+export const appRouter = router({ perf: perfRouter, usage: usageRouter, item: itemRouter, note: noteRouter, run: runRouter, schedule: scheduleRouter, prompt: promptRouter, attachment: attachmentRouter, qa: qaRouter, agent: agentRouter, setting: settingRouter, ...accountRouters, ...projectRouters, ...nodeRouters, nodeOps: nodeOpsRouter, game: gameRouter, feed: feedRouter, assets: assetsRouter, review: reviewRouter })
 export type AppRouter = typeof appRouter

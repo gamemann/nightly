@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# nightly-node: the node daemon (planet or station). Plain Node, no build, no npm dependency.
+#   nightly-node            run the daemon in the foreground (what the systemd unit does)
+#   nightly-node specs      print what this machine reports (JSON)
+#   nightly-node token      print a fresh random token
+#   nightly-node version
+set -euo pipefail
+src=${BASH_SOURCE[0]}
+while [ -L "$src" ]; do
+    dir=$(cd -P "$(dirname "$src")" && pwd)
+    src=$(readlink "$src")
+    [[ $src != /* ]] && src=$dir/$src
+done
+here=$(cd -P "$(dirname "$src")" && pwd)
+node=${NIGHTLY_NODE_BIN:-}
+if [ -z "$node" ]; then
+    for c in /usr/local/bin/node /usr/bin/node "$(command -v node 2>/dev/null || true)"; do
+        [ -n "$c" ] && [ -x "$c" ] && { node=$c; break; }
+    done
+fi
+[ -n "$node" ] || { echo "nightly-node: node not found" >&2; exit 127; }
+exec "$node" --no-warnings "$here/../node/main.mjs" "$@"
