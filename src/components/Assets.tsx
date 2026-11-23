@@ -130,8 +130,9 @@ export function Assets({ data, agg, kinds, sources, trend = [], packNames }: { d
     const mapRows = placeTab && !pieces
     const flagCodes = [...new Set(agg.flags.filter((f) => f.tab === flagScope(tab)).map((f) => f.code))].sort()
     const inTab = (k: string) => tab === "entities" ? ENTITY_KINDS.includes(k) : tab === "models" ? !ENTITY_KINDS.includes(k) : true
-    const kindList = [{ key: "", label: "All" }, ...kinds.filter((k) => agg.kinds.some((x) => x.key === k.key) && inTab(k.key)), ...agg.kinds.filter((k) => !kinds.some((x) => x.key === k.key) && inTab(k.key)).map((k) => ({ key: k.key, label: k.key }))]
-    const allCount = tab === "entities" || tab === "models" ? agg.kinds.filter((x) => inTab(x.key)).reduce((a, x) => a + x.total, 0) : agg.total
+    const kindList = [{ key: "", label: "All" }, ...kinds.filter((k) => agg.kinds.some((x) => x.key === k.key) && inTab(k.key) && (agg.kindTabs[k.key]?.[tab] ?? 0) > 0), ...agg.kinds.filter((k) => !kinds.some((x) => x.key === k.key) && inTab(k.key)).map((k) => ({ key: k.key, label: k.key }))]
+    const allCount = agg.tabCounts[tab]
+    const chipCount = (k: string) => agg.kindTabs[k]?.[tab] ?? 0
     const cols: Column<AssetRow>[] = [
         { key: "thumb", label: "", render: (r) => <Thumb r={r} tab={tab} /> },
         { key: "asset", label: mapRows ? (tab === "maps" ? "Map" : "Library set") : "Asset", sortable: true, render: (r) => <><Link className="text-sky-300 hover:underline" href={r.id > 0 ? `/assets/${r.id}` : `/assets?tab=${tab}&pieces=1&grp=${encodeURIComponent(r.groupKey)}`} title={r.weaponId}>{r.display}</Link>{r.id > 0 && r.group && <span className="ml-1.5 text-[11px] text-muted" title={r.weaponId}>{r.group}</span>}{r.id <= 0 && <span className="ml-1.5 text-[11px] text-muted">{r.pieces} pieces</span>}{r.id > 0 && r.hasModel && r.texCount === 0 && <span className="ml-1 rounded bg-bad/20 px-1 text-[10px] text-bad" title="the model has no texture at all (flag NO_TEXTURES)">no texture</span>}{r.copies > 1 && <span className="ml-1 text-[10px] text-muted" title={r.uses.join(", ")}>x{r.copies}</span>}{r.source !== "audit" && <span className="ml-1 text-[10px] text-muted" title="from a directory scan, not yet audited">scan</span>}</> },
@@ -153,7 +154,7 @@ export function Assets({ data, agg, kinds, sources, trend = [], packNames }: { d
             <div className="mb-2 flex flex-wrap gap-1.5" hidden={placeTab}>
                 {kindList.map((k) => (
                     <button key={k.key} onClick={() => set({ kind: k.key, flag: "" })} className={`rounded-full border px-2.5 py-0.5 text-[12px] ${k.key === kind ? "border-sky-400 text-fg" : "border-line text-dim hover:text-fg"}`}>
-                        {k.label} <span className="text-[11px] text-muted">{k.key ? agg.kinds.find((x) => x.key === k.key)?.total ?? 0 : allCount}</span>
+                        {k.label} <span className="text-[11px] text-muted">{k.key ? chipCount(k.key) : allCount}</span>
                     </button>
                 ))}
             </div>

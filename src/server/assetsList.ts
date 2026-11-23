@@ -1,6 +1,7 @@
 import { db } from './db'
 import { INDEXES, BACKFILL, alterStatements } from '../../lib/asset-cols.mjs'
-import { ENTITY_KINDS, PIECE_SQL, describe, placeOf } from '../../lib/asset-names.mjs'
+import { PIECE_SQL, describe, placeOf } from '../../lib/asset-names.mjs'
+import { DEDUPE_KEY, TAB_SQL, UNIQUE, aggCountSql } from '../../lib/asset-tabs.mjs'
 import { offsetOf, likeEsc, paged, type PageQuery, type PageSpec, type Paged } from '~/lib/paging'
 
 export type Tab = 'entities' | 'models' | 'textures' | 'animations' | 'sounds' | 'maps' | 'libraries'
@@ -16,6 +17,8 @@ export type Agg = {
     bins: { lo: number; hi: number; label: string; count: number; tier: 'fail' | 'warn' | 'pass' }[]
     packs: { key: string; total: number; pass: number; rate: number }[]
     kinds: { key: string; total: number; pass: number; rate: number }[]
+    /** Kind chip counts per tab (what the list shows for tab + kind). */
+    kindTabs: Record<string, Partial<Record<Tab, number>>>
     flags: { code: string; severity: string; n: number; tab: Tab }[]
     worst: { id: number; weaponId: string; pack: string; kind: string; score: number }[]
     tabCounts: Record<Tab, number>
@@ -59,8 +62,8 @@ function where(q: PageQuery, only: 'rows' | 'pieces' = 'rows') {
     const w: string[] = [], a: unknown[] = []
     const f = q.f
     if (f.kind) { w.push('kind = ?'); a.push(f.kind) }
-    const tb = f.tab || 'entities'
-    if (tb === 'entities' || tb === 'models') { w.push(`kind ${tb === 'models' ? 'NOT ' : ''}IN (${ENTITY_KINDS.map(() => '?').join(',')})`); a.push(...ENTITY_KINDS) }
+    const tb = (f.tab || 'entities') as keyof typeof TAB_SQL
+    if (TAB_SQL[tb]) w.push(TAB_SQL[tb])
     if (f.pack) { w.push('pack = ?'); a.push(f.pack) }
     if (f.game) { w.push("(',' || game || ',') LIKE ? ESCAPE '\\'"); a.push(`%,${likeEsc(f.game)},%`) }
     if (f.flag) { w.push("(' ' || flagCodes || ' ') LIKE ? ESCAPE '\\'"); a.push(`% ${likeEsc(f.flag)} %`) }
@@ -71,11 +74,6 @@ function where(q: PageQuery, only: 'rows' | 'pieces' = 'rows') {
     if (q.q) { w.push("(weaponId LIKE ? ESCAPE '\\' OR pack LIKE ? ESCAPE '\\')"); a.push(`%${likeEsc(q.q)}%`, `%${likeEsc(q.q)}%`) }
     return { sql: w.length ? `WHERE ${w.join(' AND ')}` : '', a }
 }
-
-/** Identical files shipped by many games are ONE asset: same file hash and kind. Rows with no hash yet (never rendered; `nightly assets thumbs --missing` fills it) stay single. */
-const DEDUPE_KEY = "CASE WHEN fileHash != '' THEN fileHash || '|' || kind ELSE 'id' || id END"
-/** The table restricted to one canonical row (lowest id) per identical asset, standing in for AssetWeapon in the aggregates. */
-const UNIQUE = `(SELECT * FROM AssetWeapon WHERE id IN (SELECT MIN(id) FROM AssetWeapon WHERE NOT ${PIECE_SQL} GROUP BY ${DEDUPE_KEY})) AssetWeapon`
 
 /** One page of the Assets table: filter, search, sort and limit all in SQL; only the visible rows are parsed. */
 export async function assetPage(q: PageQuery): Promise<Paged<AssetRow>> {
@@ -164,16 +162,16 @@ const group = (rows: { k: string; total: unknown; pass: unknown }[]) => rows.map
 /** Every chart number of the Assets page as SQL aggregates over the whole table (never the row set). */
 export async function assetAgg(): Promise<Agg> {
     await ensureAssetColumns()
-    const ENT = ENTITY_KINDS.map((k) => `'${k}'`).join(',')
     const W = `WHERE NOT ${PIECE_SQL}`, A = `AND NOT ${PIECE_SQL}`
-    const [tot, bins, packs, kinds, flags, worst, games] = await Promise.all([
-        db.$queryRawUnsafe<Record<string, unknown>[]>(`SELECT COUNT(*) total, SUM(source='audit') audited, SUM(hasModel AND kind IN (${ENT})) e, SUM(hasModel AND kind NOT IN (${ENT})) m, SUM(texCount>0) t, SUM(animCount>0) a, SUM(soundCount>0) s FROM ${UNIQUE}`),
+    const [tot, bins, packs, kinds, flags, worst, games, kt] = await Promise.all([
+        db.$queryRawUnsafe<Record<string, unknown>[]>(`SELECT COUNT(*) total, SUM(source='audit') audited, SUM(${TAB_SQL.entities}) e, SUM(${TAB_SQL.models}) m, SUM(${TAB_SQL.textures}) t, SUM(${TAB_SQL.animations}) a, SUM(${TAB_SQL.sounds}) s FROM ${UNIQUE}`),
         db.$queryRawUnsafe<{ b: unknown; c: unknown }[]>(`SELECT MIN(9, MAX(0, score / 10)) b, COUNT(*) c FROM ${UNIQUE} GROUP BY b`),
         db.$queryRawUnsafe<{ k: string; total: unknown; pass: unknown }[]>(`SELECT pack k, COUNT(*) total, SUM(pass) pass FROM AssetWeapon WHERE pack != '' ${A} GROUP BY pack`),
         db.$queryRawUnsafe<{ k: string; total: unknown; pass: unknown }[]>(`SELECT kind k, COUNT(*) total, SUM(pass) pass FROM ${UNIQUE} WHERE kind != '' GROUP BY kind`),
         db.$queryRawUnsafe<{ code: string; sev: string; c: unknown }[]>(`SELECT json_extract(f.value,'$.code') code, json_extract(f.value,'$.severity') sev, COUNT(*) c FROM ${UNIQUE}, json_each(AssetWeapon.data,'$.flags') f GROUP BY code, sev`),
         db.$queryRawUnsafe<{ id: unknown; weaponId: string; pack: string; kind: string; score: unknown }[]>(`SELECT id, weaponId, pack, kind, score FROM ${UNIQUE} ORDER BY score, weaponId LIMIT 8`),
         db.$queryRawUnsafe<{ game: string }[]>("SELECT DISTINCT game FROM AssetWeapon WHERE game != ''"),
+        db.$queryRawUnsafe<Record<string, unknown>[]>(aggCountSql()),
     ])
     const t = tot[0], places = await mapGroups()
     const bn = new Map(bins.map((r) => [n(r.b), n(r.c)]))
@@ -181,6 +179,7 @@ export async function assetAgg(): Promise<Agg> {
         total: n(t.total), audited: n(t.audited),
         bins: Array.from({ length: 10 }, (_, i) => ({ lo: i * 10, hi: i === 9 ? 100 : i * 10 + 9, label: `${i * 10}-${i === 9 ? 100 : i * 10 + 9}`, count: bn.get(i) ?? 0, tier: i >= 7 ? 'pass' as const : i >= 4 ? 'warn' as const : 'fail' as const })),
         packs: group(packs), kinds: group(kinds),
+        kindTabs: Object.fromEntries(kt.filter((r) => r.kind).map((r) => [String(r.kind), { entities: n(r.entities), models: n(r.models), textures: n(r.textures), animations: n(r.animations), sounds: n(r.sounds) }])),
         flags: flags.map((f) => ({ code: f.code, severity: f.sev, n: n(f.c), tab: flagTab(f.code) })).sort((a, b) => b.n - a.n || a.code.localeCompare(b.code)),
         worst: worst.map((w) => ({ ...w, id: n(w.id), score: n(w.score) })),
         tabCounts: { entities: n(t.e), models: n(t.m), textures: n(t.t), animations: n(t.a), sounds: n(t.s), maps: places.filter((p) => p.kind === 'map').length, libraries: places.filter((p) => p.kind === 'library').length },
