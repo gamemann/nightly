@@ -30,9 +30,10 @@ import * as TS from '../lib/transcripts-store.mjs'
 import { FEED_COMMANDS, FEED_HELP, runFeedCommand } from '../lib/cli-feeds.mjs'
 import { GAMETOOLS_COMMANDS, GAMETOOLS_BOOL, GAMETOOLS_HELP, runGametoolsCommand, assetsUploadCmd } from '../lib/cli-gametools.mjs'
 import { ACCOUNT_COMMANDS, ACCOUNT_BOOL, ACCOUNT_HELP, runAccountCommand } from '../lib/cli-accounts.mjs'
+import { OPS_COMMANDS, OPS_HELP, runOpsCommand, tickHook as opsTick } from '../lib/ops-cli.mjs'
 
 const argv = process.argv.slice(2)
-const BOOL = new Set(['json', 'all', 'top', 'due', 'help', 'h', 'dryRun', 'force', 'peek', 'strict', 'register', 'noFindings', 'noBudgets', 'noBaseline', 'requireToken', 'tokenOnly', 'png', 'disable', 'enable', 'infra', 'leave', 'purge', 'wait', 'child', 'full', 'noCh', 'resync', 'missing', 'noCi', 'absolute', 'delete', 'noJournal', 'frame', 'fork', 'interrupt', ...ACCOUNT_BOOL, ...GAMETOOLS_BOOL])
+const BOOL = new Set(['json', 'all', 'top', 'due', 'help', 'h', 'dryRun', 'force', 'peek', 'strict', 'register', 'noFindings', 'noBudgets', 'noBaseline', 'requireToken', 'tokenOnly', 'png', 'disable', 'enable', 'infra', 'leave', 'purge', 'wait', 'child', 'full', 'noCh', 'resync', 'missing', 'noCi', 'absolute', 'delete', 'noJournal', 'frame', 'fork', 'interrupt', 'noGh', ...ACCOUNT_BOOL, ...GAMETOOLS_BOOL])
 
 const multi = {}
 function parse(args) {
@@ -151,6 +152,7 @@ ${FEED_HELP}
   Users, projects and nodes (the panel's AdminCP does the same):
 ${ACCOUNT_HELP}
 ${GAMETOOLS_HELP}
+${OPS_HELP}
   tick [--dry-run]                              crontab, every minute: fire the schedules due now
   start <schedule-id|name>                      fire one schedule now (ignores doRun); prints the run id
 
@@ -504,7 +506,8 @@ async function cmdTick() {
     if (!opt.dryRun) { try { const m = PR.maybeSchedule(db); if (m) lines.push(m) } catch (e) { lines.push(`perf schedule: ${e.message}`) }
         try { lines.push(...RSI.tickHook(db)) } catch (e) { lines.push(`rsi: ${e.message}`) }
         try { lines.push(...await US.tickHook(db)) } catch (e) { lines.push(`usage: ${e.message}`) }
-        try { TS.ensure(db); const r = TS.ingestAll(db); if (r.changed) lines.push(`transcripts: ${r.changed} files, ${r.added} entries`) } catch (e) { lines.push(`transcripts: ${e.message}`) } }
+        try { TS.ensure(db); const r = TS.ingestAll(db); if (r.changed) lines.push(`transcripts: ${r.changed} files, ${r.added} entries`) } catch (e) { lines.push(`transcripts: ${e.message}`) }
+        try { lines.push(...await opsTick(db)) } catch (e) { lines.push(`ops: ${e.message}`) } }
     if (J) return out(lines, () => '')
     if (lines.length) process.stdout.write(lines.join('\n') + '\n')
 }
@@ -883,6 +886,7 @@ try {
     const table = { list: cmdList, ls: cmdList, show: cmdShow, add: cmdAdd, set: cmdSet, note: cmdNote, attach: cmdAttach, attachments: cmdAttachments, review: cmdReview, reviews: cmdReview, checks: cmdChecks,
         checked: cmdChecked, run: cmdRun, get: cmdGet, 'set-setting': cmdSetSetting, brief: cmdBrief,
         prompt: cmdPrompt, prompts: cmdPrompt, schedule: cmdSchedule, schedules: cmdSchedule, tick: cmdTick, start: cmdStart, exec: cmdExec, agent: cmdAgent, account: cmdAccount, accounts: cmdAccount, transcript: cmdTranscript, transcripts: cmdTranscript, perf: cmdPerf, assets: cmdAssets, rsi: cmdRsi, usage: cmdUsage }
+    for (const c of OPS_COMMANDS) table[c] = () => runOpsCommand(c, { db, pos, opt, out, die })
     for (const c of [...FEED_COMMANDS, 'feed', 'gates']) table[c] = () => runFeedCommand(c, { db, pos, opt, out, die, readStdin })
     for (const c of GAMETOOLS_COMMANDS) table[c] = () => runGametoolsCommand(c, { db, pos, opt, out, die })
     for (const c of ACCOUNT_COMMANDS) table[c] ??= () => runAccountCommand(c, { db, pos, opt, out, die, readStdin })

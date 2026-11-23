@@ -23,6 +23,7 @@ import { assetsRouter } from './assetsRouter'
 import { gameRouter } from './gameRouter'
 import { perfRouter } from './perfRouter'
 import { usageRouter } from './usageRouter'
+import { opsRouter } from './opsRouter'
 import { reviewRouter } from './reviewRouter'
 import { transcriptsRouter } from './transcriptsRouter'
 import { modelSibling } from './models'
@@ -98,12 +99,13 @@ const itemRouter = router({
     list: procedure
         .input(z.object({
             view: z.enum(VIEWS), q: z.string().optional(), page: z.number().int().min(1).default(1), size: z.number().int().min(1).max(1000).default(100),
-            sort: z.enum(ITEM_SORTS).optional(), dir: z.enum(['asc', 'desc']).optional(), kind: z.string().optional(), status: z.string().optional(),
+            sort: z.enum(ITEM_SORTS).optional(), dir: z.enum(['asc', 'desc']).optional(), kind: z.string().optional(), status: z.string().optional(), project: z.string().regex(/^[\w.-]{1,60}$/).optional(),
         }))
         .query(async ({ ctx, input }) => {
             const q = input.q?.trim()
             const where: Prisma.ItemWhereInput = {
                 ...(q ? {} : whereFor(input.view)),
+                ...(input.project ? { repos: { contains: input.project } } : {}),
                 ...(q ? { OR: [{ title: { contains: q } }, { key: { contains: q } }, { body: { contains: q } }, { repos: { contains: q } }] } : {}),
                 ...((KINDS as readonly string[]).includes(input.kind ?? '') ? { kind: input.kind } : {}),
                 ...((STATUSES as readonly string[]).includes(input.status ?? '') ? { status: input.status } : {}),
@@ -641,5 +643,5 @@ const settingRouter = router({
         }),
 })
 
-export const appRouter = router({ perf: perfRouter, usage: usageRouter, item: itemRouter, note: noteRouter, run: runRouter, schedule: scheduleRouter, prompt: promptRouter, attachment: attachmentRouter, qa: qaRouter, agent: agentRouter, setting: settingRouter, ...accountRouters, ...projectRouters, ...nodeRouters, nodeOps: nodeOpsRouter, game: gameRouter, feed: feedRouter, assets: assetsRouter, review: reviewRouter, transcripts: transcriptsRouter, tools: toolsRouter })
+export const appRouter = router({ perf: perfRouter, usage: usageRouter, item: itemRouter, note: noteRouter, run: runRouter, schedule: scheduleRouter, prompt: promptRouter, attachment: attachmentRouter, qa: qaRouter, agent: agentRouter, setting: settingRouter, ...accountRouters, ...projectRouters, ...nodeRouters, nodeOps: nodeOpsRouter, game: gameRouter, feed: feedRouter, assets: assetsRouter, review: reviewRouter, transcripts: transcriptsRouter, tools: toolsRouter, ops: opsRouter })
 export type AppRouter = typeof appRouter

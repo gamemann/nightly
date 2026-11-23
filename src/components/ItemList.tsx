@@ -34,10 +34,11 @@ type Row = RouterOutputs['item']['list']['rows'][number]
 
 export function ItemList({ view }: { view: View }) {
     const { sp } = useUrlParams()
-    const q = parsePage(sp, { sorts: ITEM_SORT, sort: view === 'done' ? 'done' : 'priority', dir: view === 'done' ? 'desc' : 'asc', filters: ['kind', 'status'] })
+    const q = parsePage(sp, { sorts: ITEM_SORT, sort: view === 'done' ? 'done' : 'priority', dir: view === 'done' ? 'desc' : 'asc', filters: ['kind', 'status', 'project'] })
     const utils = api.useUtils()
+    const games = api.game.list.useQuery()
     const list = api.item.list.useQuery(
-        { view, q: q.q || undefined, page: q.page, size: q.size, sort: q.sort as 'key', dir: q.dir, kind: q.f.kind, status: q.f.status },
+        { view, q: q.q || undefined, page: q.page, size: q.size, sort: q.sort as 'key', dir: q.dir, kind: q.f.kind, status: q.f.status, project: q.f.project || undefined },
         { placeholderData: (p) => p })
     const invalidate = () => Promise.all([utils.item.list.invalidate(), utils.item.counts.invalidate()])
     const move = api.item.move.useMutation({ onSuccess: invalidate })
@@ -94,7 +95,7 @@ export function ItemList({ view }: { view: View }) {
             </div>
             {!data ? <div className="p-6 text-center text-muted">Loading…</div> : (
                 <DataTable cols={cols} data={data} rowKey={(it) => it.id} sort={q.sort} dir={q.dir} q={q.q} active={q.f} searchHint="Search all items (/)"
-                    filters={[{ key: 'kind', label: 'Kind', options: KINDS.map((value) => ({ value })) }, { key: 'status', label: 'Status', options: STATUSES.map((value) => ({ value, label: STATUS_LABEL[value] })) }]} />
+                    filters={[{ key: 'kind', label: 'Kind', options: KINDS.map((value) => ({ value })) }, { key: 'status', label: 'Status', options: STATUSES.map((value) => ({ value, label: STATUS_LABEL[value] })) }, { key: 'project', label: 'Project', options: (games.data ?? []).map((g) => ({ value: g.slug })) }]} />
             )}
         </div>
     )

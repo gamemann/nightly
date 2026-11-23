@@ -86,7 +86,7 @@ function JobPanel({ job }: { job: JobView }) {
                             <tbody>{m.map((x) => (
                                 <tr key={x.name} className="border-t border-line/50"><td className="px-2 py-1 font-mono">{x.name}</td><td className="px-2 tabular-nums text-dim">{x.tris}</td>
                                     <td className={`px-2 ${x.status === 'resolved' ? 'text-emerald-300' : x.status === 'generated' ? 'text-sky-300' : 'text-amber-300'}`}>{x.status}</td>
-                                    <td className="px-2 text-dim">{x.asset ? <Link className="text-sky-300 hover:underline" href={`/assets/${x.asset.id}`}>{x.asset.pack}/{x.asset.weaponId}</Link> : x.texture ?? ''}{x.credit ? ` (${x.credit})` : ''}{!x.asset && x.status === 'unmapped' ? <Link className="ml-1 text-sky-300 hover:underline" href="/assets?tab=textures">find in Asset Manager</Link> : null}</td></tr>
+                                    <td className="px-2 text-dim">{x.asset ? <Link className="text-sky-300 hover:underline" href={`/tools/assets/${x.asset.id}`}>{x.asset.pack}/{x.asset.weaponId}</Link> : x.texture ?? ''}{x.credit ? ` (${x.credit})` : ''}{!x.asset && x.status === 'unmapped' ? <Link className="ml-1 text-sky-300 hover:underline" href="/tools/assets?tab=textures">find in Asset Manager</Link> : null}</td></tr>
                             ))}</tbody></table>
                     </div>
                 </div>
