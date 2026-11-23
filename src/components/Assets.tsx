@@ -32,6 +32,8 @@ function Thumb({ r, tab }: { r: AssetRow; tab: Tab }) {
 
 /** Entities, maps and libraries show the model flags. */
 const flagScope = (t: Tab): Tab => (t === "entities" || t === "maps" || t === "libraries" ? "models" : t)
+/** Every filter a tab or chip click drops, so a tab never opens empty from a stale filter (page resets by itself). */
+const CLEAR = { pack: "", game: "", flag: "", min: "", max: "", pieces: "", grp: "", kind: "" }
 const num = (v: number) => v.toLocaleString("en-GB")
 const TAB_COLS: Record<Exclude<Tab, "entities">, Column<AssetRow>[]> = {
     libraries: [
@@ -131,6 +133,7 @@ export function Assets({ data, agg, kinds, sources, trend = [], packNames }: { d
     const flagCodes = [...new Set(agg.flags.filter((f) => f.tab === flagScope(tab)).map((f) => f.code))].sort()
     const inTab = (k: string) => tab === "entities" ? ENTITY_KINDS.includes(k) : tab === "models" ? !ENTITY_KINDS.includes(k) : true
     const kindList = [{ key: "", label: "All" }, ...kinds.filter((k) => agg.kinds.some((x) => x.key === k.key) && inTab(k.key) && (agg.kindTabs[k.key]?.[tab] ?? 0) > 0), ...agg.kinds.filter((k) => !kinds.some((x) => x.key === k.key) && inTab(k.key)).map((k) => ({ key: k.key, label: k.key }))]
+    const filtered = ["pack", "game", "flag", "min", "max", "q", "kind", "grp"].some((k) => sp.get(k))
     const allCount = agg.tabCounts[tab]
     const chipCount = (k: string) => agg.kindTabs[k]?.[tab] ?? 0
     const cols: Column<AssetRow>[] = [
@@ -153,19 +156,19 @@ export function Assets({ data, agg, kinds, sources, trend = [], packNames }: { d
             <AssetCharts agg={agg} tab={tab} set={set} trend={trend} />
             <div className="mb-2 flex flex-wrap gap-1.5" hidden={placeTab}>
                 {kindList.map((k) => (
-                    <button key={k.key} onClick={() => set({ kind: k.key, flag: "" })} className={`rounded-full border px-2.5 py-0.5 text-[12px] ${k.key === kind ? "border-sky-400 text-fg" : "border-line text-dim hover:text-fg"}`}>
+                    <button key={k.key} onClick={() => set({ ...CLEAR, kind: k.key })} className={`rounded-full border px-2.5 py-0.5 text-[12px] ${k.key === kind ? "border-sky-400 text-fg" : "border-line text-dim hover:text-fg"}`}>
                         {k.label} <span className="text-[11px] text-muted">{k.key ? chipCount(k.key) : allCount}</span>
                     </button>
                 ))}
             </div>
             <div className="mb-3 flex gap-1 border-b border-line">
                 {TABS.map(([t, l]) => (
-                    <button key={t} onClick={() => set({ tab: t === "entities" ? "" : t, flag: "", sort: "", dir: "", pieces: "", grp: "", kind: "" })} className={`-mb-px border-b-2 px-3 py-1.5 text-[13px] ${t === tab ? "border-sky-400 text-fg" : "border-transparent text-dim hover:text-fg"}`}>
+                    <button key={t} onClick={() => set({ ...CLEAR, tab: t === "entities" ? "" : t, sort: "", dir: "" })} className={`-mb-px border-b-2 px-3 py-1.5 text-[13px] ${t === tab ? "border-sky-400 text-fg" : "border-transparent text-dim hover:text-fg"}`}>
                         {l} <span className="text-[11px] text-muted">{agg.tabCounts[t]}</span>
                     </button>
                 ))}
             </div>
-            <DataTable cols={cols} data={data} rowKey={(r) => r.id} sort={sort} dir={dir} q={q} searchHint="Search asset or pack"
+            <DataTable empty={filtered ? <>No rows match these filters. <button className="text-sky-300 hover:underline" onClick={() => set({ ...CLEAR, q: "" })}>Clear filters</button></> : undefined} cols={cols} data={data} rowKey={(r) => r.id} sort={sort} dir={dir} q={q} searchHint="Search asset or pack"
                 active={{ pack: sp.get("pack") ?? "", game: sp.get("game") ?? "", flag: sp.get("flag") ?? "" }}
                 filters={[
                     { key: "pack", label: "Pack", options: packNames.map((p) => ({ value: p })) },

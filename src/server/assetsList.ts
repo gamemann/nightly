@@ -1,7 +1,7 @@
 import { db } from './db'
 import { INDEXES, BACKFILL, alterStatements } from '../../lib/asset-cols.mjs'
 import { PIECE_SQL, describe, placeOf } from '../../lib/asset-names.mjs'
-import { DEDUPE_KEY, TAB_SQL, UNIQUE, aggCountSql } from '../../lib/asset-tabs.mjs'
+import { DEDUPE_KEY, TAB_SQL, UNIQUE, aggCountSql, effectiveFilters } from '../../lib/asset-tabs.mjs'
 import { offsetOf, likeEsc, paged, type PageQuery, type PageSpec, type Paged } from '~/lib/paging'
 
 export type Tab = 'entities' | 'models' | 'textures' | 'animations' | 'sounds' | 'maps' | 'libraries'
@@ -60,7 +60,7 @@ export const showPieces = (v: string | undefined) => v === '1'
 
 function where(q: PageQuery, only: 'rows' | 'pieces' = 'rows') {
     const w: string[] = [], a: unknown[] = []
-    const f = q.f
+    const f = effectiveFilters(q.f)
     if (f.kind) { w.push('kind = ?'); a.push(f.kind) }
     const tb = (f.tab || 'entities') as keyof typeof TAB_SQL
     if (TAB_SQL[tb]) w.push(TAB_SQL[tb])
@@ -69,7 +69,7 @@ function where(q: PageQuery, only: 'rows' | 'pieces' = 'rows') {
     if (f.flag) { w.push("(' ' || flagCodes || ' ') LIKE ? ESCAPE '\\'"); a.push(`% ${likeEsc(f.flag)} %`) }
     if (f.min) { w.push('score >= ?'); a.push(Number(f.min) || 0) }
     if (f.max) { w.push('score <= ?'); a.push(Number(f.max) || 0) }
-    w.push(only === 'pieces' || showPieces(q.f.pieces) ? PIECE_SQL : `NOT ${PIECE_SQL}`)
+    w.push(only === 'pieces' || showPieces(f.pieces) ? PIECE_SQL : `NOT ${PIECE_SQL}`)
     if (f.grp) { w.push("weaponId LIKE ? ESCAPE '\\'"); a.push(`%${likeEsc(`__${f.grp}__`)}%`) }
     if (q.q) { w.push("(weaponId LIKE ? ESCAPE '\\' OR pack LIKE ? ESCAPE '\\')"); a.push(`%${likeEsc(q.q)}%`, `%${likeEsc(q.q)}%`) }
     return { sql: w.length ? `WHERE ${w.join(' AND ')}` : '', a }

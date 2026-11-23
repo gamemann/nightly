@@ -48,9 +48,9 @@ export function ListControls({ q, filters = [], active = {}, searchHint = 'Searc
 
 /** The one table of the panel: server-side sort (click a header), facet filters, text search and paging, all in URL params.
  *  The rows are already one page; the server did the sorting, filtering and counting. */
-export function DataTable<T>({ cols, data, rowKey, sort, dir, q, filters = [], active = {}, searchHint = 'Search', empty = 'Nothing matches.', toolbar, rowClass, ns = '' }: {
+export function DataTable<T>({ cols, data, rowKey, sort, dir, q, filters = [], active = {}, searchHint = 'Search', empty = 'Nothing matches.' as React.ReactNode, toolbar, rowClass, ns = '' }: {
     cols: Column<T>[]; data: Paged<T>; rowKey: (r: T) => string | number; sort: string; dir: 'asc' | 'desc'; q: string
-    filters?: Facet[]; active?: Record<string, string>; searchHint?: string; empty?: string; toolbar?: React.ReactNode; rowClass?: (r: T) => string; ns?: string
+    filters?: Facet[]; active?: Record<string, string>; searchHint?: string; empty?: React.ReactNode; toolbar?: React.ReactNode; rowClass?: (r: T) => string; ns?: string
 }) {
     const { set } = useUrlParams(ns)
     return (
