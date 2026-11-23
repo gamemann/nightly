@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { api, type RouterOutputs } from '~/trpc/react'
 import { Dot, Empty, Err, Field, Page } from './nodes/ui'
 
-type Node = RouterOutputs['nodes']['list'][number]
+type Node = RouterOutputs['nodeOps']['list'][number]
 type Form = { id?: number; name: string; type: string; host: string; port: number; tls: boolean; notes: string; cpuModel: string; cores: number; threads: number; ramGb: number; gpu: string; buildSlots: number; heavySlots: number; kinds: string[] }
 
 const blank: Form = { name: '', type: 'station', host: '', port: 4001, tls: false, notes: '', cpuModel: '', cores: 0, threads: 0, ramGb: 0, gpu: '', buildSlots: 2, heavySlots: 1, kinds: ['build', 'test'] }
