@@ -140,6 +140,7 @@ Everything below is in the web panel and in the CLI (`bin/nightly`); the panel t
 - **Usage limits and multiple accounts.** A script reads your Claude plan's 5-hour and weekly usage. Set thresholds in Settings and the runner will not start while usage is over them. With several Claude accounts configured, each run picks the one with the most headroom.
 - **Accounts and permissions.** Users, roles and per-user grants decide what each person sees: sidebar entries, pages, API calls and single projects (folder-level access inherits down the tree). Sessions are listed and can be signed out under Account.
 - **Projects.** Folders and projects with filters, icons and per-project tabs (overview, tasks, perf, builds, settings; game tools per game).
+- **Lines of code.** Code, comment and blank lines and file counts (counted by `scc`) on every project, rolled up on every folder, with a language breakdown and history on the project page. See [Lines of code](#lines-of-code).
 - **CLI.** All of the above from a shell, without the panel or a server running: see [CLI](#cli).
 
 ### Reviews
@@ -204,6 +205,17 @@ It runs in this order:
 The script is idempotent: a second run only takes another backup. To restore, stop the panel, copy the backup over the database, and delete its `-wal` and `-shm` files. Test the script on a copy first: `sqlite3 "file:data/nightly.db?mode=ro" ".backup /tmp/copy.db"`, then run it with `--db /tmp/copy.db`.
 
 Screenshots of the redesigned panel (dev data; host names redacted, private conversation titles blurred) are in [docs/screenshots](./docs/screenshots).
+
+### Lines of code
+
+Every project shows its code, comment and blank lines, total and file count; every folder shows the sum of everything inside it, recursively. Counting is done by [`scc`](https://github.com/boyter/scc) with the same exclusions as the owner's `loc.sh` (directories `node_modules`, `vendor`, `.godot`, `.git`; files matching `.min.` or `package-lock`; see `lib/loc-core.mjs`).
+
+- **CLI**: `nightly loc [PROJECT | --all] [--folder F] [--force] [--no-ch] [--json]` scans the project's `repoPath`, prints the numbers and caches them. A project is rescanned only when its git HEAD changed (or with `--force`); uncommitted edits are not noticed without `--force`. A project with no `repoPath` is skipped, a missing path is reported as an error for that project.
+- **Finding scc**: setting `sccPath`, then env `NIGHTLY_SCC`, then `scc` on PATH, then `~/bin/scc` and `/usr/local/bin/scc`. If none exists the command fails with the list of places tried; a missing counter never records zeros.
+- **Cache**: SQLite table `LocStat` (one row per scan, the newest per project is the cache; created by the additive schema sync like any Prisma table). Only the CLI writes it; the panel reads it through Prisma and starts a rescan by running `nightly loc` (editors only, `projects.edit`).
+- **History**: ClickHouse table `loc_history` (`ts, project, folder_path, type, code, comments, blanks, total, files, sha`), one row per project per scan and per folder roll-up, plus a daily snapshot when the sha has not changed. The table is created by the same startup bootstrap as the usage tables (`deploy/clickhouse/schema.sql`), on fresh and existing databases alike. If ClickHouse is off or unreachable the feature still works from the SQLite cache and the CLI logs the miss; the project-page sparkline reads the SQLite rows, so it needs no ClickHouse.
+- **Schedule**: `nightly tick` refreshes changed projects every `locRefreshHours` (default 24, `0` = only by hand).
+- **Panel**: LOC chips on the /projects cards, totals beside folders in the tree, a "Sort: lines of code" option, and a Lines of code block on the project overview (totals, language bars, history sparkline, Rescan). Numbers are compact (1.2k, 3.4M) with the exact value in the tooltip.
 
 ### Usage tab
 

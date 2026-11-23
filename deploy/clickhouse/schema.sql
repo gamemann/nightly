@@ -59,3 +59,20 @@ CREATE TABLE IF NOT EXISTS {db}.usage_event (
 ) ENGINE = ReplacingMergeTree(ver)
 PARTITION BY toYYYYMM(ts)
 ORDER BY event_key;
+
+-- Lines of code history (scc), one row per project and per folder roll-up at each new git sha and at a daily snapshot.
+-- type is 'project' or 'folder'; folder_path is the folder tree path ('' for a project at the root).
+CREATE TABLE IF NOT EXISTS {db}.loc_history (
+    ts            DateTime64(3, 'UTC'),
+    project       LowCardinality(String),
+    folder_path   String,
+    type          LowCardinality(String),
+    code          UInt64,
+    comments      UInt64,
+    blanks        UInt64,
+    total         UInt64,
+    files         UInt64,
+    sha           String
+) ENGINE = MergeTree
+PARTITION BY toYYYYMM(ts)
+ORDER BY (type, project, folder_path, ts);

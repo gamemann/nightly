@@ -5,6 +5,7 @@ import { can, flattenTree } from '../../../lib/permissions.mjs'
 import { PROJECT_TYPES } from '../../../lib/projects-core.mjs'
 import { Card, ErrorLine, Field, Table, when } from '~/components/shell/form'
 import { api } from '~/trpc/react'
+import { LocStatBlock } from './Loc'
 import { ProjectIcon } from './ProjectIcon'
 import { Counts } from './Projects'
 
@@ -34,6 +35,7 @@ export function ProjectOverview({ slug }: { slug: string }) {
                     </dl>
                 )}
             </Card>
+            <LocStatBlock slug={slug} />
         </div>
     )
 }

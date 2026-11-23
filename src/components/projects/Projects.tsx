@@ -3,10 +3,12 @@ import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useState } from 'react'
 import { can, flattenTree } from '../../../lib/permissions.mjs'
+import { compact } from '../../../lib/loc-core.mjs'
 import { PROJECT_TYPES } from '../../../lib/projects-core.mjs'
 import { Card, ErrorLine, Field } from '~/components/shell/form'
 import { PageHeader } from '~/components/shell/ui'
 import { api } from '~/trpc/react'
+import { LocBadge } from './Loc'
 import { ProjectIcon } from './ProjectIcon'
 
 const TYPE_LABEL: Record<string, string> = { game: 'Game', 'game-addon': 'Game addon', website: 'Website' }
@@ -19,12 +21,16 @@ export function Projects() {
     const type = sp.get('type') ?? undefined
     const [q, setQ] = useState('')
     const [archived, setArchived] = useState(false)
+    const [sortBy, setSortBy] = useState<'sort' | 'loc'>('sort')
     const [adding, setAdding] = useState<'' | 'project' | 'folder'>('')
     const me = api.account.me.useQuery()
     const tree = api.folder.tree.useQuery()
     const list = api.project.list.useQuery({ q: q || undefined, type: (PROJECT_TYPES as string[]).includes(type ?? '') ? type ?? undefined : undefined, folderId, deep: true, archived, sort: 'sort' })
     const counts = api.project.counts.useQuery()
+    const loc = api.loc.overview.useQuery()
     const flat = flattenTree(tree.data ?? [])
+    const shown = sortBy === 'loc' && list.data ? [...list.data].sort((a, b) => (loc.data?.projects[b.slug]?.code ?? -1) - (loc.data?.projects[a.slug]?.code ?? -1)) : list.data
+    const folderLoc = folderId != null ? loc.data?.folders[folderId] : loc.data?.total
     const mayCreate = can(me.data?.perms, 'projects.create')
     const setParam = (k: string, v?: string) => {
         const u = new URLSearchParams(sp.toString())
@@ -45,7 +51,7 @@ export function Projects() {
                     <button onClick={() => setParam('folder')} className={`block w-full rounded px-2 py-1 text-left ${folderId == null ? 'nav-active' : 'text-dim hover:bg-hover/60'}`}>All folders</button>
                     {flat.map(({ folder, depth }) => (
                         <button key={folder.id} onClick={() => setParam('folder', String(folder.id))} style={{ paddingLeft: 8 + depth * 14 }}
-                            className={`block w-full truncate rounded py-1 pr-2 text-left ${folderId === folder.id ? 'nav-active' : 'text-dim hover:bg-hover/60'}`}>▸ {folder.name}{counts.data?.folders[folder.id] ? <span className="ml-1 text-[11px] text-muted" title="distinct tasks / assets / maps in this folder and below">{counts.data.folders[folder.id].tasks}/{counts.data.folders[folder.id].assets}/{counts.data.folders[folder.id].maps}</span> : null}</button>
+                            className={`block w-full truncate rounded py-1 pr-2 text-left ${folderId === folder.id ? 'nav-active' : 'text-dim hover:bg-hover/60'}`}><span className="flex items-baseline justify-between gap-2"><span className="truncate">▸ {folder.name}{counts.data?.folders[folder.id] ? <span className="ml-1 text-[11px] text-muted" title="distinct tasks / assets / maps in this folder and below">{counts.data.folders[folder.id].tasks}/{counts.data.folders[folder.id].assets}/{counts.data.folders[folder.id].maps}</span> : null}</span>{loc.data?.folders[folder.id]?.code ? <span title={`${loc.data.folders[folder.id]!.code.toLocaleString('en-US')} code lines in ${loc.data.folders[folder.id]!.projects} projects`} className="shrink-0 text-[10.5px] tabular-nums text-muted">{compact(loc.data.folders[folder.id]!.code)}</span> : null}</span></button>
                     ))}
                     {!flat.length && !tree.isLoading && <p className="px-2 py-1 text-[12px] text-muted">No folders yet.</p>}
                 </aside>
@@ -59,19 +65,27 @@ export function Projects() {
                             {PROJECT_TYPES.map((t) => <option key={t} value={t}>{TYPE_LABEL[t] ?? t}</option>)}
                         </select>
                         <label className="flex items-center gap-1.5 text-[12px] text-dim"><input type="checkbox" checked={archived} onChange={(e) => setArchived(e.target.checked)} /> archived</label>
-                        <span className="ml-auto text-[12px] text-muted">{list.data?.length ?? 0} projects</span>
+                        <select className="select" value={sortBy} onChange={(e) => setSortBy(e.target.value as 'sort' | 'loc')} aria-label="Sort">
+                            <option value="sort">Sort: default</option>
+                            <option value="loc">Sort: lines of code</option>
+                        </select>
+                        <span className="ml-auto flex items-center gap-2 text-[12px] text-muted">
+                            {folderLoc && 'projects' in folderLoc && folderLoc.code > 0 && <LocBadge s={folderLoc} label={folderId != null ? 'LOC in folder' : 'LOC total'} />}
+                            {list.data?.length ?? 0} projects
+                        </span>
                     </div>
                     <ErrorLine error={list.error} />
                     {list.data && !list.data.length && <p className="glow-card p-6 text-center text-[13px] text-dim">No projects match.</p>}
                     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                        {list.data?.map((p) => (
+                        {shown?.map((p) => (
                             <Link key={p.id} href={`/projects/${p.slug}`} className="glow-card flex items-center gap-3 p-3 transition hover:border-accent/50">
                                 <ProjectIcon p={p} />
-                                <div className="min-w-0">
+                                <div className="min-w-0 flex-1">
                                     <div className="truncate text-[13.5px] font-medium">{p.name}{p.archived && <span className="ml-1.5 text-[11px] text-muted">archived</span>}</div>
                                     <div className="truncate text-[11.5px] text-muted">{TYPE_LABEL[p.type] ?? p.type}{p.folder ? ` · ${p.folder.name}` : ''} · {p.slug}</div>
                                     {counts.data?.projects[p.id] && <Counts c={counts.data.projects[p.id]} />}
                                 </div>
+                                <LocBadge s={loc.data?.projects[p.slug]} />
                             </Link>
                         ))}
                     </div>
