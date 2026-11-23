@@ -20,7 +20,7 @@ const OPS_LIMITS = [
     { key: 'ghWarnPct', label: 'GitHub budget warning', fallback: '20', unit: '% left', min: 1, max: 90 },
     { key: 'ghMinLeft', label: 'GitHub reserve', fallback: '100', unit: 'calls', min: 0, max: 5000 },
 ]
-const HIDDEN = new Set(['ciAutoSync', ...OPS_LIMITS.map((u) => u.key), 'doRun', 'runner', 'lastTickAt', 'lastTickBy', 'authEnabled', 'authUser', 'ingestOpen', ...USAGE_LIMITS.map((u) => u.key), ...ACCOUNT_LIMITS.map((u) => u.key)])
+const HIDDEN = new Set(['transcriptDirs', 'transcriptsIdleMinutes', 'transcriptsDefaultUser', 'ciAutoSync', ...OPS_LIMITS.map((u) => u.key), 'doRun', 'runner', 'lastTickAt', 'lastTickBy', 'authEnabled', 'authUser', 'ingestOpen', ...USAGE_LIMITS.map((u) => u.key), ...ACCOUNT_LIMITS.map((u) => u.key)])
 
 export function Settings() {
     const utils = api.useUtils()
@@ -104,6 +104,7 @@ export function Settings() {
                     </label>
                 ))}
             </div>
+            <TranscriptSettings />
             <div className="mt-4 rounded-lg border border-line bg-panel/60 p-4">
                 <div className="font-medium">Runner</div>
                 <p className="mt-0.5 mb-3 text-[12px] text-muted">
@@ -146,6 +147,45 @@ function IngestSettings() {
                 className={`relative h-6 w-11 shrink-0 rounded-full transition ${on ? 'bg-emerald-500' : 'bg-zinc-700'}`}>
                 <span className={`absolute top-0.5 size-5 rounded-full bg-white shadow transition-all ${on ? 'left-[22px]' : 'left-0.5'}`} />
             </button>
+        </div>
+    )
+}
+
+/** Transcripts (docs/transcripts.md): where `nightly transcripts scan` looks, when a session counts as finished, whose files the panel reads. */
+function TranscriptSettings() {
+    const utils = api.useUtils()
+    const s = api.setting.all.useQuery()
+    const set = api.setting.set.useMutation({ onSuccess: () => utils.setting.all.invalidate() })
+    const save = (key: string, value: string, fallback = '') => { if (value !== (s.data?.[key] ?? fallback)) set.mutate({ key, value }) }
+    const off = !s.data || set.isPending
+    return (
+        <div className="mt-4 rounded-lg border border-line bg-panel/60 p-4">
+            <div className="font-medium">Transcripts</div>
+            <p className="mt-0.5 mb-3 text-[12px] text-muted">
+                Where <code className="font-mono">nightly transcripts scan</code> finds Claude Code sessions, and when a quiet session counts as finished. Empty folders = every <code className="font-mono">/home/*/.claude/projects</code>.
+                Files outside these folders are never read. <Link href="/transcripts" className="text-dim hover:text-accent">Transcripts</Link>
+            </p>
+            <label className="flex items-start gap-3 py-1 text-[12px]">
+                <span className="w-40 pt-1 text-dim">Folders (one per line)</span>
+                <textarea key={s.data?.transcriptDirs ?? ''} defaultValue={s.data?.transcriptDirs ?? ''} rows={3} disabled={off} spellCheck={false}
+                    placeholder="~/.claude/projects" onBlur={(e) => save('transcriptDirs', e.target.value.split('\n').map((x) => x.trim()).filter(Boolean).join('\n'))}
+                    className="input flex-1 font-mono" />
+            </label>
+            <label className="flex items-center gap-3 py-1 text-[12px]">
+                <span className="w-40 text-dim">Idle before finished</span>
+                <input type="number" min={1} max={1440} step={1} disabled={off} key={s.data?.transcriptsIdleMinutes ?? '30'} defaultValue={s.data?.transcriptsIdleMinutes ?? '30'}
+                    onBlur={(e) => { const n = Math.round(Number(e.target.value)); if (n >= 1 && n <= 1440) save('transcriptsIdleMinutes', String(n), '30'); else e.target.value = s.data?.transcriptsIdleMinutes ?? '30' }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }} className="w-20 rounded border border-line bg-transparent px-2 py-1 font-mono" />
+                <span className="text-muted">minutes</span>
+            </label>
+            <label className="flex items-center gap-3 py-1 text-[12px]">
+                <span className="w-40 text-dim">Default OS user</span>
+                <input key={s.data?.transcriptsDefaultUser ?? ''} defaultValue={s.data?.transcriptsDefaultUser ?? ''} disabled={off} placeholder="the panel's own user" spellCheck={false}
+                    onBlur={(e) => save('transcriptsDefaultUser', e.target.value.trim())} onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
+                    className="input w-48 font-mono" />
+                <span className="text-muted">whose sessions a user without a node mapping reads</span>
+            </label>
+            {set.error && <div className="mt-2 text-[12px] text-red-300">{set.error.message}</div>}
         </div>
     )
 }

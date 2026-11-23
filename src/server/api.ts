@@ -629,6 +629,13 @@ const agentRouter = router({
     }),
 })
 
+// Settings with a shape: a bad value is rejected here instead of breaking the CLI that reads it.
+const SETTING_CHECKS: Record<string, (v: string) => string | null> = {
+    transcriptDirs: (v) => v.split(/[\n,]/).map((x) => x.trim()).filter(Boolean).every((x) => /^(\/|~\/|~$)/.test(x) && !/\.\.|\*/.test(x)) ? null : 'transcriptDirs: absolute or ~/ paths (no wildcards), one per line or comma separated',
+    transcriptsIdleMinutes: (v) => /^\d+$/.test(v) && Number(v) >= 1 && Number(v) <= 1440 ? null : 'transcriptsIdleMinutes: whole minutes, 1 to 1440',
+    transcriptsDefaultUser: (v) => v === '' || /^[a-z_][a-z0-9_-]{0,31}$/.test(v) ? null : 'transcriptsDefaultUser: an OS user name (a-z 0-9 _ -) or empty',
+}
+
 const settingRouter = router({
     all: procedure.query(async ({ ctx }) => {
         const rows = await ctx.db.setting.findMany()
@@ -637,6 +644,8 @@ const settingRouter = router({
     set: procedure
         .input(z.object({ key: z.string().min(1).refine((k) => !(AUTH_KEYS as readonly string[]).includes(k), 'the old login settings are retired: use Users'), value: z.string() }))
         .mutation(async ({ ctx, input }) => {
+            const bad = SETTING_CHECKS[input.key]?.(input.value)
+            if (bad) throw new TRPCError({ code: 'BAD_REQUEST', message: bad })
             const r = await ctx.db.setting.upsert({ where: { key: input.key }, create: input, update: { value: input.value } })
             if (input.key === 'ingestOpen') forgetIngest()
             return r
