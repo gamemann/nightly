@@ -28,7 +28,7 @@ export type Agg = {
 
 /** Which tab a flag belongs to. */
 export function flagTab(code: string): Tab {
-    if (/TEX|NORMAL|ORM/.test(code) && !/^NO_MODEL/.test(code)) return 'textures'
+    if (/TEX|NORMAL|ORM|FLAT_COLOUR/.test(code) && !/^NO_MODEL/.test(code)) return 'textures'
     if (/CLIP|MAG|ANIM|ARMS|BOLT|CYCLE/.test(code)) return 'animations'
     if (/SOUND/.test(code)) return 'sounds'
     return 'models'
