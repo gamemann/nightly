@@ -24,7 +24,7 @@ export function AssetThirdPerson({ glbUrl, animUrl, mounted, sight }: { glbUrl: 
     const [shownT, setShownT] = useState(0)
     const [c, setC] = useState<Ctl>({ clip: 0, t: 0, playing: true, speed: 1, loop: true })
     const ctl = useRef(c)
-    ctl.current = c
+    ctl.current = { ...c, t: ctl.current.t } // the tick owns t while playing; state only changes it on scrub / clip change (set() writes the ref)
     const [sightOn, setSightOn] = useState(false)
     const sightRef = useRef<Sight | null>(null)
     sightRef.current = sightOn ? sight ?? null : null
@@ -178,7 +178,7 @@ export function AssetThirdPerson({ glbUrl, animUrl, mounted, sight }: { glbUrl: 
     const clip = side?.clips[c.clip]
     if (err) return <div className="rounded-lg border border-line p-6 text-center text-[12px] text-muted" data-testid="tp-error">Third-person unavailable: {err}</div>
     if (!side || !book || !clip) return <div className="rounded-lg border border-line p-6 text-center text-[12px] text-muted">Loading avatar...</div>
-    const set = (p: Partial<Ctl>) => setC((x) => { const n = { ...x, ...p }; ctl.current = n; return n })
+    const set = (p: Partial<Ctl>) => setC((x) => { const n = { ...x, t: ctl.current.t, ...p }; ctl.current = n; return n })
     return (
         <div data-testid="tp-pane">
             <div ref={box} className="w-full overflow-hidden rounded-lg border border-line" data-testid="tp-canvas" />

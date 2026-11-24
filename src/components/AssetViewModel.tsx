@@ -27,7 +27,7 @@ export function AssetViewModel({ glbUrl, animUrl, initialClip, mounted, sight }:
     const mountList = useRef<Mounted[]>(mounted ?? [])
     mountList.current = mounted ?? []
     useEffect(() => { mountApi.current(mounted ?? []) }, [mounted])
-    ctl.current = c
+    ctl.current = { ...c, t: ctl.current.t } // the tick owns t while playing; state only changes it on scrub / clip change (set() writes the ref)
     const [sightOn, setSightOn] = useState(false)
     const sightRef = useRef<Sight | null>(null)
     sightRef.current = sightOn ? sight ?? null : null
@@ -161,6 +161,7 @@ export function AssetViewModel({ glbUrl, animUrl, initialClip, mounted, sight }:
                 rig.scale.set(sg ? 1 : L.k, sg ? 1 : L.k, 1)
                 rig.position.set(0, 0, sg ? 0 : L.z)
                 const w = get("weapon")
+                const w0 = w ? [w[0], w[1], w[2]] : null
                 // lens_move_share: the pose's sideways / upward moves (off the idle pose) shrink as the game's AwWeaponPose does
                 const share = moveShare(side.lens, verticalFrom43(ctl.current.fov))
                 if (w && rest) { w[0] = rest[0] + (w[0] - rest[0]) * share; w[1] = rest[1] + (w[1] - rest[1]) * share }
@@ -181,7 +182,9 @@ export function AssetViewModel({ glbUrl, animUrl, initialClip, mounted, sight }:
                     if (sc) grp.scale.set(sc[0], sc[1], sc[2])
                     grp.visible = !vis || vis[0] > 0.5
                 }
-                const wrist = (key: string) => { const h = get(`hand.${key}`); return h ? new THREE.Vector3(h[0], h[1], h[2]) : null }
+                // the hands ride the weapon (the game parents the arms to the animated node): whatever moved the weapon off its baked place moves them too
+                const shift = w0 ? weapon.position.clone().sub(new THREE.Vector3(w0[0], w0[1], w0[2])) : new THREE.Vector3()
+                const wrist = (key: string) => { const h = get(`hand.${key}`); return h ? new THREE.Vector3(h[0], h[1], h[2]).add(shift) : null }
                 const R = wrist("right"), Lh = wrist("left")
                 for (const [key, v] of [["right", R], ["left", Lh]] as const) if (v) hands[key].position.copy(v)
                 viewArms?.solve(R, Lh)
@@ -195,7 +198,7 @@ export function AssetViewModel({ glbUrl, animUrl, initialClip, mounted, sight }:
     const clip = side?.clips[c.clip]
     if (err) return <div className="rounded-lg border border-line p-6 text-center text-[12px] text-muted" data-testid="vm-error">View model unavailable: {err}</div>
     if (!ready || !side || !clip) return <div className="rounded-lg border border-line p-6 text-center text-[12px] text-muted">Loading animations...</div>
-    const set = (p: Partial<Ctl>) => setC((x) => { const n = { ...x, ...p }; ctl.current = n; return n })
+    const set = (p: Partial<Ctl>) => setC((x) => { const n = { ...x, t: ctl.current.t, ...p }; ctl.current = n; return n })
     return (
         <div data-testid="vm-pane">
             <div ref={box} className="w-full overflow-hidden rounded-lg border border-line" data-testid="vm-canvas" />
