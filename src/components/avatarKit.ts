@@ -70,6 +70,55 @@ const HIDDEN = ["Head", "Neck", "UpperLeg.L", "UpperLeg.R"]
 /** GSPlayerViewArms: held_scale, spread (x), and where the eye sits from the head, in the figure's space (gs_player_view_arms_state.gd). */
 const HELD = { scale: 0.3, spread: 1.25, eye: [0, 0.18, 0.06], pole: [1, -1.2, 0.5] }
 
+/** Two-bone IK for one arm (UpperArm, LowerArm, Middle1) of a posed figure, as GSPlayerViewArms._reach does with the elbow pole. `world` is the figure's top
+ *  node (its matrices are refreshed after each bone move). With `extend` the shoulder moves out toward a target the arm cannot reach (the game's _extend).
+ *  The pole is the elbow's direction in world space; null keeps the bend the pose already has. */
+export function armSolver(THREE: typeof T, bones: Map<string, T.Bone>, world: T.Object3D, extend: boolean) {
+    const chain = (side: "R" | "L") => ["UpperArm", "LowerArm", "Middle1"].map((n) => bones.get(`${n}${side}`))
+    const pos = (o: T.Object3D) => new THREE.Vector3().setFromMatrixPosition(o.matrixWorld)
+    const wq = (o: T.Object3D) => o.getWorldQuaternion(new THREE.Quaternion())
+    const setWorldQ = (b: T.Bone, q: T.Quaternion) => { b.quaternion.copy(wq(b.parent!).invert().multiply(q)); b.updateWorldMatrix(false, true) }
+    const bind = new Map<T.Bone, T.Quaternion>()
+    const bindPos = new Map<T.Bone, T.Vector3>()
+    for (const c of [chain("R"), chain("L")]) for (const b of c) if (b) { bind.set(b, b.quaternion.clone()); bindPos.set(b, b.position.clone()) }
+    return (side: "R" | "L", target: T.Vector3, pole: T.Vector3 | null) => {
+        const [u, l, w] = chain(side)
+        if (!u || !l || !w) return
+        for (const b of [u, l]) b.quaternion.copy(bind.get(b)!)
+        u.position.copy(bindPos.get(u)!)
+        world.updateMatrixWorld(true)
+        let U = pos(u)
+        const L0 = pos(l), W0 = pos(w)
+        if (!pole) { const mid = U.clone().add(W0).multiplyScalar(0.5); pole = L0.clone().sub(mid); if (pole.lengthSq() < 1e-8) pole = new THREE.Vector3(0, -1, 0) }
+        const short = target.distanceTo(U) - (L0.distanceTo(U) + W0.distanceTo(L0))
+        if (extend && short > 0) {
+            const inv = new THREE.Matrix4().copy(u.parent!.matrixWorld).invert()
+            const moved = U.clone().add(target.clone().sub(U).normalize().multiplyScalar(short))
+            u.position.add(moved.applyMatrix4(inv).sub(U.clone().applyMatrix4(inv)))
+            world.updateMatrixWorld(true)
+            U = pos(u)
+        }
+        const L = pos(l), W = pos(w)
+        const a = L.clone().sub(U), b = W.clone().sub(L)
+        const la = a.length(), lb = b.length(), to = target.clone().sub(U)
+        if (la < 1e-4 || lb < 1e-4 || to.length() < 1e-4) return
+        const reach = Math.min(Math.max(to.length(), Math.abs(la - lb) + 0.001), la + lb - 0.001)
+        const dir = to.clone().normalize()
+        const along = (la * la - lb * lb + reach * reach) / (2 * reach)
+        const height = Math.sqrt(Math.max(la * la - along * along, 0))
+        let sideV = pole.clone().sub(dir.clone().multiplyScalar(pole.dot(dir)))
+        sideV = sideV.lengthSq() > 1e-6 ? sideV.normalize() : new THREE.Vector3(0, 1, 0)
+        const elbow = U.clone().add(dir.clone().multiplyScalar(along)).add(sideV.multiplyScalar(height))
+        const goal = U.clone().add(dir.clone().multiplyScalar(reach))
+        const q1 = new THREE.Quaternion().setFromUnitVectors(a.clone().normalize(), elbow.clone().sub(U).normalize())
+        setWorldQ(u, q1.clone().multiply(wq(u)))
+        world.updateMatrixWorld(true)
+        const b2 = pos(w).sub(pos(l))
+        const q2 = new THREE.Quaternion().setFromUnitVectors(b2.normalize(), goal.clone().sub(pos(l)).normalize())
+        setWorldQ(l, q2.multiply(wq(l)))
+    }
+}
+
 export type ViewArms = { solve: (right: T.Vector3 | null, left: T.Vector3 | null) => void }
 
 /** The game's first-person arms: the people figure itself, head / neck / legs hidden, scaled and offset so the eye sits where the game puts it
@@ -100,43 +149,14 @@ export function buildViewArms(THREE: typeof T, root: T.Object3D, av: Avatar, par
     fig.matrix.copy(S).setPosition(headFig.clone().applyMatrix4(S).add(eyeV).negate())
     fig.add(root)
     parent.add(fig)
-    const chain = (side: "R" | "L") => ["UpperArm", "LowerArm", "Middle1"].map((n) => bones.get(`${n}${side}`))
-    const pos = (o: T.Object3D) => new THREE.Vector3().setFromMatrixPosition(o.matrixWorld)
-    const wq = (o: T.Object3D) => o.getWorldQuaternion(new THREE.Quaternion())
-    const setWorldQ = (b: T.Bone, q: T.Quaternion) => { b.quaternion.copy(wq(b.parent!).invert().multiply(q)); b.updateWorldMatrix(false, true) }
-    const bind = new Map<T.Bone, T.Quaternion>()
-    for (const c of [chain("R"), chain("L")]) for (const b of c) if (b) bind.set(b, b.quaternion.clone())
-    const ik = (c: (T.Bone | undefined)[], target: T.Vector3, pole: T.Vector3) => {
-        const [u, l, w] = c
-        if (!u || !l || !w) return
-        for (const b of [u, l]) b.quaternion.copy(bind.get(b)!)
-        fig.updateMatrixWorld(true)
-        const U = pos(u), L = pos(l), W = pos(w)
-        const a = L.clone().sub(U), b = W.clone().sub(L)
-        const la = a.length(), lb = b.length(), to = target.clone().sub(U)
-        if (la < 1e-4 || lb < 1e-4 || to.length() < 1e-4) return
-        const reach = Math.min(Math.max(to.length(), Math.abs(la - lb) + 0.001), la + lb - 0.001)
-        const dir = to.clone().normalize()
-        const along = (la * la - lb * lb + reach * reach) / (2 * reach)
-        const height = Math.sqrt(Math.max(la * la - along * along, 0))
-        let side = pole.clone().sub(dir.clone().multiplyScalar(pole.dot(dir)))
-        side = side.lengthSq() > 1e-6 ? side.normalize() : new THREE.Vector3(0, 1, 0)
-        const elbow = U.clone().add(dir.clone().multiplyScalar(along)).add(side.multiplyScalar(height))
-        const goal = U.clone().add(dir.clone().multiplyScalar(reach))
-        const q1 = new THREE.Quaternion().setFromUnitVectors(a.clone().normalize(), elbow.clone().sub(U).normalize())
-        setWorldQ(u, q1.clone().multiply(wq(u)))
-        fig.updateMatrixWorld(true)
-        const b2 = pos(w).sub(pos(l))
-        const q2 = new THREE.Quaternion().setFromUnitVectors(b2.normalize(), goal.clone().sub(pos(l)).normalize())
-        setWorldQ(l, q2.multiply(wq(l)))
-    }
+    const solveArm = armSolver(THREE, bones, fig, true)
     // the weapon-side targets arrive in the lens rig's space; the solve runs in the world (the figure sits in the rig)
     return {
         solve: (right, left) => {
             parent.updateMatrixWorld(true)
             const p = new THREE.Vector3(...HELD.pole).transformDirection(fig.matrixWorld).normalize()
-            if (right) ik(chain("R"), right.clone().applyMatrix4(parent.matrixWorld), p)
-            if (left) ik(chain("L"), left.clone().applyMatrix4(parent.matrixWorld), new THREE.Vector3(-HELD.pole[0], HELD.pole[1], HELD.pole[2]).transformDirection(fig.matrixWorld).normalize())
+            if (right) solveArm("R", right.clone().applyMatrix4(parent.matrixWorld), p)
+            if (left) solveArm("L", left.clone().applyMatrix4(parent.matrixWorld), new THREE.Vector3(-HELD.pole[0], HELD.pole[1], HELD.pole[2]).transformDirection(fig.matrixWorld).normalize())
         },
     }
 }

@@ -5,7 +5,7 @@ import type * as T from "three"
 import { sample } from "../../lib/anim-sample.mjs"
 import type { Mounted } from "./AssetViewer"
 import { syncMounts } from "./mountSync"
-import { AV, plain, recolour, texture, type Avatar, type Book } from "./avatarKit"
+import { AV, armSolver, plain, recolour, texture, type Avatar, type Book } from "./avatarKit"
 
 type Track = { target: string; path: string; values: number[] }
 type Clip = { name: string; length: number; frames: number; loop: boolean; tracks: Track[] }
@@ -77,6 +77,8 @@ export function AssetThirdPerson({ glbUrl, animUrl, mounted, sight }: { glbUrl: 
             let mag: T.Object3D | null = null
             let boltHome = new THREE.Vector3(), magHome = new THREE.Vector3()
             let handBone: T.Object3D | null = null
+            let solveArm: ReturnType<typeof armSolver> | null = null
+            let figure: T.Object3D | null = null
             const bones = new Map<string, T.Object3D>()
             const holdWeapon = (g: T.Object3D) => {
                 held.add(g)
@@ -116,6 +118,8 @@ export function AssetThirdPerson({ glbUrl, animUrl, mounted, sight }: { glbUrl: 
                 root.updateMatrixWorld(true)
                 hh = book.height || 1.8
                 orbit.target.set(0, hh * 0.5, 0); camera.position.set(hh * 0.8, hh * 0.7, hh * 1.5); orbit.update()
+                figure = root
+                solveArm = armSolver(THREE, bones as Map<string, T.Bone>, root, false)
                 place()
                 void loadAtt(glbUrl).then((w) => { if (!dead) holdWeapon(w.clone(true)) }, (e) => setErr(`weapon: ${String((e as Error).message ?? e)}`))
             }, undefined, (e) => setErr(`avatar: ${String((e as Error).message ?? e)}`))
@@ -148,6 +152,13 @@ export function AssetThirdPerson({ glbUrl, animUrl, mounted, sight }: { glbUrl: 
                     const get = (name: string) => { const tr = clip.tracks.find((x) => x.target === name); return tr ? sample(tr, t, clip.frames, side.fps, clip.loop) : null }
                     const b = get("bolt")
                     if (bolt) { if (b) bolt.position.set(b[0], b[1], b[2]); else bolt.position.copy(boltHome) }
+                    // support hand IK: the baked left wrist is in the view frame; take it into the weapon's own frame (that frame's weapon pose) and out to the held weapon
+                    const wp = get("weapon"), hl = get("hand.left")
+                    if (solveArm && figure && wp && hl && wp.length >= 7) {
+                        const tw = new THREE.Matrix4().compose(new THREE.Vector3(wp[0], wp[1], wp[2]), new THREE.Quaternion(wp[3], wp[4], wp[5], wp[6]), new THREE.Vector3(1, 1, 1))
+                        held.updateMatrixWorld(true)
+                        solveArm("L", new THREE.Vector3(hl[0], hl[1], hl[2]).applyMatrix4(tw.invert()).applyMatrix4(held.matrixWorld), null)
+                    }
                     if (mag) {
                         const m = get("magazine"), v = get("magazine.visible")
                         if (m) mag.position.set(m[0], m[1], m[2]); else mag.position.copy(magHome)
