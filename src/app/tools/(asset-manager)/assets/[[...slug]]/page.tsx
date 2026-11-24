@@ -1,6 +1,6 @@
 import { Suspense } from "react"
 import { notFound } from "next/navigation"
-import { AssetDetail, type DetailData, type ReviewHit } from "~/components/AssetDetail"
+import { AssetDetail, type AttachLink, type DetailData, type ReviewHit } from "~/components/AssetDetail"
 import { AssetSources } from "~/components/AssetSources"
 import { AssetManager } from "~/components/tools/AssetManager"
 import { Assets, type PackTrend } from "~/components/Assets"
@@ -40,7 +40,16 @@ export default async function AssetsPage({ params, searchParams }: { params: Pro
         if (w) reviews.push({ key: it.key, title: it.title, verdict: w.verdict, note: w.note, media: w.media.map((m) => ({ slot: m.slot, variant: m.variant, label: m.label, file: m.file, waveform: m.waveform, strip: m.strip, poster: m.poster })) })
     }
     const files = _files as { glb?: string; textures?: unknown[]; sounds?: unknown[] } | undefined
+    const [mine, fits] = await Promise.all([
+        db.assetAttachment.findMany({ where: { parentId: row.id }, include: { attachment: { select: { id: true, pack: true, weaponId: true, tris: true, hasModel: true } } }, orderBy: [{ slot: "asc" }, { id: "asc" }] }),
+        db.assetAttachment.findMany({ where: { attachmentId: row.id }, include: { parent: { select: { id: true, pack: true, weaponId: true, tris: true, hasModel: true } } }, orderBy: [{ slot: "asc" }, { id: "asc" }] }),
+    ])
+    const link = (l: (typeof mine)[number] | (typeof fits)[number], other: { id: number; pack: string; weaponId: string; tris: number; hasModel: number }): AttachLink => ({
+        slot: l.slot, pos: [l.px, l.py, l.pz], rot: [l.rx, l.ry, l.rz], scale: [l.sx, l.sy, l.sz], node: l.node, meta: JSON.parse(l.meta || "{}") as Record<string, unknown>,
+        other: { id: other.id, pack: other.pack, weaponId: other.weaponId, tris: other.tris, hasModel: other.hasModel === 1 },
+    })
     const d: DetailData = {
+        attachments: mine.map((l) => link(l, l.attachment)), fits: fits.map((l) => link(l, l.parent)),
         id: row.id, pack: row.pack, game: row.game, weaponId: row.weaponId, kind: row.kind, source: row.source, score: row.score, pass: row.pass === 1, auditedAt: row.auditedAt,
         hasModel: !!files?.glb, data: data as DetailData["data"],
     }

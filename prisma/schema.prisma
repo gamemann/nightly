@@ -393,6 +393,8 @@ model AssetWeapon {
   /// hash of the model file the cached thumbnail was rendered from; the thumbnail is redone when it changes
   fileHash   String @default("")
   shape      Int    @default(0)
+  attachments AssetAttachment[] @relation("AssetParent")
+  attachedTo  AssetAttachment[] @relation("AssetAttached")
 
   @@unique([pack, weaponId])
   @@index([game])
@@ -539,6 +541,32 @@ model ContentStat {
   at       DateTime
 
   @@unique([game, category, name, metric], map: "ContentStat_key")
+}
+
+/// A weapon (or any asset) -> attachment asset link: mount slot plus the transform in the parent model's space (position m, rotation degrees, scale).
+/// `node` names a parent node the mount rides on (a magazine); `meta` carries per-link game data (excludes, zoom, stat scale).
+model AssetAttachment {
+  id           Int         @id @default(autoincrement())
+  parentId     Int
+  attachmentId Int
+  slot         String
+  px           Float       @default(0)
+  py           Float       @default(0)
+  pz           Float       @default(0)
+  rx           Float       @default(0)
+  ry           Float       @default(0)
+  rz           Float       @default(0)
+  sx           Float       @default(1)
+  sy           Float       @default(1)
+  sz           Float       @default(1)
+  node         String      @default("")
+  meta         String      @default("{}")
+  updatedAt    String      @default("")
+  parent       AssetWeapon @relation("AssetParent", fields: [parentId], references: [id], onDelete: Cascade)
+  attachment   AssetWeapon @relation("AssetAttached", fields: [attachmentId], references: [id], onDelete: Cascade)
+
+  @@unique([parentId, attachmentId, slot])
+  @@index([attachmentId])
 }
 
 /// One row per pack per audit ingest (AssetWeapon keeps only the latest audit per asset).

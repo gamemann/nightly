@@ -1,7 +1,7 @@
 "use client"
 import Link from "next/link"
 import { useEffect, useRef, useState } from "react"
-import { AssetViewer } from "./AssetViewer"
+import { AssetViewer, type Mounted } from "./AssetViewer"
 import { MapEditor } from "./MapEditor"
 import { scoreCls, sevCls } from "./Assets"
 import { describe } from "../../lib/asset-names.mjs"
@@ -10,7 +10,10 @@ const tabOf = (kind: string) => (["avatar", "npc", "monster", "character"].inclu
 /** The asset list filtered by what was clicked: it reads pack, kind and game from the URL, and the tab follows the asset's kind. */
 const listHref = (assetKind: string, f: Record<string, string>) => assetKind === "level" ? `/tools/maps?${new URLSearchParams(f)}` : `/tools/assets?${new URLSearchParams({ tab: tabOf(assetKind), ...f })}`
 
+/** One attachment link seen from either end: `other` is the asset at the far end; pos (m), rot (degrees) and scale are in the weapon's model space. */
+export type AttachLink = { slot: string; pos: number[]; rot: number[]; scale: number[]; node: string; meta: Record<string, unknown>; other: { id: number; pack: string; weaponId: string; tris: number; hasModel: boolean } }
 export type DetailData = {
+    attachments: AttachLink[]; fits: AttachLink[]
     id: number; pack: string; game: string; weaponId: string; kind: string; source: string; score: number; pass: boolean; auditedAt: string; hasModel: boolean
     data: {
         source_commit?: string; last_changed?: string
@@ -27,6 +30,46 @@ export type ReviewHit = { key: string; title: string; verdict: string; note: str
 const kb = (n: number) => (n >= 1 << 20 ? `${(n / (1 << 20)).toFixed(2)} MB` : `${(n / 1024).toFixed(1)} KB`)
 const fileUrl = (id: number, kind: string, i: number) => `/api/assets/file/${id}/${kind}/${i}`
 const mediaUrl = (key: string, file: string) => `/reviewmedia/${encodeURIComponent(key)}/${file.split("/").map(encodeURIComponent).join("/")}`
+
+const nameOf = (id: string) => id.split("__").pop()!.replace(/^att_/, "").replace(/_/g, " ")
+const fmt = (v: number[]) => v.map((n) => n.toFixed(3)).join(", ")
+
+/** Attach any compatible attachment live: one per mount slot, several slots at once. The viewer parents each glb at the stored transform. */
+function AttachPicker({ links, picked, setPicked }: { links: AttachLink[]; picked: Record<string, number>; setPicked: (p: Record<string, number>) => void }) {
+    const slots = [...new Set(links.map((l) => l.slot))]
+    return (
+        <div data-testid="attach-picker" className="mt-3 rounded-lg border border-line bg-panel px-3 py-2">
+            <div className="mb-1 flex items-center gap-2 text-[12px]"><span className="font-semibold text-fg">Attach</span><span className="text-muted">one per mount slot, several slots at once</span>
+                {Object.keys(picked).length > 0 && <button className="ml-auto rounded bg-hover px-2 py-0.5 text-dim hover:text-fg" onClick={() => setPicked({})} data-testid="attach-clear">clear</button>}</div>
+            <div className="grid gap-1.5">
+                {slots.map((slot) => (
+                    <div key={slot} className="flex flex-wrap items-center gap-1.5 text-[12px]" data-testid={`slot-${slot}`}>
+                        <span className="w-24 text-muted">{slot}</span>
+                        {links.map((l, i) => l.slot === slot && (
+                            <button key={i} disabled={!l.other.hasModel} data-testid={`attach-${l.other.weaponId}`} title={l.other.hasModel ? `${l.other.weaponId} at ${fmt(l.pos)}` : "no model"}
+                                onClick={() => { const n = { ...picked }; if (n[slot] === i) delete n[slot]; else n[slot] = i; setPicked(n) }}
+                                className={`rounded-md px-2 py-0.5 ${picked[slot] === i ? "bg-sky-400/20 text-sky-200" : "bg-hover text-dim hover:text-fg disabled:opacity-40"}`}>{nameOf(l.other.weaponId)}</button>
+                        ))}
+                    </div>
+                ))}
+            </div>
+        </div>
+    )
+}
+
+function LinkTable({ links, title, mine }: { links: AttachLink[]; title: string; mine: boolean }) {
+    return (
+        <table className="w-full text-[12px]" data-testid="attach-table">
+            <thead><tr className="text-left text-muted"><th className="py-1 pr-3 font-normal">{mine ? "attachment" : "weapon"}</th><th className="pr-3 font-normal">slot</th><th className="pr-3 font-normal">position (m)</th><th className="pr-3 font-normal">rotation (deg)</th><th className="font-normal">{title}</th></tr></thead>
+            <tbody>{links.map((l, i) => (
+                <tr key={i} className="border-t border-line">
+                    <td className="py-1 pr-3"><Link href={`/tools/assets/${l.other.id}`} className="text-sky-300 hover:underline">{nameOf(l.other.weaponId)}</Link></td>
+                    <td className="pr-3 text-dim">{l.slot}</td><td className="pr-3 font-mono text-dim">{fmt(l.pos)}</td><td className="pr-3 font-mono text-dim">{fmt(l.rot)}</td>
+                    <td className="text-muted">{[l.node && `node ${l.node}`, l.meta.excludes && `excludes ${(l.meta.excludes as string[]).join(" ")}`, l.scale.some((n) => n !== 1) && `scale ${fmt(l.scale)}`].filter(Boolean).join(", ")}</td>
+                </tr>))}</tbody>
+        </table>
+    )
+}
 
 function Section({ id, title, children }: { id: string; title: string; children: React.ReactNode }) {
     return <section id={id} className="mt-6"><h2 className="mb-2 text-[13px] font-semibold text-fg">{title}</h2>{children}</section>
@@ -63,6 +106,8 @@ function Waveform({ src }: { src: string }) {
 
 export function AssetDetail({ d, reviews }: { d: DetailData; reviews: ReviewHit[] }) {
     const x = d.data
+    const [picked, setPicked] = useState<Record<string, number>>({})
+    const mounted: Mounted[] = Object.entries(picked).map(([slot, i]) => { const l = d.attachments[i]; return { key: `${slot}:${l.other.id}`, url: fileUrl(l.other.id, "glb", 0), pos: l.pos, rot: l.rot, scale: l.scale } })
     const flags = x.flags ?? []
     const [big, setBig] = useState<number | null>(null)
     const texN = (x.textures ?? []).length
@@ -90,7 +135,8 @@ export function AssetDetail({ d, reviews }: { d: DetailData; reviews: ReviewHit[
             )}
             {x.map && view === "original" ? <OriginalPane d={d} /> : <>
             <Section id="model" title="Model">
-                {d.hasModel ? (x.map ? <MapModel d={d} x={x} /> : <AssetViewer url={fileUrl(d.id, "glb", 0)} bbox={x.model?.bbox} textures={(x.textures ?? []).map((t, i) => ({ name: t.name, url: fileUrl(d.id, "tex", i) }))} />) : <div className="rounded-lg border border-line p-6 text-center text-[12px] text-muted">No model file for this asset.</div>}
+                {d.hasModel ? (x.map ? <MapModel d={d} x={x} /> : <AssetViewer url={fileUrl(d.id, "glb", 0)} mounted={mounted} bbox={x.model?.bbox} textures={(x.textures ?? []).map((t, i) => ({ name: t.name, url: fileUrl(d.id, "tex", i) }))} />) : <div className="rounded-lg border border-line p-6 text-center text-[12px] text-muted">No model file for this asset.</div>}
+                {d.hasModel && !x.map && d.attachments.length > 0 && <AttachPicker links={d.attachments} picked={picked} setPicked={setPicked} />}
                 <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-6">
                     <Stat k="triangles" v={(x.model?.tris ?? 0).toLocaleString("en-GB")} /><Stat k="vertices" v={(x.model?.verts ?? 0).toLocaleString("en-GB")} /><Stat k="materials" v={x.model?.materials ?? 0} /><Stat k="meshes" v={x.model?.meshes ?? 0} />
                     <Stat k="bbox (m)" v={(x.model?.bbox ?? []).map((v) => v.toFixed(2)).join(" x ") || "-"} /><Stat k="primitive meshes" v={(x.model?.primitive_meshes ?? []).length} />
@@ -108,6 +154,8 @@ export function AssetDetail({ d, reviews }: { d: DetailData; reviews: ReviewHit[
                 <div className="mt-1 font-mono text-[11px] text-muted">{x.model?.glb}{x.model?.viewer_glb ? ` (viewer: ${x.model.viewer_glb})` : ""}</div>
             </Section>
 
+            {d.attachments.length > 0 && <Section id="attachments" title={`Attachments (${d.attachments.length})`}><LinkTable links={d.attachments} title="notes" mine /></Section>}
+            {d.fits.length > 0 && <Section id="fits" title={`Fits (${d.fits.length} weapons)`}><LinkTable links={d.fits} title="notes" mine={false} /></Section>}
             <Section id="textures" title={`Textures (${texN})`}>
                 {texN ? (
                     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">

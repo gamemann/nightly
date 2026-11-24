@@ -427,6 +427,28 @@ CREATE TABLE "ContentStat" (
 );
 
 -- CreateTable
+CREATE TABLE "AssetAttachment" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "parentId" INTEGER NOT NULL,
+    "attachmentId" INTEGER NOT NULL,
+    "slot" TEXT NOT NULL,
+    "px" REAL NOT NULL DEFAULT 0,
+    "py" REAL NOT NULL DEFAULT 0,
+    "pz" REAL NOT NULL DEFAULT 0,
+    "rx" REAL NOT NULL DEFAULT 0,
+    "ry" REAL NOT NULL DEFAULT 0,
+    "rz" REAL NOT NULL DEFAULT 0,
+    "sx" REAL NOT NULL DEFAULT 1,
+    "sy" REAL NOT NULL DEFAULT 1,
+    "sz" REAL NOT NULL DEFAULT 1,
+    "node" TEXT NOT NULL DEFAULT '',
+    "meta" TEXT NOT NULL DEFAULT '{}',
+    "updatedAt" TEXT NOT NULL DEFAULT '',
+    CONSTRAINT "AssetAttachment_parentId_fkey" FOREIGN KEY ("parentId") REFERENCES "AssetWeapon" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "AssetAttachment_attachmentId_fkey" FOREIGN KEY ("attachmentId") REFERENCES "AssetWeapon" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+-- CreateTable
 CREATE TABLE "AssetAuditHistory" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "at" TEXT NOT NULL,
@@ -714,6 +736,29 @@ CREATE TABLE "TranscriptRun" (
 );
 
 -- CreateTable
+CREATE TABLE "ItemProject" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "itemId" INTEGER NOT NULL,
+    "projectId" INTEGER NOT NULL,
+    "via" TEXT NOT NULL DEFAULT 'slug',
+    "token" TEXT NOT NULL DEFAULT '',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "ItemProject_itemId_fkey" FOREIGN KEY ("itemId") REFERENCES "Item" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "ItemProject_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "Project" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+-- CreateTable
+CREATE TABLE "ProjectPack" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "projectId" INTEGER NOT NULL,
+    "pack" TEXT NOT NULL,
+    "role" TEXT NOT NULL DEFAULT 'owner',
+    "via" TEXT NOT NULL DEFAULT 'slug',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "ProjectPack_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "Project" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+-- CreateTable
 CREATE TABLE "LocStat" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "projectId" INTEGER NOT NULL,
@@ -885,6 +930,12 @@ CREATE INDEX "Playtest_at_idx" ON "Playtest"("at");
 CREATE UNIQUE INDEX "ContentStat_key" ON "ContentStat"("game", "category", "name", "metric");
 
 -- CreateIndex
+CREATE INDEX "AssetAttachment_attachmentId_idx" ON "AssetAttachment"("attachmentId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "AssetAttachment_parentId_attachmentId_slot_key" ON "AssetAttachment"("parentId", "attachmentId", "slot");
+
+-- CreateIndex
 CREATE INDEX "AssetAuditHistory_pack_at_idx" ON "AssetAuditHistory"("pack", "at");
 
 -- CreateIndex
@@ -979,29 +1030,6 @@ CREATE INDEX "TranscriptRun_status_idx" ON "TranscriptRun"("status");
 
 -- CreateIndex
 CREATE INDEX "TranscriptRun_transcriptId_idx" ON "TranscriptRun"("transcriptId");
-
--- CreateTable
-CREATE TABLE "ItemProject" (
-    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-    "itemId" INTEGER NOT NULL,
-    "projectId" INTEGER NOT NULL,
-    "via" TEXT NOT NULL DEFAULT 'slug',
-    "token" TEXT NOT NULL DEFAULT '',
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT "ItemProject_itemId_fkey" FOREIGN KEY ("itemId") REFERENCES "Item" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "ItemProject_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "Project" ("id") ON DELETE CASCADE ON UPDATE CASCADE
-);
-
--- CreateTable
-CREATE TABLE "ProjectPack" (
-    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-    "projectId" INTEGER NOT NULL,
-    "pack" TEXT NOT NULL,
-    "role" TEXT NOT NULL DEFAULT 'owner',
-    "via" TEXT NOT NULL DEFAULT 'slug',
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT "ProjectPack_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "Project" ("id") ON DELETE CASCADE ON UPDATE CASCADE
-);
 
 -- CreateIndex
 CREATE INDEX "ItemProject_projectId_idx" ON "ItemProject"("projectId");

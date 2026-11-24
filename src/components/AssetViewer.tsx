@@ -6,7 +6,9 @@ type Opts = { wire: boolean; unlit: boolean; bbox: boolean; grid: boolean; light
 type View = "converted" | "original" | "split"
 type Spawn = { x: number; y: number; z: number; yaw: number; team: string }
 const LIGHTS = ["studio", "outdoor", "dark rim", "flat"]
-type Api = { apply: (o: Opts) => void; reset: () => void; spawn: (i: number) => void }
+/** An attachment mounted on the model: its glb, and the transform in the model's space (metres, rotation in degrees). */
+export type Mounted = { key: string; url: string; pos: number[]; rot: number[]; scale: number[] }
+type Api = { apply: (o: Opts) => void; reset: () => void; spawn: (i: number) => void; mount: (list: Mounted[]) => void }
 
 /** three.js viewer: orbit (left drag), pan (right drag), zoom (wheel); wireframe, textured/unlit, lighting presets, bounding box (metres) and grid.
  *  `map` (a converted map GLB): starts in free-fly (click to capture the mouse; W/A/S/D move, mouse look, Shift fast, Space up, Ctrl down,
@@ -14,7 +16,7 @@ type Api = { apply: (o: Opts) => void; reset: () => void; spawn: (i: number) => 
  *  and jump-to-spawn from the spawn list in the scene extras. Orbit stays available as a toggle.
  *  `original` (a map's source BSP exported to GLB in the same frame): adds converted / original / split views; the split view draws the
  *  original on the left and the converted map on the right through ONE camera, so fly and orbit move both at once. */
-export function AssetViewer({ url, bbox, textures, map, original }: { url: string; bbox?: number[]; textures?: { name: string; url: string }[]; map?: boolean; original?: string }) {
+export function AssetViewer({ url, bbox, textures, map, original, mounted }: { url: string; bbox?: number[]; textures?: { name: string; url: string }[]; map?: boolean; original?: string; mounted?: Mounted[] }) {
     const box = useRef<HTMLDivElement>(null)
     const api = useRef<Api | null>(null)
     const [o, setO] = useState<Opts>({ wire: false, unlit: false, bbox: !map, grid: !map, light: map ? "outdoor" : "studio", fly: !!map, collision: false, trigger: false, entity: true, view: "converted" })
@@ -25,6 +27,9 @@ export function AssetViewer({ url, bbox, textures, map, original }: { url: strin
     const [ostate, setOstate] = useState(original ? "loading" : "")
     const optsRef = useRef(o)
     optsRef.current = o
+    const mountRef = useRef<Mounted[]>(mounted ?? [])
+    mountRef.current = mounted ?? []
+    useEffect(() => { api.current?.mount(mounted ?? []) }, [mounted])
     useEffect(() => { api.current?.apply(o) }, [o])
     useEffect(() => {
         let dead = false
@@ -133,7 +138,31 @@ export function AssetViewer({ url, bbox, textures, map, original }: { url: strin
                     for (const x of Array.isArray(m.material) ? m.material : [m.material]) (x as T.MeshBasicMaterial).wireframe = op.wire
                 })
             }
-            api.current = { apply, reset, spawn: toSpawn }
+            // attachments: each is its own glb parented under the model root at the stored transform (the game places it at the socket with no offset)
+            const attObjs = new Map<string, T.Object3D>()
+            const attCache = new Map<string, Promise<T.Object3D>>()
+            let attSeq = 0
+            const mount = (list: Mounted[]) => {
+                if (!root) return
+                const seq = ++attSeq, want = new Map(list.map((m) => [m.key, m]))
+                for (const [k, ob] of attObjs) if (!want.has(k)) { root.remove(ob); attObjs.delete(k) }
+                for (const m of list) {
+                    let p = attCache.get(m.url)
+                    if (!p) { p = new GLTFLoader().loadAsync(m.url).then((g) => g.scene); attCache.set(m.url, p) }
+                    void p.then((src) => {
+                        if (dead || seq !== attSeq || !root || attObjs.has(m.key)) return
+                        const ob = src.clone(true)
+                        ob.position.set(m.pos[0] ?? 0, m.pos[1] ?? 0, m.pos[2] ?? 0)
+                        ob.rotation.set(((m.rot[0] ?? 0) * Math.PI) / 180, ((m.rot[1] ?? 0) * Math.PI) / 180, ((m.rot[2] ?? 0) * Math.PI) / 180)
+                        ob.scale.set(m.scale[0] ?? 1, m.scale[1] ?? 1, m.scale[2] ?? 1)
+                        ob.name = `attachment_${m.key}`
+                        root.add(ob); attObjs.set(m.key, ob); apply(optsRef.current)
+                        el.dataset.attached = [...attObjs.keys()].sort().join(",")
+                    }, () => setState(`failed: attachment ${m.key}`))
+                }
+                if (!list.length) el.dataset.attached = ""
+            }
+            api.current = { apply, reset, spawn: toSpawn, mount }
             if (original) {
                 new GLTFLoader().load(original, (g) => {
                     if (dead) return
@@ -186,6 +215,7 @@ export function AssetViewer({ url, bbox, textures, map, original }: { url: strin
                 root.traverse((n) => { const m = n as T.Mesh; if (m.isMesh) tris += (m.geometry.index ? m.geometry.index.count : m.geometry.attributes.position.count) / 3 })
                 setState(`ok ${Math.round(tris)} tris`)
                 el.dataset.ready = "1"
+                mount(mountRef.current)
             }, (ev) => { if (ev.total > 0) setState(`loading ${Math.round((100 * ev.loaded) / ev.total)}%`) }, (e) => setState(`failed: ${(e as Error).message ?? e}`))
             let raf = 0
             const clock = new THREE.Clock()

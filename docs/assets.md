@@ -99,3 +99,16 @@ Every audit run turns each failing flag into a finding on the `/rsi` board under
 | `assets upload`, `assets uploads` | Add a file and list uploads. |
 | `POST /api/assets/ingest` | Same as `assets ingest`. |
 | `GET /api/assets/file/<id>/<glb\|tex\|snd>/<index>` | Serve a file with Range support. |
+
+## Attachments
+
+An attachment (scope, suppressor, grip, ...) is an asset of its own with kind `attachment`. A weapon links to it through the `AssetAttachment` table: the mount slot, a position/rotation (degrees)/scale in the weapon's model space, an optional node name and free `meta`. The asset page shows an "Attachments" list on a weapon, a "Fits" list on an attachment, and a picker under the model viewer that mounts one attachment per slot live.
+
+A publisher sends the links in the ingest document next to `assets`:
+
+```json
+{"assets": [{"pack": "p", "weapon_id": "att_red_dot", "kind": "attachment", "model": {"glb": "build/nightly/att_red_dot.glb"}}],
+ "attach_links": [{"pack": "p", "parent": "<model key or weapon_id>", "attachment": "att_red_dot", "slot": "optic", "pos": [0, 0.05, -0.1]}]}
+```
+
+Re-ingesting an attachment replaces its links; links whose weapon or attachment is unknown are returned as `unresolved`. fc-weapons publishes through its `tools/publish_nightly.sh`, which reads the numbers from the game's own tables.
