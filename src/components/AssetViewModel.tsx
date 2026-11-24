@@ -1,4 +1,5 @@
 "use client"
+import { adsWeaponPos, sightFov, sightMagnification, type Sight } from "./sightLine"
 import { useEffect, useRef, useState } from "react"
 import type * as T from "three"
 import type { Mounted } from "./AssetViewer"
@@ -13,7 +14,7 @@ type Ctl = { clip: number; t: number; playing: boolean; speed: number; fov: numb
 /** First-person "view model" mode: the camera sits at the eye, the weapon and the support hands are posed from the baked clips (the game's own
  *  AwViewModel sampled at 60 fps), and the viewmodel FoV slider re-applies the game's lens (GSViewLens) so the gun reads as it does in play.
  *  Play / pause / scrub / speed drive the clip; `loop` repeats a one-shot clip. */
-export function AssetViewModel({ glbUrl, animUrl, initialClip, mounted }: { glbUrl: string; animUrl: string; initialClip?: string; mounted?: Mounted[] }) {
+export function AssetViewModel({ glbUrl, animUrl, initialClip, mounted, sight }: { glbUrl: string; animUrl: string; initialClip?: string; mounted?: Mounted[]; sight?: Sight | null }) {
     const box = useRef<HTMLDivElement>(null)
     const [side, setSide] = useState<Side | null>(null)
     const [err, setErr] = useState("")
@@ -25,6 +26,9 @@ export function AssetViewModel({ glbUrl, animUrl, initialClip, mounted }: { glbU
     mountList.current = mounted ?? []
     useEffect(() => { mountApi.current(mounted ?? []) }, [mounted])
     ctl.current = c
+    const [sightOn, setSightOn] = useState(false)
+    const sightRef = useRef<Sight | null>(null)
+    sightRef.current = sightOn ? sight ?? null : null
     useEffect(() => {
         void fetch(animUrl).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`anim ${r.status}`)))).then((s: Side) => {
             setSide(s)
@@ -115,11 +119,16 @@ export function AssetViewModel({ glbUrl, animUrl, initialClip, mounted }: { glbU
                 }
                 const t = ctl.current.t
                 const get = (name: string) => { const tr = clip.tracks.find((x) => x.target === name); return tr ? sample(tr, t, clip.frames, side.fps, clip.loop) : null }
+                const sg = sightRef.current
                 const L = lens(side.lens, worldV, verticalFrom43(ctl.current.fov))
-                rig.scale.set(L.k, L.k, 1)
-                rig.position.set(0, 0, L.z)
+                const fovNow = sg ? sightFov(sg) : worldV
+                if (camera.fov !== fovNow) { camera.fov = fovNow; camera.updateProjectionMatrix() }
+                // sight line: the weapon is held so the optic sits on the eye's axis (sightLine.ts), unscaled by the lens; off, the clip poses it
+                rig.scale.set(sg ? 1 : L.k, sg ? 1 : L.k, 1)
+                rig.position.set(0, 0, sg ? 0 : L.z)
                 const w = get("weapon")
-                if (w) { weapon.position.set(w[0], w[1], w[2]); weapon.quaternion.set(w[3], w[4], w[5], w[6]) }
+                if (sg) { const q = adsWeaponPos(sg); weapon.position.set(q[0], q[1], q[2]); weapon.quaternion.set(0, 0, 0, 1) }
+                else if (w) { weapon.position.set(w[0], w[1], w[2]); weapon.quaternion.set(w[3], w[4], w[5], w[6]) }
                 const b = get("bolt")
                 if (bolt) { if (b) bolt.position.set(b[0], b[1], b[2]); else bolt.position.copy(boltHome) }
                 const p = get("view_punch")
@@ -152,6 +161,7 @@ export function AssetViewModel({ glbUrl, animUrl, initialClip, mounted }: { glbU
                 <label>Speed <select value={c.speed} onChange={(e) => set({ speed: Number(e.target.value) })} data-testid="vm-speed" className="rounded border border-line bg-transparent px-1 py-0.5">{[0.1, 0.25, 0.5, 1, 2].map((s) => <option key={s} value={s}>{s}x</option>)}</select></label>
                 <label><input type="checkbox" checked={c.loop} onChange={(e) => set({ loop: e.target.checked })} /> Loop</label>
                 <label>Viewmodel FoV {c.fov}<input type="range" min={50} max={100} step={1} value={c.fov} onChange={(e) => set({ fov: Number(e.target.value) })} data-testid="vm-fov" className="ml-2 align-middle" /></label>
+                {sight && <button onClick={() => setSightOn(!sightOn)} data-testid="vm-sight-toggle" title={`${sight.label}, aim ${sight.aim}`} className={`rounded border px-2 py-0.5 ${sightOn ? "border-sky-300 text-sky-300" : "border-line"}`}>{sightOn ? `Sight ${sightMagnification(sight)}` : "Hip"}</button>}
                 <button onClick={() => set({ fov: side.lens.viewmodel_fov_h })} className="rounded border border-line px-2 py-0.5">Default ({side.lens.viewmodel_fov_h})</button>
             </div>
         </div>

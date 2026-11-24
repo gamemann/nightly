@@ -36,3 +36,9 @@ export function sightPose(s: Sight): { position: [number, number, number]; targe
     const [x, y, z] = s.pos
     return { position: [x, y, z + EYE_BACK], target: [x, y, z - 10], fov: sightFov(s) }
 }
+
+/** Where a held weapon goes in the eye's frame so the optic sits on the eye's axis, EYE_BACK in front of the eye (the View model mode's sight line). */
+export function adsWeaponPos(s: Sight): [number, number, number] {
+    const [x, y, z] = s.pos
+    return [-x, -y, -EYE_BACK - z]
+}

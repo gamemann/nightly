@@ -1,4 +1,5 @@
 "use client"
+import { sightMagnification, sightPose, type Sight } from "./sightLine"
 import { useEffect, useRef, useState } from "react"
 import type * as T from "three"
 import { sample } from "../../lib/anim-sample.mjs"
@@ -17,7 +18,7 @@ const plain = (n: string) => n.replace(/\./g, "")
 
 /** Third-person mode: an avatar (the game's own people_<body>.glb, bones posed as the game poses them) holds the weapon at its hand bone with the
  *  game's grip (mount x weapon rest); the baked bolt / magazine tracks animate the weapon; the camera orbits the figure (drag, wheel). */
-export function AssetThirdPerson({ glbUrl, animUrl, mounted }: { glbUrl: string; animUrl: string; mounted?: Mounted[] }) {
+export function AssetThirdPerson({ glbUrl, animUrl, mounted, sight }: { glbUrl: string; animUrl: string; mounted?: Mounted[]; sight?: Sight | null }) {
     const box = useRef<HTMLDivElement>(null)
     const [side, setSide] = useState<Side | null>(null)
     const [book, setBook] = useState<Book | null>(null)
@@ -27,6 +28,9 @@ export function AssetThirdPerson({ glbUrl, animUrl, mounted }: { glbUrl: string;
     const [c, setC] = useState<Ctl>({ clip: 0, t: 0, playing: true, speed: 1, loop: true })
     const ctl = useRef(c)
     ctl.current = c
+    const [sightOn, setSightOn] = useState(false)
+    const sightRef = useRef<Sight | null>(null)
+    sightRef.current = sightOn ? sight ?? null : null
     const mountApi = useRef<(l: Mounted[]) => void>(() => {})
     const mountList = useRef<Mounted[]>(mounted ?? [])
     mountList.current = mounted ?? []
@@ -65,6 +69,7 @@ export function AssetThirdPerson({ glbUrl, animUrl, mounted }: { glbUrl: string;
             const orbit = new OrbitControls(camera, renderer.domElement)
             orbit.target.set(0, 1.0, 0)
             orbit.update()
+            let hh = 1.8
             const mat = (a: number[], o = 0) => new THREE.Matrix4().makeBasis(new THREE.Vector3(a[o], a[o + 1], a[o + 2]), new THREE.Vector3(a[o + 3], a[o + 4], a[o + 5]), new THREE.Vector3(a[o + 6], a[o + 7], a[o + 8])).setPosition(a[o + 9], a[o + 10], a[o + 11])
             const cache = new Map<string, Promise<T.Object3D>>()
             const loadAtt = (u: string) => { let p = cache.get(u); if (!p) { p = new GLTFLoader().loadAsync(u).then((g) => g.scene); cache.set(u, p) } return p }
@@ -107,7 +112,7 @@ export function AssetThirdPerson({ glbUrl, animUrl, mounted }: { glbUrl: string;
                 root.matrixAutoUpdate = false
                 root.matrix.copy(mat(av.skeleton_in_figure)).multiply(rel.invert())
                 root.updateMatrixWorld(true)
-                const hh = book.height || 1.8
+                hh = book.height || 1.8
                 orbit.target.set(0, hh * 0.5, 0); camera.position.set(hh * 0.8, hh * 0.7, hh * 1.5); orbit.update()
                 place()
                 void loadAtt(glbUrl).then((w) => { if (!dead) holdWeapon(w.clone(true)) }, (e) => setErr(`weapon: ${String((e as Error).message ?? e)}`))
@@ -122,6 +127,7 @@ export function AssetThirdPerson({ glbUrl, animUrl, mounted }: { glbUrl: string;
             const ro = new ResizeObserver(resize)
             ro.observe(el)
             let last = performance.now()
+            let sightWas = false
             let raf = 0
             const tick = (now: number) => {
                 raf = requestAnimationFrame(tick)
@@ -146,7 +152,20 @@ export function AssetThirdPerson({ glbUrl, animUrl, mounted }: { glbUrl: string;
                         mag.visible = v ? v[0] > 0.5 : true
                     }
                 }
-                orbit.update()
+                const sg = sightRef.current
+                if (sg) {
+                    // sight line: the camera rides behind the optic on the held weapon and looks down its bore (pose from sightLine.ts)
+                    const pose = sightPose(sg)
+                    held.updateMatrixWorld(true)
+                    camera.position.copy(held.localToWorld(new THREE.Vector3(...pose.position)))
+                    camera.up.set(0, 1, 0)
+                    camera.lookAt(held.localToWorld(new THREE.Vector3(...pose.target)))
+                    if (camera.fov !== pose.fov) { camera.fov = pose.fov; camera.updateProjectionMatrix() }
+                    sightWas = true
+                } else {
+                    if (sightWas) { camera.fov = 40; camera.updateProjectionMatrix(); orbit.target.set(0, hh * 0.5, 0); camera.position.set(hh * 0.8, hh * 0.7, hh * 1.5); sightWas = false }
+                    orbit.update()
+                }
                 renderer.render(scene, camera)
             }
             raf = requestAnimationFrame(tick)
@@ -171,6 +190,7 @@ export function AssetThirdPerson({ glbUrl, animUrl, mounted }: { glbUrl: string;
                 <span className="tabular-nums text-muted">{shownT.toFixed(2)} / {clip.length.toFixed(2)} s</span>
                 <label>Speed <select value={c.speed} onChange={(e) => set({ speed: Number(e.target.value) })} className="rounded border border-line bg-transparent px-1 py-0.5">{[0.1, 0.25, 0.5, 1, 2].map((s) => <option key={s} value={s}>{s}x</option>)}</select></label>
                 <label><input type="checkbox" checked={c.loop} onChange={(e) => set({ loop: e.target.checked })} /> Loop</label>
+                {sight && <button onClick={() => setSightOn(!sightOn)} data-testid="tp-sight-toggle" title={`${sight.label}, aim ${sight.aim}`} className={`rounded border px-2 py-0.5 ${sightOn ? "border-sky-300 text-sky-300" : "border-line"}`}>{sightOn ? `Sight ${sightMagnification(sight)}` : "Orbit"}</button>}
                 <span className="text-muted">Drag to orbit, wheel to zoom</span>
             </div>
         </div>
