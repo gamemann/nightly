@@ -4,10 +4,12 @@ import { useEffect, useRef, useState } from "react"
 import type * as T from "three"
 import type { Mounted } from "./AssetViewer"
 import { syncMounts } from "./mountSync"
-import { lens, sample, verticalFrom43 } from "../../lib/anim-sample.mjs"
+import { AV, buildViewArms, recolour, texture, type Book, type ViewArms } from "./avatarKit"
+import { lens, moveShare, sample, verticalFrom43 } from "../../lib/anim-sample.mjs"
 
 type Track = { target: string; path: string; values: number[] }
-type Clip = { name: string; length: number; frames: number; loop: boolean; tracks: Track[] }
+type Shape = { kind: "box" | "cylinder" | "sphere"; size: number[]; at: number[]; colour?: string; metal?: number; rough?: number; glow?: string }
+type Clip = { name: string; length: number; frames: number; loop: boolean; tracks: Track[]; props?: Record<string, { part: string; shapes: Shape[] }> }
 type Side = { fps: number; lens: { viewmodel_fov_h: number; world_fov_h: number; reference_depth: number; max_pull_in: number; depth_comp: number }; nodes: { bolt: string; magazine: string }; clips: Clip[] }
 type Ctl = { clip: number; t: number; playing: boolean; speed: number; fov: number; loop: boolean }
 
@@ -70,15 +72,51 @@ export function AssetViewModel({ glbUrl, animUrl, initialClip, mounted, sight }:
             rig.add(weapon)
             const skin = new THREE.MeshStandardMaterial({ color: 0xd8a47f, roughness: 0.7 })
             const hands: Record<string, T.Mesh> = {}
-            const arms: Record<string, T.Mesh> = {}
+            // stand-ins until the game's arms (the people figure, IK'd to the wrist targets) have loaded
             for (const k of ["right", "left"]) {
                 hands[k] = new THREE.Mesh(new THREE.SphereGeometry(0.035, 16, 12), skin)
-                arms[k] = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, 1, 12), skin)
-                rig.add(hands[k], arms[k])
+                rig.add(hands[k])
             }
+            let viewArms: ViewArms | null = null
+            void fetch(`${AV}avatars.json`).then((r) => r.json()).then(async (book: Book) => {
+                const av = book.avatars[0]
+                if (!av) return
+                const [g, cv] = await Promise.all([
+                    new GLTFLoader().loadAsync(`${AV}${av.glb}`),
+                    book.atlas ? recolour(`${AV}${book.atlas}`, av.swaps ?? []).catch(() => null) : Promise.resolve(null),
+                ])
+                if (dead) return
+                if (cv) texture(THREE, g.scene, cv)
+                viewArms = buildViewArms(THREE, g.scene, av, rig)
+                for (const k of Object.keys(hands)) hands[k].visible = false
+            }).catch(() => {})
             const cache = new Map<string, Promise<T.Object3D>>()
             const loadAtt = (u: string) => { let p = cache.get(u); if (!p) { p = new GLTFLoader().loadAsync(u).then((g) => g.scene); cache.set(u, p) } return p }
             mountApi.current = (l) => syncMounts(THREE, loadAtt, weapon, l, () => dead)
+            // reload props (ammo box, casing ...): the game builds them in code, the sidecar carries their primitives and the per-frame transform / scale / visibility
+            const propNodes = new Map<string, T.Group>()
+            const propOf = (ci: number, key: string, spec: { shapes: Shape[] }) => {
+                const id = `${ci}:${key}`
+                let grp = propNodes.get(id)
+                if (grp) return grp
+                grp = new THREE.Group()
+                for (const sh of spec.shapes) {
+                    const [a, b, c] = sh.size
+                    const geo = sh.kind === "box" ? new THREE.BoxGeometry(a, b, c) : sh.kind === "cylinder" ? new THREE.CylinderGeometry(a, b, c, 16) : new THREE.SphereGeometry(a, 16, 12)
+                    const m = new THREE.MeshStandardMaterial({ color: sh.colour ?? "#888888", metalness: sh.metal ?? 0, roughness: sh.rough ?? 0.6 })
+                    if (sh.glow) { m.emissive = new THREE.Color(sh.glow) }
+                    const mesh = new THREE.Mesh(geo, m)
+                    const e = sh.at
+                    mesh.matrixAutoUpdate = false
+                    // Godot basis columns x y z + origin (right-handed, Y up, same as three)
+                    mesh.matrix.set(e[0], e[3], e[6], e[9], e[1], e[4], e[7], e[10], e[2], e[5], e[8], e[11], 0, 0, 0, 1)
+                    grp.add(mesh)
+                }
+                grp.visible = false
+                rig.add(grp)
+                propNodes.set(id, grp)
+                return grp
+            }
             let bolt: T.Object3D | null = null
             let boltHome = new THREE.Vector3()
             new GLTFLoader().load(glbUrl, (g) => {
@@ -87,6 +125,8 @@ export function AssetViewModel({ glbUrl, animUrl, initialClip, mounted, sight }:
                 mountApi.current(mountList.current)
                 if (side.nodes.bolt) { bolt = g.scene.getObjectByName(side.nodes.bolt) ?? null; if (bolt) boltHome = bolt.position.clone() }
             }, undefined, (e) => setErr(`model: ${String((e as Error).message ?? e)}`))
+            const idle = side.clips.find((k) => k.name === "idle") ?? side.clips[0]
+            const rest = idle?.tracks.find((x) => x.target === "weapon")?.values.slice(0, 3) ?? null
             const resize = () => {
                 const w = el.clientWidth, h = Math.max(240, Math.round(w * 0.5625))
                 renderer.setSize(w, h)
@@ -96,12 +136,6 @@ export function AssetViewModel({ glbUrl, animUrl, initialClip, mounted, sight }:
             resize()
             const ro = new ResizeObserver(resize)
             ro.observe(el)
-            const limb = (m: T.Mesh, a: T.Vector3, b: T.Vector3) => {
-                const d = b.clone().sub(a)
-                m.position.copy(a.clone().add(b).multiplyScalar(0.5))
-                m.scale.set(1, Math.max(d.length(), 1e-4), 1)
-                m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize())
-            }
             let last = performance.now()
             let raf = 0
             const tick = (now: number) => {
@@ -127,16 +161,30 @@ export function AssetViewModel({ glbUrl, animUrl, initialClip, mounted, sight }:
                 rig.scale.set(sg ? 1 : L.k, sg ? 1 : L.k, 1)
                 rig.position.set(0, 0, sg ? 0 : L.z)
                 const w = get("weapon")
+                // lens_move_share: the pose's sideways / upward moves (off the idle pose) shrink as the game's AwWeaponPose does
+                const share = moveShare(side.lens, verticalFrom43(ctl.current.fov))
+                if (w && rest) { w[0] = rest[0] + (w[0] - rest[0]) * share; w[1] = rest[1] + (w[1] - rest[1]) * share }
                 if (sg) { const q = adsWeaponPos(sg); weapon.position.set(q[0], q[1], q[2]); weapon.quaternion.set(0, 0, 0, 1) }
                 else if (w) { weapon.position.set(w[0], w[1], w[2]); weapon.quaternion.set(w[3], w[4], w[5], w[6]) }
                 const b = get("bolt")
                 if (bolt) { if (b) bolt.position.set(b[0], b[1], b[2]); else bolt.position.copy(boltHome) }
+                // AwWeaponPose.view_punch: x pitch up, y yaw, degrees; games add them to the camera pitch / yaw (rotation.x / .y, Godot and three share the right-handed Y-up Euler)
                 const p = get("view_punch")
                 punch.rotation.set(p ? (p[0] * Math.PI) / 180 : 0, p ? (p[1] * Math.PI) / 180 : 0, 0)
-                for (const key of ["right", "left"]) {
-                    const h = get(`hand.${key}`), s = get(`hand.${key}_shoulder`)
-                    if (h && s) { hands[key].position.set(h[0], h[1], h[2]); limb(arms[key], new THREE.Vector3(s[0], s[1], s[2]), new THREE.Vector3(h[0], h[1], h[2])) }
+                for (const grp of propNodes.values()) grp.visible = false
+                for (const [key, spec] of Object.entries(clip.props ?? {})) {
+                    const tf = get(`prop.${key}`), sc = get(`prop.${key}.scale`), vis = get(`prop.${key}.visible`)
+                    if (!tf) continue
+                    const grp = propOf(ctl.current.clip, key, spec)
+                    grp.position.set(tf[0], tf[1], tf[2])
+                    grp.quaternion.set(tf[3], tf[4], tf[5], tf[6])
+                    if (sc) grp.scale.set(sc[0], sc[1], sc[2])
+                    grp.visible = !vis || vis[0] > 0.5
                 }
+                const wrist = (key: string) => { const h = get(`hand.${key}`); return h ? new THREE.Vector3(h[0], h[1], h[2]) : null }
+                const R = wrist("right"), Lh = wrist("left")
+                for (const [key, v] of [["right", R], ["left", Lh]] as const) if (v) hands[key].position.copy(v)
+                viewArms?.solve(R, Lh)
                 renderer.render(scene, camera)
             }
             raf = requestAnimationFrame(tick)

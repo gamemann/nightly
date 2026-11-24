@@ -5,16 +5,13 @@ import type * as T from "three"
 import { sample } from "../../lib/anim-sample.mjs"
 import type { Mounted } from "./AssetViewer"
 import { syncMounts } from "./mountSync"
+import { AV, plain, recolour, texture, type Avatar, type Book } from "./avatarKit"
 
 type Track = { target: string; path: string; values: number[] }
 type Clip = { name: string; length: number; frames: number; loop: boolean; tracks: Track[] }
 type Side = { fps: number; third_person?: { pose: string; rest: number[] }; nodes: { bolt: string; magazine: string }; clips: Clip[] }
-type Avatar = { body: string; glb: string; bones: Record<string, number[]>; mount: number[]; skeleton_in_figure: number[] }
-type Book = { height: number; hand_bone: string; held_scale: number; avatars: Avatar[] }
 type Ctl = { clip: number; t: number; playing: boolean; speed: number; loop: boolean }
 
-const AV = "/api/assets/avatar/"
-const plain = (n: string) => n.replace(/\./g, "")
 
 /** Third-person mode: an avatar (the game's own people_<body>.glb, bones posed as the game poses them) holds the weapon at its hand bone with the
  *  game's grip (mount x weapon rest); the baked bolt / magazine tracks animate the weapon; the camera orbits the figure (drag, wheel). */
@@ -94,10 +91,15 @@ export function AssetThirdPerson({ glbUrl, animUrl, mounted, sight }: { glbUrl: 
                 held.matrix.copy(handBone.matrixWorld).multiply(mat(av.mount)).multiply(mat(rest))
                 held.matrixWorldNeedsUpdate = true
             }
+            const atlasTex = book.atlas ? recolour(`${AV}${book.atlas}`, av.swaps ?? []).catch(() => null) : Promise.resolve(null)
             new GLTFLoader().load(`${AV}${av.glb}`, (g) => {
                 if (dead) return
                 const root = g.scene
                 scene.add(root)
+                void atlasTex.then((cv) => {
+                    if (!cv || dead) return
+                    texture(THREE, root, cv)
+                })
                 root.traverse((n) => { if ((n as T.Bone).isBone) bones.set(plain(n.name), n) })
                 for (const [name, v] of Object.entries(av.bones)) {
                     const b = bones.get(plain(name))
