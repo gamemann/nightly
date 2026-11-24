@@ -2,6 +2,7 @@ import { feedRouter } from './feedRouter'
 import { toolsRouter } from './toolsRouter'
 import { execFile } from 'node:child_process'
 import { suggestRepos } from '../../lib/classify.mjs'
+import { ensureNamingRules } from './namingRules'
 import { readFile, readdir, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
@@ -162,7 +163,7 @@ const itemRouter = router({
             cadence: z.enum(CADENCES).optional(),
             position: z.enum(['top', 'bottom']).default('bottom'),
         }))
-        .mutation(async ({ ctx, input }) => ctx.db.$transaction(async (tx) => {
+        .mutation(async ({ ctx, input }) => { await ensureNamingRules(ctx.db); return ctx.db.$transaction(async (tx) => {
             if (input.key && (await tx.item.findUnique({ where: { key: input.key } }))) {
                 throw new TRPCError({ code: 'CONFLICT', message: `key ${input.key} exists` })
             }
@@ -180,7 +181,7 @@ const itemRouter = router({
             await place(tx, it.id, input.position)
             await syncItemLinks(tx, it.id)
             return it
-        })),
+        }) }),
 
     update: procedure
         .input(z.object({

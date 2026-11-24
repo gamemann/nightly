@@ -1,0 +1,166 @@
+{
+ "renames": {
+  "arena-dm-maps": "fc-dm-maps",
+  "arena-surf-dm-maps": "fc-surf-dm-maps",
+  "fc-weapons": "arena-weapons",
+  "game-playground": "game-playlot",
+  "game-playground-maps": "playlot-maps",
+  "mg-deathrun": "game-deathrun",
+  "mg-prop-hunt": "game-prop-hunt",
+  "zee-dot-weapons": "zee-gs-weapons",
+  "game-playlot-maps": "playlot-maps",
+  "game-airdrift-maps": "airdrift-maps",
+  "game-fatalcontact": "game-fatal-contact",
+  "fc-game": "game-fatal-contact",
+  "game-fc": "game-fatal-contact",
+  "arena-maps": "fc-dm-maps",
+  "arena": "game-fatal-contact",
+  "fc": "game-fatal-contact",
+  "fatal-contact": "game-fatal-contact",
+  "playlot": "game-playlot",
+  "playground": "game-playlot",
+  "airdrift": "game-airdrift",
+  "lam": "mg-look-at-me",
+  "lam-game": "mg-look-at-me",
+  "game-look-at-me": "mg-look-at-me",
+  "game-wipeout": "mg-wipeout",
+  "game-buses-from-hell": "mg-buses-from-hell",
+  "game-dangerous-delivery": "mg-dangerous-delivery",
+  "game-smash-copter": "mg-smash-copter",
+  "zombie-zone": "game-zombie-zone",
+  "zz-medieval": "zz-medieval-weapons",
+  "zz-modern": "zz-modern-weapons",
+  "zz-historical": "zz-historical-monsters",
+  "spy": "spy-discord-bot",
+  "zees-games-website": "zees-games",
+  "dot-director": "gs-npc-ai-director",
+  "dot-controller": "gs-player-controller",
+  "dot-fps-controller": "gs-player-controller",
+  "zz": "game-zombie-zone",
+  "zz-weapons": "game-zombie-zone",
+  "zee-weapons": "zee-gs-weapons",
+  "nightly-env": "nightly",
+  "website-nightly": "nightly"
+ },
+ "general": [
+  "game-dev",
+  "game-backbone"
+ ],
+ "games": [
+  "game-hungario"
+ ],
+ "gameKeywords": [
+  [
+   "zombie|\\bzz-(?!modern|zed|medieval|historical)",
+   "game-zombie-zone"
+  ],
+  [
+   "arena|fatal[- ]?contact",
+   "game-fatal-contact"
+  ],
+  [
+   "airdrift",
+   "game-airdrift"
+  ],
+  [
+   "hungario",
+   "game-hungario"
+  ],
+  [
+   "hide-?n-?seek",
+   "game-hide-n-seek"
+  ],
+  [
+   "murder",
+   "game-murder-mystery"
+  ],
+  [
+   "wipeout",
+   "mg-wipeout"
+  ],
+  [
+   "deathrun",
+   "mg-deathrun"
+  ],
+  [
+   "prop[- ]hunt|\\bph-",
+   "mg-prop-hunt"
+  ],
+  [
+   "buses",
+   "mg-buses-from-hell"
+  ],
+  [
+   "copter",
+   "mg-smash-copter"
+  ],
+  [
+   "dangerous[- ]delivery|^dd-",
+   "mg-dangerous-delivery"
+  ],
+  [
+   "look-?at-?me",
+   "mg-look-at-me"
+  ],
+  [
+   "playlot|playground|^pg-",
+   "game-playlot"
+  ],
+  [
+   "lobby",
+   "game-simple-lobby"
+  ]
+ ],
+ "gameAliases": {
+  "game-dev": "dev",
+  "game-backbone": "backbone",
+  "game-playground": "game-playlot",
+  "game-playground-maps": "game-playlot",
+  "playlot-maps": "game-playlot",
+  "game-playlot-maps": "game-playlot",
+  "airdrift-maps": "game-airdrift",
+  "game-fatalcontact": "game-fatal-contact",
+  "game-fatal-contact": "game-fatal-contact",
+  "fc-weapons": "game-fatal-contact",
+  "fc-dm-maps": "game-fatal-contact",
+  "fc-surf-dm-maps": "game-fatal-contact",
+  "arena-surf-dm-maps": "game-fatal-contact",
+  "arena-weapons": "game-fatal-contact"
+ },
+ "backbone": "^(website-|tmc-|storez|buildz|defcon|spy|stack|backbone|tekworks)",
+ "dev": "^(dot-|zee-|zz-|godot|nightly|dev$)",
+ "repoTokens": [
+  "dot-[a-z0-9][a-z0-9-]*",
+  "website-(?:city|processing|learn|status)",
+  "tmc-(?:app|cli|global)",
+  "storez",
+  "buildz",
+  "defcon",
+  "zz-[a-z0-9-]+",
+  "zee-dot-weapons"
+ ],
+ "backboneText": "\\b(website|backbone|api|nginx|postgres|redis|cdn|admin panel|spy|chart|workshop|flagged servers|dev_games|stats-table|web:|node profiles panel)\\b|admin>",
+ "backboneKey": "^(browser-verify|node-profiles)",
+ "devKey": "^chk-",
+ "devText": "\\b(addon|godot|game\\.sh|rollout|zee|zed|weapons?|viewmodel|hq gun|dotfx|dot[a-z]+|adopt|leftovers|gpu|filmstrips?|shots?|motion|capture|stats|achievements|ugc|wearables|campaign|zees-games|map poses|every game|the games|family|screenshot)\\b|dot-",
+ "rewrites": [
+  [
+   "^dot-",
+   "gs-"
+  ],
+  [
+   "^zee-dot-",
+   "zee-gs-"
+  ],
+  [
+   "-dot-",
+   "-gs-"
+  ]
+ ],
+ "packGames": [
+  [
+   "^zz-",
+   "game-zombie-zone"
+  ]
+ ]
+}

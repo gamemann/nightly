@@ -1,5 +1,6 @@
 import type { Prisma } from '../../generated/prisma/client'
 import { makeResolver } from '../../lib/project-map.mjs'
+import { ensureNamingRules } from './namingRules'
 
 type Tx = Prisma.TransactionClient
 
@@ -13,6 +14,7 @@ export const reposText = (repos: string | undefined, projects: string[] | undefi
  * (lib/project-map.mjs), so panel edits and `nightly project map` agree. Returns the linked slugs.
  */
 export async function syncItemLinks(tx: Tx, itemId: number): Promise<string[]> {
+    await ensureNamingRules(tx)
     const it = await tx.item.findUnique({ where: { id: itemId }, select: { id: true, key: true, title: true, repos: true } })
     if (!it) return []
     const projects = await tx.project.findMany({ select: { id: true, slug: true, type: true, repoPath: true, settings: true } })

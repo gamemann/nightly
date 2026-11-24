@@ -5,6 +5,7 @@ import { OPEN_STATUSES } from '~/lib/constants'
 import { offsetOf, paged } from '~/lib/paging'
 import { pageIn } from './pageInput'
 import { OTHER, gameOf, knownGames } from '~/lib/games'
+import { ensureNamingRules } from './namingRules'
 import { ATTACH_DIR } from './media'
 import { modelSibling } from './models'
 import { procedure, router } from './trpc'
@@ -22,6 +23,7 @@ export const gameRouter = router({
             ctx.db.item.findMany({ select: { repos: true, status: true, key: true, title: true } }),
             ctx.db.qaRun.findMany({ select: { game: true, ok: true, ranAt: true }, orderBy: { ranAt: 'desc' }, take: 600 }),
         ])
+        await ensureNamingRules(ctx.db)
         const known = knownGames([...items.map((i) => i.repos), ...qa.map((q) => q.game)])
         const m = new Map<string, { slug: string; open: number; total: number; qa: number; qaFailing: boolean }>()
         const get = (s: string) => { let g = m.get(s); if (!g) m.set(s, g = { slug: s, open: 0, total: 0, qa: 0, qaFailing: false }); return g }
@@ -117,6 +119,7 @@ export const gameRouter = router({
 
 /** The game's items and the QA `game` values that classify to it. Classification is JS-only (lib/games), so this reads the light columns of every item and the distinct QA games. */
 async function members(db: Db, slug: string) {
+    await ensureNamingRules(db)
     const [links, qaGames] = await Promise.all([
         // every item linked to this project (ItemProject, many-to-many: an item with several projects is listed under each)
         db.itemProject.findMany({ where: { project: { slug } }, select: { item: { select: { id: true, key: true, title: true, kind: true, status: true, repos: true, updatedAt: true } } } }),

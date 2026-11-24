@@ -1,10 +1,5 @@
 import { OTHER, classify, isGame } from '../../lib/classify.mjs'
 
-/** Which game (or area) an item belongs to, derived from Item.repos; only the exceptions are listed here. */
-export const GAME_ALIASES: Record<string, string> = {
-    'arena-surf-dm-maps': 'game-fatal-contact',
-    'arena-weapons': 'game-fatal-contact',
-}
 export { OTHER }
 
 /** `game-dev/godot/game-fatal-contact` -> `game-fatal-contact`. */

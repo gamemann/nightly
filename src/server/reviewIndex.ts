@@ -1,5 +1,6 @@
 import { statSync } from 'node:fs'
 import { classify } from '../../lib/classify.mjs'
+import { ensureNamingRules } from './namingRules'
 import { load, jsonPath, type ReviewWeapon } from '../../lib/review.mjs'
 import { offsetOf, paged, parsePage, type PageSpec } from '~/lib/paging'
 import { filterReviews } from '../../lib/review-list.mjs'
@@ -30,6 +31,7 @@ function info(key: string): Info {
 export const REVIEW_SPEC = { sorts: ['updated', 'created', 'title', 'game', 'entries', 'progress'], sort: 'updated', dir: 'desc', filters: ['game', 'state'] } as const satisfies PageSpec
 
 export async function reviewPage(db: PrismaClient, sp: Record<string, string | string[] | undefined>) {
+    await ensureNamingRules(db)
     const q = parsePage(sp, REVIEW_SPEC)
     const items = await db.item.findMany({ where: { kind: 'review' }, orderBy: { id: 'desc' }, select: { key: true, title: true, repos: true, createdAt: true, updatedAt: true } })
     const known = new Set<string>()
