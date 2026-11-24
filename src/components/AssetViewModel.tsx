@@ -1,6 +1,8 @@
 "use client"
 import { useEffect, useRef, useState } from "react"
 import type * as T from "three"
+import type { Mounted } from "./AssetViewer"
+import { syncMounts } from "./mountSync"
 import { lens, sample, verticalFrom43 } from "../../lib/anim-sample.mjs"
 
 type Track = { target: string; path: string; values: number[] }
@@ -11,13 +13,17 @@ type Ctl = { clip: number; t: number; playing: boolean; speed: number; fov: numb
 /** First-person "view model" mode: the camera sits at the eye, the weapon and the support hands are posed from the baked clips (the game's own
  *  AwViewModel sampled at 60 fps), and the viewmodel FoV slider re-applies the game's lens (GSViewLens) so the gun reads as it does in play.
  *  Play / pause / scrub / speed drive the clip; `loop` repeats a one-shot clip. */
-export function AssetViewModel({ glbUrl, animUrl, initialClip }: { glbUrl: string; animUrl: string; initialClip?: string }) {
+export function AssetViewModel({ glbUrl, animUrl, initialClip, mounted }: { glbUrl: string; animUrl: string; initialClip?: string; mounted?: Mounted[] }) {
     const box = useRef<HTMLDivElement>(null)
     const [side, setSide] = useState<Side | null>(null)
     const [err, setErr] = useState("")
     const [shownT, setShownT] = useState(0)
     const [c, setC] = useState<Ctl>({ clip: 0, t: 0, playing: true, speed: 1, fov: 54, loop: true })
     const ctl = useRef(c)
+    const mountApi = useRef<(l: Mounted[]) => void>(() => {})
+    const mountList = useRef<Mounted[]>(mounted ?? [])
+    mountList.current = mounted ?? []
+    useEffect(() => { mountApi.current(mounted ?? []) }, [mounted])
     ctl.current = c
     useEffect(() => {
         void fetch(animUrl).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`anim ${r.status}`)))).then((s: Side) => {
@@ -66,11 +72,15 @@ export function AssetViewModel({ glbUrl, animUrl, initialClip }: { glbUrl: strin
                 arms[k] = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, 1, 12), skin)
                 rig.add(hands[k], arms[k])
             }
+            const cache = new Map<string, Promise<T.Object3D>>()
+            const loadAtt = (u: string) => { let p = cache.get(u); if (!p) { p = new GLTFLoader().loadAsync(u).then((g) => g.scene); cache.set(u, p) } return p }
+            mountApi.current = (l) => syncMounts(THREE, loadAtt, weapon, l, () => dead)
             let bolt: T.Object3D | null = null
             let boltHome = new THREE.Vector3()
             new GLTFLoader().load(glbUrl, (g) => {
                 if (dead) return
                 weapon.add(g.scene)
+                mountApi.current(mountList.current)
                 if (side.nodes.bolt) { bolt = g.scene.getObjectByName(side.nodes.bolt) ?? null; if (bolt) boltHome = bolt.position.clone() }
             }, undefined, (e) => setErr(`model: ${String((e as Error).message ?? e)}`))
             const resize = () => {

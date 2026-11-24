@@ -3,6 +3,7 @@ import Link from "next/link"
 import { useEffect, useRef, useState } from "react"
 import { AssetViewer, type Mounted } from "./AssetViewer"
 import { AssetViewModel } from "./AssetViewModel"
+import { AssetThirdPerson } from "./AssetThirdPerson"
 import { MapEditor } from "./MapEditor"
 import { scoreCls, sevCls } from "./Assets"
 import { describe } from "../../lib/asset-names.mjs"
@@ -114,7 +115,8 @@ export function AssetDetail({ d, reviews }: { d: DetailData; reviews: ReviewHit[
     const texN = (x.textures ?? []).length
     const hasOrig = !!x.map?.original && !x.map.original.error
     const [view, setView] = useState<"converted" | "original">("converted")
-    const [vm, setVm] = useState(false)
+    const [mode, setMode] = useState<"model" | "viewmodel" | "thirdperson">("model")
+    const vm = mode !== "model"
     const baked = (x.animations ?? []).some((a) => a.flags?.includes("baked"))
     return (
         <div className="mx-auto max-w-6xl px-6 py-5 max-md:px-3">
@@ -140,10 +142,10 @@ export function AssetDetail({ d, reviews }: { d: DetailData; reviews: ReviewHit[
             <Section id="model" title="Model">
                 {d.hasModel && baked && !x.map && (
                     <div className="mb-2 flex gap-1 text-[12px]">
-                        {([false, true] as const).map((v) => <button key={String(v)} onClick={() => setVm(v)} data-testid={v ? "mode-viewmodel" : "mode-model"} className={`rounded border px-2 py-0.5 ${vm === v ? "border-sky-300 text-sky-300" : "border-line text-muted"}`}>{v ? "View model" : "Model"}</button>)}
+                        {(["model", "viewmodel", "thirdperson"] as const).map((v) => <button key={v} onClick={() => setMode(v)} data-testid={`mode-${v}`} className={`rounded border px-2 py-0.5 ${mode === v ? "border-sky-300 text-sky-300" : "border-line text-muted"}`}>{v === "model" ? "Model" : v === "viewmodel" ? "View model" : "Third-person"}</button>)}
                     </div>
                 )}
-                {d.hasModel && baked && vm && !x.map ? <AssetViewModel glbUrl={fileUrl(d.id, "glb", 0)} animUrl={fileUrl(d.id, "anim", 0)} /> : d.hasModel ? (x.map ? <MapModel d={d} x={x} /> : <AssetViewer url={fileUrl(d.id, "glb", 0)} mounted={mounted} bbox={x.model?.bbox} textures={(x.textures ?? []).map((t, i) => ({ name: t.name, url: fileUrl(d.id, "tex", i) }))} />) : <div className="rounded-lg border border-line p-6 text-center text-[12px] text-muted">No model file for this asset.</div>}
+                {d.hasModel && baked && vm && !x.map ? (mode === "thirdperson" ? <AssetThirdPerson glbUrl={fileUrl(d.id, "glb", 0)} animUrl={fileUrl(d.id, "anim", 0)} mounted={mounted} /> : <AssetViewModel glbUrl={fileUrl(d.id, "glb", 0)} animUrl={fileUrl(d.id, "anim", 0)} mounted={mounted} />) : d.hasModel ? (x.map ? <MapModel d={d} x={x} /> : <AssetViewer url={fileUrl(d.id, "glb", 0)} mounted={mounted} bbox={x.model?.bbox} textures={(x.textures ?? []).map((t, i) => ({ name: t.name, url: fileUrl(d.id, "tex", i) }))} />) : <div className="rounded-lg border border-line p-6 text-center text-[12px] text-muted">No model file for this asset.</div>}
                 {d.hasModel && !x.map && d.attachments.length > 0 && <AttachPicker links={d.attachments} picked={picked} setPicked={setPicked} />}
                 <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-6">
                     <Stat k="triangles" v={(x.model?.tris ?? 0).toLocaleString("en-GB")} /><Stat k="vertices" v={(x.model?.verts ?? 0).toLocaleString("en-GB")} /><Stat k="materials" v={x.model?.materials ?? 0} /><Stat k="meshes" v={x.model?.meshes ?? 0} />
