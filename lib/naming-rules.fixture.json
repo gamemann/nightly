@@ -123,9 +123,7 @@
   "game-fatal-contact": "game-fatal-contact",
   "fc-weapons": "game-fatal-contact",
   "fc-dm-maps": "game-fatal-contact",
-  "fc-surf-dm-maps": "game-fatal-contact",
-  "arena-surf-dm-maps": "game-fatal-contact",
-  "arena-weapons": "game-fatal-contact"
+  "fc-surf-dm-maps": "game-fatal-contact"
  },
  "backbone": "^(website-|tmc-|storez|buildz|defcon|spy|stack|backbone|tekworks)",
  "dev": "^(dot-|zee-|zz-|godot|nightly|dev$)",
@@ -161,6 +159,50 @@
   [
    "^zz-",
    "game-zombie-zone"
+  ]
+ ],
+ "lateAliases": {
+  "arena-surf-dm-maps": "game-fatal-contact",
+  "arena-weapons": "game-fatal-contact"
+ },
+ "skipRepo": "^\\.|^nightly-|-wt(-|$)|-bak$|^scratch$|^dev-env$|^addons_dummy$|^inspirations$",
+ "webRepo": "^(website|tmc)-",
+ "twins": [
+  [
+   "^dot-",
+   "gs-"
+  ]
+ ],
+ "repoClasses": [
+  [
+   "-maps$",
+   "game-addon",
+   "Game Addons/Map packs"
+  ],
+  [
+   "-weapons$",
+   "game-addon",
+   "Game Addons/Weapon packs"
+  ],
+  [
+   "^(gs|dot)-",
+   "game-addon",
+   "Game Addons/GameSpice addons"
+  ],
+  [
+   "^zz-",
+   "game-addon",
+   "Game Addons/Content packs"
+  ],
+  [
+   "^mg-",
+   "game",
+   "Games/Minigames"
+  ],
+  [
+   "^game-",
+   "game",
+   "Games"
   ]
  ]
 }

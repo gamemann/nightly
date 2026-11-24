@@ -1,7 +1,9 @@
 'use client'
 import Link from 'next/link'
+import { useState } from 'react'
 import { api } from '~/trpc/react'
 import { OverviewStats } from './OverviewStats'
+import { validateRules } from '../../lib/naming-rules.mjs'
 
 // The fallbacks are the runner's own defaults (the run.sh prompt), so an unset key shows what it uses.
 const USAGE_LIMITS = [
@@ -20,7 +22,7 @@ const OPS_LIMITS = [
     { key: 'ghWarnPct', label: 'GitHub budget warning', fallback: '20', unit: '% left', min: 1, max: 90 },
     { key: 'ghMinLeft', label: 'GitHub reserve', fallback: '100', unit: 'calls', min: 0, max: 5000 },
 ]
-const HIDDEN = new Set(['transcriptDirs', 'transcriptsIdleMinutes', 'transcriptsDefaultUser', 'ciAutoSync', ...OPS_LIMITS.map((u) => u.key), 'doRun', 'runner', 'lastTickAt', 'lastTickBy', 'authEnabled', 'authUser', 'ingestOpen', ...USAGE_LIMITS.map((u) => u.key), ...ACCOUNT_LIMITS.map((u) => u.key)])
+const HIDDEN = new Set(['transcriptDirs', 'transcriptsIdleMinutes', 'transcriptsDefaultUser', 'ciAutoSync', 'namingRules', ...OPS_LIMITS.map((u) => u.key), 'doRun', 'runner', 'lastTickAt', 'lastTickBy', 'authEnabled', 'authUser', 'ingestOpen', ...USAGE_LIMITS.map((u) => u.key), ...ACCOUNT_LIMITS.map((u) => u.key)])
 
 export function Settings() {
     const utils = api.useUtils()
@@ -105,6 +107,7 @@ export function Settings() {
                 ))}
             </div>
             <TranscriptSettings />
+            <NamingRulesSettings />
             <div className="mt-4 rounded-lg border border-line bg-panel/60 p-4">
                 <div className="font-medium">Runner</div>
                 <p className="mt-0.5 mb-3 text-[12px] text-muted">
@@ -186,6 +189,32 @@ function TranscriptSettings() {
                 <span className="text-muted">whose sessions a user without a node mapping reads</span>
             </label>
             {set.error && <div className="mt-2 text-[12px] text-red-300">{set.error.message}</div>}
+        </div>
+    )
+}
+
+/** The `namingRules` Setting (lib/naming-rules.mjs): repo renames, aliases, game keywords, repo classes. Per-source scan rules
+ *  (weaponDefs, soundKinds, eventTable ...) are edited as JSON on each source in Tools > Assets > Sources. */
+function NamingRulesSettings() {
+    const utils = api.useUtils()
+    const s = api.setting.all.useQuery()
+    const set = api.setting.set.useMutation({ onSuccess: () => utils.setting.all.invalidate() })
+    const [text, setText] = useState<string | null>(null)
+    const cur = text ?? s.data?.namingRules ?? ''
+    const bad = cur.trim() ? validateRules(cur) : ''
+    return (
+        <div className="mt-4 rounded-lg border border-line bg-panel/60 p-4">
+            <div className="font-medium">Naming rules</div>
+            <p className="mt-0.5 mb-3 text-[12px] text-muted">
+                JSON that maps this workspace&apos;s repo names to projects: renames, rewrites, packGames, gameKeywords, gameAliases, lateAliases, repoClasses, twins, skipRepo, webRepo,
+                backbone/dev patterns. Empty = generic rules only. Keys are documented at the top of <code className="font-mono">lib/naming-rules.mjs</code>; changes apply within 30 seconds.
+            </p>
+            <textarea value={cur} onChange={(e) => setText(e.target.value)} rows={14} spellCheck={false} disabled={!s.data} className="input w-full font-mono text-[12px]" />
+            <div className="mt-2 flex items-center gap-3 text-[12px]">
+                <button disabled={!!bad || set.isPending || text === null} onClick={() => set.mutate({ key: 'namingRules', value: cur }, { onSuccess: () => setText(null) })} className="rounded border border-line px-3 py-1 hover:border-accent disabled:opacity-40">Save</button>
+                {bad && <span className="text-red-300">{bad}</span>}
+                {set.error && <span className="text-red-300">{set.error.message}</span>}
+            </div>
         </div>
     )
 }
