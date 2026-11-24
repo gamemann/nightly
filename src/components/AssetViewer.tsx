@@ -1,6 +1,7 @@
 "use client"
 import { useEffect, useRef, useState } from "react"
 import type * as T from "three"
+import { sightMagnification, sightPose, type Sight } from "./sightLine"
 
 type Opts = { wire: boolean; unlit: boolean; bbox: boolean; grid: boolean; light: string; fly: boolean; collision: boolean; trigger: boolean; entity: boolean; view: View }
 type View = "converted" | "original" | "split"
@@ -8,7 +9,7 @@ type Spawn = { x: number; y: number; z: number; yaw: number; team: string }
 const LIGHTS = ["studio", "outdoor", "dark rim", "flat"]
 /** An attachment mounted on the model: its glb, and the transform in the model's space (metres, rotation in degrees). */
 export type Mounted = { key: string; url: string; pos: number[]; rot: number[]; scale: number[] }
-type Api = { apply: (o: Opts) => void; reset: () => void; spawn: (i: number) => void; mount: (list: Mounted[]) => void }
+type Api = { apply: (o: Opts) => void; reset: () => void; spawn: (i: number) => void; mount: (list: Mounted[]) => void; sight: (on: boolean, s: Sight | null) => void }
 
 /** three.js viewer: orbit (left drag), pan (right drag), zoom (wheel); wireframe, textured/unlit, lighting presets, bounding box (metres) and grid.
  *  `map` (a converted map GLB): starts in free-fly (click to capture the mouse; W/A/S/D move, mouse look, Shift fast, Space up, Ctrl down,
@@ -16,7 +17,8 @@ type Api = { apply: (o: Opts) => void; reset: () => void; spawn: (i: number) => 
  *  and jump-to-spawn from the spawn list in the scene extras. Orbit stays available as a toggle.
  *  `original` (a map's source BSP exported to GLB in the same frame): adds converted / original / split views; the split view draws the
  *  original on the left and the converted map on the right through ONE camera, so fly and orbit move both at once. */
-export function AssetViewer({ url, bbox, textures, map, original, mounted }: { url: string; bbox?: number[]; textures?: { name: string; url: string }[]; map?: boolean; original?: string; mounted?: Mounted[] }) {
+export function AssetViewer({ url, bbox, textures, map, original, mounted, sight }: { url: string; bbox?: number[]; textures?: { name: string; url: string }[]; map?: boolean; original?: string; mounted?: Mounted[]; sight?: Sight | null }) {
+    const [sightOn, setSightOn] = useState(false)
     const box = useRef<HTMLDivElement>(null)
     const api = useRef<Api | null>(null)
     const [o, setO] = useState<Opts>({ wire: false, unlit: false, bbox: !map, grid: !map, light: map ? "outdoor" : "studio", fly: !!map, collision: false, trigger: false, entity: true, view: "converted" })
@@ -31,6 +33,7 @@ export function AssetViewer({ url, bbox, textures, map, original, mounted }: { u
     mountRef.current = mounted ?? []
     useEffect(() => { api.current?.mount(mounted ?? []) }, [mounted])
     useEffect(() => { api.current?.apply(o) }, [o])
+    useEffect(() => { api.current?.sight(sightOn && !!sight, sight ?? null) }, [sightOn, sight])
     useEffect(() => {
         let dead = false
         let cleanup = () => {}
@@ -162,7 +165,15 @@ export function AssetViewer({ url, bbox, textures, map, original, mounted }: { u
                 }
                 if (!list.length) el.dataset.attached = ""
             }
-            api.current = { apply, reset, spawn: toSpawn, mount }
+            // sight line: the camera sits behind the optic looking down the bore at the optic's fov (pose from sightLine.ts); off restores the orbit view
+            const sightFn = (on: boolean, s: Sight | null) => {
+                if (!on || !s) { camera.fov = 40; camera.updateProjectionMatrix(); controls.enabled = !fly.on; reset(); el.dataset.sight = ""; return }
+                const p = sightPose(s)
+                controls.enabled = false
+                camera.position.set(...p.position); camera.lookAt(...p.target); camera.fov = p.fov; camera.updateProjectionMatrix()
+                el.dataset.sight = `${s.key} fov ${p.fov.toFixed(1)}`
+            }
+            api.current = { apply, reset, spawn: toSpawn, mount, sight: sightFn }
             if (original) {
                 new GLTFLoader().load(original, (g) => {
                     if (dead) return
@@ -276,7 +287,8 @@ export function AssetViewer({ url, bbox, textures, map, original, mounted }: { u
                 <button className={btn(o.bbox)} onClick={() => setO({ ...o, bbox: !o.bbox })}>bbox</button>
                 <button className={btn(o.grid)} onClick={() => setO({ ...o, grid: !o.grid })}>grid</button>
                 <select className="rounded-md border border-line bg-panel px-1.5 py-0.5 text-[12px]" value={o.light} onChange={(e) => setO({ ...o, light: e.target.value })}>{LIGHTS.map((l) => <option key={l}>{l}</option>)}</select>
-                <button className={btn(false)} onClick={() => api.current?.reset()}>reset view</button>
+                {sight && <button className={btn(sightOn)} onClick={() => setSightOn(!sightOn)} data-testid="sight-toggle" title={`${sight.label}, aim ${sight.aim}`}>{sightOn ? "sight view" : "orbit view"} ({sightMagnification(sight)})</button>}
+                <button className={btn(false)} onClick={() => { setSightOn(false); api.current?.reset() }}>reset view</button>
                 <span className="text-[11px] text-muted">{state.startsWith("ok") ? state.slice(3) : ""}{original && ostate.startsWith("ok") ? ` (original ${ostate.slice(3)})` : ""}</span>
             </div>
         </div>
