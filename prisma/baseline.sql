@@ -331,6 +331,17 @@ CREATE TABLE "AssetKind" (
 );
 
 -- CreateTable
+CREATE TABLE "RsiFlag" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "match" TEXT NOT NULL,
+    "domain" TEXT NOT NULL DEFAULT '',
+    "action" TEXT NOT NULL DEFAULT '',
+    "label" TEXT NOT NULL DEFAULT '',
+    "sort" INTEGER NOT NULL DEFAULT 0,
+    "updatedAt" TEXT NOT NULL DEFAULT ''
+);
+
+-- CreateTable
 CREATE TABLE "RsiFinding" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "domain" TEXT NOT NULL,
@@ -901,6 +912,9 @@ CREATE INDEX "RsiFinding_domain_status_idx" ON "RsiFinding"("domain", "status");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "RsiFinding_subject_code_tier_key" ON "RsiFinding"("subject", "code", "tier");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "RsiFlag_match_key" ON "RsiFlag"("match");
 
 -- CreateIndex
 CREATE INDEX "Release_at_idx" ON "Release"("at");

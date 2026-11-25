@@ -20,6 +20,7 @@ import * as AS from '../lib/assets.mjs'
 import * as ASC from '../lib/assets-cli.mjs'
 import * as TH from '../lib/assets-thumbs.mjs'
 import * as RSI from '../lib/rsi.mjs'
+import * as RF from '../lib/rsi-flags.mjs'
 import * as US from '../lib/usage-store.mjs'
 import * as UQ from '../lib/usage-query.mjs'
 import * as UC from '../lib/usage-ch.mjs'
@@ -123,6 +124,7 @@ const HELP = `nightly -- the nightly run's to-do database (${S.DB_PATH})
   assets show <id|pack/weapon_id|weapon_id> [--json]     model, textures, animations, sounds, flags, score
   assets refresh                                run rsi_asset_audit.py for every texture tier (setting rsiTiers), ingest and sync findings (tick does this every rsiRefreshHours)
   rsi board|sync|refresh                        the RSI board: findings per domain; sync = stale/duplicate/blocked pass (auto-closes non-owner stale items)
+  rsi flag list|set <match> [--domain D] [--action TEXT] [--label TEXT] [--sort N]|rm <match>   audit flag rules (regex over the flag code): board domain and next action
   assets thumbs [id...] [--force] [--missing] [--limit N] [--wait]   (re)generate the 128x96 webp thumbnails (textures downscaled, models rendered in software, cached beside the audit data, regenerated when the file hash changes); runs detached unless --wait
   assets history [--pack P] [--limit N] [--json]   audit trend: one row per pack per ingest (oldest first; the history keeps counts and average score per pack, not per kind)
   assets summary                                per-pack counts and average score
@@ -685,7 +687,18 @@ function cmdRsi(forced) {
     }
     if (sub === 'sync') { RSI.ensure(db); const r = syncBlockers(db); return out(r, () => `blockers: ${r.found} found, ${r.closed} auto-closed`) }
     if (sub === 'board') { const b = RSI.board(db); return out(b, () => b.map((d) => `${d.domain.padEnd(11)} ${String(d.open).padStart(4)} open  ${String(d.resolved).padStart(4)} resolved`).join('\n') || '(no findings: nightly assets refresh)') }
-    die('rsi board|sync|refresh')
+    if (sub === 'flag' || sub === 'flags') {
+        RSI.ensure(db)
+        const act = pos.shift() ?? 'list'
+        if (act === 'list' || act === 'ls') { const rows = RF.list(db); return out(rows, () => rows.map((f) => `${String(f.sort).padStart(4)}  ${f.match.padEnd(40)} ${(f.domain || '-').padEnd(10)} ${f.action || '-'}`).join('\n')) }
+        if (act === 'set') {
+            const match = pos[0] ?? die('rsi flag set <match-regex> [--domain D] [--action TEXT] [--label TEXT] [--sort N]')
+            try { const r = RF.save(db, { match, domain: opt.domain, action: opt.action, label: opt.label, sort: opt.sort }); return out({ match, result: r }, () => `${r}: ${match}`) } catch (e) { die(e.message) }
+        }
+        if (act === 'rm') { const match = pos[0] ?? die('rsi flag rm <match-regex>'); const ok = RF.remove(db, match); return out({ removed: ok }, () => ok ? `removed: ${match}` : `no flag rule ${match}`) }
+        die('rsi flag list|set|rm')
+    }
+    die('rsi board|sync|refresh|flag')
 }
 
 function cmdAssets() {
@@ -694,6 +707,7 @@ function cmdAssets() {
     if (sub === 'refresh') return cmdRsi('refresh')
     if (sub === 'source' || sub === 'sources') return ASC.sourceCmd(db, pos, opt, out, die)
     if (sub === 'kind' || sub === 'kinds') return ASC.kindCmd(db, pos, opt, out, die)
+    if (sub === 'flag' || sub === 'flags') return cmdRsi('flag')
     if (sub === 'config') { const c = ASC.config(db); return out(c, () => JSON.stringify(c, null, 2)) }
     // a scan or an ingest adds rows with no preview: render those (only those) in the background, never blocking the caller
     const kickThumbs = () => { if (process.env.NIGHTLY_NO_AUTO_THUMBS) return; try { spawn(process.execPath, [process.argv[1], 'assets', 'thumbs', '--child', '--missing'], { detached: true, stdio: 'ignore', env: process.env }).unref() } catch { /* previews are optional */ } }

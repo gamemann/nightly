@@ -6,6 +6,7 @@ import { offsetOf, paged } from '../lib/paging'
 
 const name = z.string().regex(/^[\w.-]+$/)
 const list = z.array(z.string())
+type Flag = { match: string; domain: string; action: string; label: string; sort: number }
 
 /** Flags for `nightly assets source add|set`; absent fields are left out so `set` only changes what was sent. */
 function sourceArgs(i: z.infer<typeof sourceInput>): string[] {
@@ -51,4 +52,10 @@ export const assetsRouter = router({
         .mutation(({ input }) => assetsCli(['kind', 'set', input.key, ...(input.label ? ['--label', input.label] : []), ...(input.sort !== undefined ? ['--sort', String(input.sort)] : []),
             ...(input.match !== undefined ? ['--match', input.match] : []), ...(input.budget ? ['--budget', JSON.stringify(input.budget)] : [])])),
     kindRm: procedure.input(z.object({ key: name })).mutation(({ input }) => assetsCli(['kind', 'rm', input.key])),
+    /** Audit flag rules (RsiFlag): regex over the flag code -> board domain and next action. Listed through the CLI so the generic seed exists. */
+    flags: procedure.query(async () => (await assetsCli(['flag', 'list'])) as Flag[]),
+    flagSave: procedure.input(z.object({ match: z.string().min(1), domain: z.string().optional(), action: z.string().optional(), label: z.string().optional(), sort: z.number().int().optional() }))
+        .mutation(({ input }) => assetsCli(['flag', 'set', input.match, ...(input.domain !== undefined ? ['--domain', input.domain] : []), ...(input.action !== undefined ? ['--action', input.action] : []),
+            ...(input.label !== undefined ? ['--label', input.label] : []), ...(input.sort !== undefined ? ['--sort', String(input.sort)] : [])])),
+    flagRm: procedure.input(z.object({ match: z.string().min(1) })).mutation(({ input }) => assetsCli(['flag', 'rm', input.match])),
 })

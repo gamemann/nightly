@@ -459,6 +459,18 @@ model RsiFinding {
   @@index([domain, status])
 }
 
+/// RSI flag definitions: `match` is a regex over an audit flag code; the first row by sort with a domain sets the board domain,
+/// the first with an action gives the finding's next action. Generic rows are seeded on create (lib/rsi-flags.mjs).
+model RsiFlag {
+  id        Int    @id @default(autoincrement())
+  match     String @unique
+  domain    String @default("")
+  action    String @default("")
+  label     String @default("")
+  sort      Int    @default(0)
+  updatedAt String @default("")
+}
+
 /// Project-health feeds (lib/feeds.mjs creates the tables; written only by `nightly releases|crash|web|playtest|content`).
 model Release {
   id         Int      @id @default(autoincrement())

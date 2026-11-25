@@ -59,6 +59,45 @@ export function AssetSources() {
             {kinds.data?.rows.map((k) => <KindRow key={k.key} k={k as Kind} onSave={(p) => kSave.mutate({ key: k.key, ...p })} onRm={() => kRm.mutate({ key: k.key })} />)}
             {kinds.data && <Pagination p={kinds.data} ns="k" />}
             <NewKind onAdd={(p) => kSave.mutate(p)} />
+            <FlagRules onMsg={setMsg} />
+        </div>
+    )
+}
+
+type Flag = { match: string; domain: string; action: string; label: string; sort: number }
+/** Audit flag rules: which board domain a flag code lands in and the next action its finding carries. First match by order wins. */
+function FlagRules({ onMsg }: { onMsg: (m: string) => void }) {
+    const utils = api.useUtils()
+    const flags = api.assets.flags.useQuery()
+    const done = { onSuccess: () => { void utils.assets.flags.invalidate(); onMsg('saved') }, onError: (e: { message: string }) => onMsg(e.message) }
+    const save = api.assets.flagSave.useMutation(done)
+    const rm = api.assets.flagRm.useMutation(done)
+    const [nm, setNm] = useState('')
+    return (
+        <>
+            <h2 className="mb-2 mt-4 text-[13px] font-semibold">Audit flag rules</h2>
+            <p className="mb-2 text-[12px] text-muted"><code className="font-mono">match</code> is a regex over the audit flag code. The first rule by order with a domain sets the board domain; the first with an action gives the finding its next action. Changes apply on the next audit sync.</p>
+            {flags.data?.map((f) => <FlagRow key={f.match} f={f} onSave={(p) => save.mutate({ match: f.match, ...p })} onRm={() => confirm(`Delete rule ${f.match}?`) && rm.mutate({ match: f.match })} />)}
+            <div className="mt-2 flex gap-2"><input className={`${box} font-mono`} placeholder="new rule regex, e.g. ^MY_FLAG$" value={nm} onChange={(e) => setNm(e.target.value)} />
+                <button className={btn} disabled={!nm} onClick={() => { save.mutate({ match: nm, sort: 0 }); setNm('') }}>Add rule</button></div>
+        </>
+    )
+}
+
+function FlagRow({ f, onSave, onRm }: { f: Flag; onSave: (p: { domain: string; action: string; label: string; sort: number }) => void; onRm: () => void }) {
+    const [domain, setDomain] = useState(f.domain)
+    const [action, setAction] = useState(f.action)
+    const [label, setLabel] = useState(f.label)
+    const [sort, setSort] = useState(String(f.sort))
+    return (
+        <div className="mb-1.5 flex flex-wrap items-start gap-2 rounded-lg border border-line p-2">
+            <input className={`${box} w-14`} value={sort} onChange={(e) => setSort(e.target.value)} title="order" />
+            <span className="w-56 truncate pt-1 font-mono text-[12px] text-dim" title={f.match}>{f.match}</span>
+            <input className={`${box} w-24`} value={domain} onChange={(e) => setDomain(e.target.value)} placeholder="domain" />
+            <input className={`${box} w-40`} value={label} onChange={(e) => setLabel(e.target.value)} placeholder="what it means" />
+            <textarea className={`${box} h-8 min-w-60 flex-1`} value={action} onChange={(e) => setAction(e.target.value)} placeholder="next action" />
+            <button className={btn} onClick={() => onSave({ domain, action, label, sort: Number(sort) || 0 })}>Save</button>
+            <button className={`${btn} text-red-300`} onClick={onRm}>Delete</button>
         </div>
     )
 }
