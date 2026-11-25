@@ -66,7 +66,7 @@ The map converter and map manager are covered in [map-converter](map-converter.m
 | Section | Shows |
 | --- | --- |
 | Textures | Every texture of the model with its size and map type. |
-| Animations | Clips with length and whether they are static; procedural clips play in the viewer. |
+| Animations | Clips with length and whether they are static. When the GLB itself carries clips, the Model viewer gets a clip picker, play/pause, a scrub slider, speed (0.25x to 2x) and loop, starting paused on the idle clip (or the first). Click a row to play that clip in the viewer; static (zero-length) clips and names missing from the GLB stay greyed out. Baked viewmodel clips play in the viewmodel viewer. |
 | Sounds | Audio files with a player. |
 
 ![Textures](screenshots/mgr-model-textures.png)
