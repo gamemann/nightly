@@ -16,3 +16,4 @@ export function aggregate(rows: { pack: string; kind: string; coverage: string |
 export function refresh(db: unknown, opts?: { only?: string[]; exists?: (p: string) => boolean }): Matrix
 export function emptySources(db: unknown): { name: string; enabled: boolean; rootOk: boolean }[]
 export function text(m: Matrix, empty?: { name: string; enabled: boolean; rootOk: boolean }[]): string
+export function linkIcons(idx: Map<string, { icons: Set<string>; iconSources?: string[] }>): void
