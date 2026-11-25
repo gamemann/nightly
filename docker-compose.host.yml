@@ -1,0 +1,31 @@
+# Host-mode override: the panel on a box where it drives the host (git repos under /home, ssh to the other boxes,
+# Claude accounts, scheduler ticks) and uses the host's own ClickHouse. Starts on boot with Docker.
+#   docker compose -f docker-compose.yml -f docker-compose.host.yml up -d --build panel
+# Env comes from .env (the host install's own settings) plus NIGHTLY_UID/GID/PORT/HOME overrides.
+services:
+  panel:
+    build:
+      context: .
+      args:
+        NIGHTLY_EXTRA_PACKAGES: sudo gh ffmpeg curl rsync procps jq imagemagick
+    image: nightly-panel-host
+    user: "${NIGHTLY_UID:-1001}:${NIGHTLY_GID:-1001}"
+    network_mode: host
+    ports: !reset []
+    depends_on: !reset {}
+    env_file:
+      - .env
+    environment:
+      HOME: ${NIGHTLY_HOME:-/home/core}
+      NIGHTLY_DB: ${NIGHTLY_DB:-/home/core/projects/nightly/data/nightly.db}
+      NIGHTLY_CLICKHOUSE_URL: http://127.0.0.1:8123
+      # The container runs in /app, so the default <cwd>/data/rsi-assets (thumbnails, glb cache) would be empty: point at the host checkout.
+      NIGHTLY_ASSETS_DIR: ${NIGHTLY_ASSETS_DIR:-/home/core/projects/nightly/data/rsi-assets}
+    command: ["npx", "next", "start", "-H", "0.0.0.0", "-p", "${NIGHTLY_PORT:-3010}"]
+    volumes: !override
+      - /home:/home
+      # So the panel's uid resolves to a user (os.userInfo, ssh, git).
+      - /etc/passwd:/etc/passwd:ro
+      - /etc/group:/etc/group:ro
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:${NIGHTLY_PORT:-3010}/login').then((r)=>process.exit(r.ok?0:1),()=>process.exit(1))"]

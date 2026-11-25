@@ -12,6 +12,18 @@ PORT="${NIGHTLY_PORT:-3010}"
 OWNER_USER="$(stat -c %U .)"
 if [ "$(id -un)" != "$OWNER_USER" ]; then exec sudo -u "$OWNER_USER" "$0" "$@"; fi
 
+# On a box where the panel runs in Docker (docker-compose.host.yml), rebuild the image from this checkout and recreate the container.
+if docker inspect nightly-panel >/dev/null 2>&1; then
+    COMPOSE=(docker compose -f docker-compose.yml -f docker-compose.host.yml)
+    if [ "${1:-}" = "--stop" ]; then "${COMPOSE[@]}" stop panel; exit 0; fi
+    "${COMPOSE[@]}" up -d --build --no-deps panel
+    for _ in $(seq 1 120); do
+        if curl -fsS -o /dev/null "http://127.0.0.1:${NIGHTLY_PORT:-3010}/login"; then echo "panel (docker) up on :${NIGHTLY_PORT:-3010}"; exit 0; fi
+        sleep 2
+    done
+    echo "panel container did not answer; docker logs nightly-panel" >&2; exit 1
+fi
+
 pid="$(ss -ltnpH "sport = :$PORT" 2>/dev/null | grep -o 'pid=[0-9]*' | head -1 | cut -d= -f2 || true)"
 if [ -n "$pid" ]; then
     echo "stopping panel pid $pid"

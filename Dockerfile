@@ -11,7 +11,10 @@ RUN npx prisma generate && npm run build
 
 FROM node:24-bookworm-slim
 WORKDIR /app
-RUN apt-get update && apt-get install -y --no-install-recommends git openssh-client openssl ca-certificates tini && rm -rf /var/lib/apt/lists/*
+# NIGHTLY_EXTRA_PACKAGES: more tools for a panel that drives its host (see docker-compose.host.yml).
+# python3: scripts/run.sh, qa-post.sh, review-post.sh and claude-usage.sh need it inside the panel.
+ARG NIGHTLY_EXTRA_PACKAGES=""
+RUN apt-get update && apt-get install -y --no-install-recommends git openssh-client openssl ca-certificates tini python3 $NIGHTLY_EXTRA_PACKAGES && rm -rf /var/lib/apt/lists/*
 ENV NODE_ENV=production NIGHTLY_DB=/data/nightly.db
 COPY --from=build /app /app
 COPY docker/entrypoint.sh /usr/local/bin/nightly-entrypoint
