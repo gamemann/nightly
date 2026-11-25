@@ -35,7 +35,7 @@ import { LOC_HELP, runLocCommand, tickHook as locTick } from '../lib/loc.mjs'
 import { OPS_COMMANDS, OPS_HELP, runOpsCommand, tickHook as opsTick } from '../lib/ops-cli.mjs'
 
 const argv = process.argv.slice(2)
-const BOOL = new Set(['json', 'all', 'top', 'due', 'help', 'h', 'dryRun', 'force', 'peek', 'strict', 'register', 'noFindings', 'noBudgets', 'noBaseline', 'requireToken', 'tokenOnly', 'png', 'disable', 'enable', 'infra', 'leave', 'purge', 'wait', 'child', 'full', 'noCh', 'resync', 'missing', 'noCi', 'absolute', 'delete', 'noJournal', 'frame', 'fork', 'interrupt', 'noGh', ...ACCOUNT_BOOL, ...GAMETOOLS_BOOL])
+const BOOL = new Set(['json', 'all', 'top', 'due', 'help', 'h', 'dryRun', 'force', 'peek', 'strict', 'register', 'noFindings', 'noBudgets', 'noBaseline', 'requireToken', 'tokenOnly', 'png', 'disable', 'enable', 'infra', 'leave', 'purge', 'wait', 'child', 'full', 'noCh', 'resync', 'missing', 'noCi', 'absolute', 'delete', 'noJournal', 'frame', 'fork', 'interrupt', 'noGh', 'reclassify', ...ACCOUNT_BOOL, ...GAMETOOLS_BOOL])
 
 const multi = {}
 function parse(args) {
@@ -119,6 +119,7 @@ const HELP = `nightly -- the nightly run's to-do database (${S.DB_PATH})
   assets kind list|set <key> [--label L] [--sort N] [--match REGEX] [--budget JSON]|rm <key>   asset kinds and their audit budgets
   assets config                                 print the rsi-config/1 JSON (sources, kinds, tiers) the audit tool reads
   assets scan [name...]                         list every asset of the enabled sources by scanning their directories (never overwrites audited rows)
+  assets coverage [pack...] [--reclassify] [--json]   (--reclassify first applies the sources' kindRules to existing rows) recompute and show, per pack and kind, which of model/texture/sound/anim/icon/licence is ok, placeholder, stale or missing
   assets ingest <audit.json|-> [--require-token|--token-only]   load rsi_asset_audit.py output (schema rsi-assets/2); token = NIGHTLY_PERF_TOKEN
   assets list [--pack P] [--kind K] [--game G] [--flag CODE] [--min-score N] [--max-score N] [--q TEXT] [--json]
   assets show <id|pack/weapon_id|weapon_id> [--json]     model, textures, animations, sounds, flags, score
@@ -702,7 +703,7 @@ function cmdRsi(forced) {
 }
 
 function cmdAssets() {
-    const sub = pos.shift() ?? die('assets migrate|source|kind|config|scan|ingest|list|show|history|summary|thumbs')
+    const sub = pos.shift() ?? die('assets migrate|source|kind|config|scan|coverage|ingest|list|show|history|summary|thumbs')
     if (sub === 'migrate') { const bak = AS.migrate(db, { backup: true, dbPath: S.DB_PATH }); return out({ ok: true, backup: bak }, () => `assets table ready${bak ? `; database backed up to ${bak}` : ''}`) }
     if (sub === 'refresh') return cmdRsi('refresh')
     if (sub === 'source' || sub === 'sources') return ASC.sourceCmd(db, pos, opt, out, die)
@@ -714,6 +715,7 @@ function cmdAssets() {
     if (sub === 'anim-attach') { const n = AS.attachAnim(db); return out({ changed: n }, () => `${n} rows now carry baked animation clips`) }
     if (sub === 'upload' || sub === 'uploads') return assetsUploadCmd(sub, { db, pos, opt, out, die })
     if (sub === 'scan') { const r = ASC.scanCmd(db, pos, opt, out); kickThumbs(); return r }
+    if (sub === 'coverage') return ASC.coverageCmd(db, pos, opt, out)
     if (sub === 'ingest') {
         const file = pos[0] ?? die('assets ingest <audit.json|->')
         const text = readText(file)

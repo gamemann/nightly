@@ -393,6 +393,8 @@ model AssetWeapon {
   /// hash of the model file the cached thumbnail was rendered from; the thumbnail is redone when it changes
   fileHash   String @default("")
   shape      Int    @default(0)
+  /// lib/asset-coverage.mjs: JSON {s: model/texture/sound/anim/icon/licence status, o: orphan reason, g: needed dimensions not ok}
+  coverage   String @default("")
   attachments AssetAttachment[] @relation("AssetParent")
   attachedTo  AssetAttachment[] @relation("AssetAttached")
 
