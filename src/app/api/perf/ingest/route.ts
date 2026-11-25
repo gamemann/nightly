@@ -1,7 +1,7 @@
 import { trustedPost } from "~/server/auth"
 import { perfIngest } from "~/server/perfRouter"
 
-// Performance ingest: POST a dot-profiler report (JSON v1/v2), a .folded stack file or the .txt summary as the body.
+// Performance ingest: POST a gs-profiler report (JSON v1/v2), a .folded stack file or the .txt summary as the body.
 //   curl -X POST --data-binary @report.json "$PANEL/api/perf/ingest?game=fc&platform=native&role=client&map=arena&bots=4&commit=abc123"
 // `name=x.folded` tells the parser the format when the body alone is ambiguous. Same optional password as the rest of the panel (proxy.ts).
 // With `Authorization: Bearer nps_...` (a token from `nightly perf token add`; per runner or per game, stored hashed) a runner can post even when the

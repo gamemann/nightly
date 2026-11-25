@@ -1,23 +1,23 @@
 #!/usr/bin/env bash
 # chk-ci-red.sh: is the latest completed CI run on every default branch green? (nightly check, report only)
-# Wraps dot-bootstrap tools/ci-red.sh, the shared tool: for each repo in projects.tsv it reads the default branch's newest
+# Wraps gs-bootstrap tools/ci-red.sh, the shared tool: for each repo in projects.tsv it reads the default branch's newest
 # completed run (not the Images workflow) from the internal Forgejo first (zero GitHub API calls, docs/forgejo-ci.md in
-# dot-bootstrap), and asks GitHub only for repos Forgejo has no run for, cached 15 min (CI_RED_GITHUB=0: never). That tool asks gh here, or ssh's to the box
+# gs-bootstrap), and asks GitHub only for repos Forgejo has no run for, cached 15 min (CI_RED_GITHUB=0: never). That tool asks gh here, or ssh's to the box
 # where gh is logged in when gh is logged out here, so this script does not duplicate that logic.
 # Every red default branch prints a FLAG line (failing job, run URL). Cancelled runs are listed once as a note:
 # they need a re-run, not a fix. Nothing is re-run and no repo is edited.
 #   chk-ci-red.sh
-#   env: DOT_BOOTSTRAP (else the DOT_BOOTSTRAP line of this repo's .env) locates tools/ci-red.sh and projects.tsv.
+#   env: BOOTSTRAP_DIR (else the BOOTSTRAP_DIR line of this repo's .env) locates tools/ci-red.sh and projects.tsv.
 #        CI_RED_TOOL overrides the tool path, PROJECTS_TSV the list, CI_RED_TIMEOUT the wait in seconds (0 = none).
 # Exit 0 every default branch green, 1 at least one red, 2 unreadable (no tool or list, a repo unknown to GitHub,
 # or the tool itself failed, e.g. ssh to the gh box refused).
 set -u
 here=$(cd "$(dirname "$0")/.." && pwd)
-boot=${DOT_BOOTSTRAP:-}
-[ -n "$boot" ] || boot=$(sed -n 's/^DOT_BOOTSTRAP=//p' "$here/.env" 2>/dev/null | tail -1)
+boot=${BOOTSTRAP_DIR:-}
+[ -n "$boot" ] || boot=$(sed -n 's/^BOOTSTRAP_DIR=//p' "$here/.env" 2>/dev/null | tail -1)
 tool=${CI_RED_TOOL:-${boot:+$boot/tools/ci-red.sh}}
-[ -n "$tool" ] && [ -r "$tool" ] || { echo "FLAG ci-unreadable: no ci-red.sh (set DOT_BOOTSTRAP in the host .env or CI_RED_TOOL)"; exit 2; }
-[ -n "${PROJECTS_TSV:-}" ] || [ -r "${boot:-/nonexistent}/projects.tsv" ] || { echo "FLAG ci-unreadable: no projects.tsv (set DOT_BOOTSTRAP in the host .env or PROJECTS_TSV)"; exit 2; }
+[ -n "$tool" ] && [ -r "$tool" ] || { echo "FLAG ci-unreadable: no ci-red.sh (set BOOTSTRAP_DIR in the host .env or CI_RED_TOOL)"; exit 2; }
+[ -n "${PROJECTS_TSV:-}" ] || [ -r "${boot:-/nonexistent}/projects.tsv" ] || { echo "FLAG ci-unreadable: no projects.tsv (set BOOTSTRAP_DIR in the host .env or PROJECTS_TSV)"; exit 2; }
 
 tmp=$(mktemp); trap 'rm -f "$tmp"' EXIT
 secs=${CI_RED_TIMEOUT:-0}

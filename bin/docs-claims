@@ -88,7 +88,7 @@ def sources(page):
             item = re.match(r"^\s+-\s+\"?([^\"]+)\"?\s*$", line)
             if item:
                 ref = item.group(1)
-                # `<prefix>godot/dot-map/README.md` -- a source that lives on another machine (REMOTE_PREFIX, REMOTE_HOST).
+                # `<prefix>godot/some-addon/README.md` -- a source that lives on another machine (REMOTE_PREFIX, REMOTE_HOST).
                 out.append(ref if REMOTE_PREFIX and ref.startswith(REMOTE_PREFIX) else os.path.normpath(os.path.join(LEARN, ref)))
             elif not line.startswith(" "):
                 inside = False

@@ -87,9 +87,9 @@ function AddGame({ done }: { done: () => void }) {
     return (
         <div className="mt-2 grid max-w-2xl gap-2 rounded-lg border border-line p-3 text-[12px]">
             <div className="grid grid-cols-2 gap-2">
-                <input className={input} placeholder="id (fc)" value={f.id} onChange={set("id")} />
+                <input className={input} placeholder="id (mygame)" value={f.id} onChange={set("id")} />
                 <input className={input} placeholder="name" value={f.name} onChange={set("name")} />
-                <input className={input} placeholder="repo (fc-game)" value={f.repo} onChange={set("repo")} />
+                <input className={input} placeholder="repo (mygame)" value={f.repo} onChange={set("repo")} />
                 <input className={input} placeholder="repo path on the run box" value={f.repoPath} onChange={set("repoPath")} />
                 <input className={input} placeholder="engine" value={f.engine} onChange={set("engine")} />
                 <input className={input} placeholder="platforms" value={f.platforms} onChange={set("platforms")} />

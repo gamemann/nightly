@@ -74,7 +74,7 @@ export function Nodes() {
                             </div>
                         </Field>
                         <Field label="Workspace root on the node" wide><input className="input font-mono" value={form.workspace} placeholder="/home/build/work" title="Jobs for a project run in <workspace>/<repo folder name> unless a project path below says otherwise" onChange={(e) => set('workspace', e.target.value)} /></Field>
-                        <Field label="Project paths (slug=/path; …)" wide><input className="input font-mono" value={form.paths} placeholder="fc-game=/srv/fc-game" title="Where each project's checkout lives on this node; wins over the workspace root" onChange={(e) => set('paths', e.target.value)} /></Field>
+                        <Field label="Project paths (slug=/path; …)" wide><input className="input font-mono" value={form.paths} placeholder="mygame=/srv/mygame" title="Where each project's checkout lives on this node; wins over the workspace root" onChange={(e) => set('paths', e.target.value)} /></Field>
                         <label className="flex items-center gap-1 text-[12px]"><input type="checkbox" checked={form.tls} onChange={(e) => set('tls', e.target.checked)} />TLS</label>
                         <Field label="Notes" wide><input className="input" value={form.notes} onChange={(e) => set('notes', e.target.value)} /></Field>
                     </div>
