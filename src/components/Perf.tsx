@@ -348,7 +348,7 @@ function Visuals({ id }: { id: number }) {
         <section className="mb-5">
             <h2 className="mb-1 text-[13px] font-medium">Call trace and hitches</h2>
             <p className="mb-2 text-[12px] text-muted">Report for READMEs and PRs: <a className="text-sky-300" href={`/api/perf/report/${id}?format=md`}>markdown</a> · <a className="text-sky-300" href={`/api/perf/report/${id}?format=svg`}>svg</a> · <a className="text-sky-300" href={`/api/perf/report/${id}?format=png`}>png</a></p>
-            {d.flame ? <Svg svg={d.flame} label="flame graph" /> : <div className="rounded border border-line px-3 py-3 text-[12px] text-muted">No call stacks in this run (ingest a dot-profiler v2 report or a .folded file).</div>}
+            {d.flame ? <Svg svg={d.flame} label="flame graph" /> : <div className="rounded border border-line px-3 py-3 text-[12px] text-muted">No call stacks in this run (ingest a gs-profiler v2 report or a .folded file).</div>}
             {d.hitch && <div className="mt-2"><Svg svg={d.hitch} label="hitch timeline" /></div>}
             {d.shots.length > 0 && (
                 <div className="mt-3">
