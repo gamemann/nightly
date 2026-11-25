@@ -162,7 +162,19 @@ export function MapEditor({ url }: { url: string }) {
             }
             eng.current = e
             apply.current = refresh
-            new GLTFLoader().load(url, (gltf) => {
+            // a converted map's glb is 100+ MB: say how much has arrived, then that it is being parsed, so a slow load never reads as a hang
+            const mb = (n: number) => (n / 1048576).toFixed(n < 10485760 ? 1 : 0)
+            let shown = 0
+            const progress = (ev: ProgressEvent) => {
+                if (dead) return
+                const now = performance.now()
+                const done = ev.lengthComputable && ev.loaded >= ev.total
+                if (!done && now - shown < 250) return
+                shown = now
+                setState(done ? `parsing ${mb(ev.total)} MB model...` : `downloading ${mb(ev.loaded)}${ev.lengthComputable ? ` / ${mb(ev.total)}` : ""} MB...`)
+            }
+            const fail = (err: unknown) => { if (!dead) setState(`failed: ${(err as Error)?.message ?? String(err)}`) }
+            new GLTFLoader().load(url, (gltf) => { try {
                 if (dead) return
                 root = gltf.scene; scene.add(root)
                 const ex = (gltf.scenes[0]?.userData ?? gltf.scene.userData) as { map?: { editor?: Editor; bounds?: { min: number[]; max: number[] } } }
@@ -176,7 +188,7 @@ export function MapEditor({ url }: { url: string }) {
                 sphere.set(c, r); persp.position.copy(c).add(new THREE.Vector3(r * 0.9, r * 0.6, r * 0.9)); controls.target.copy(c); o.c.copy(c); o.zoom = r * 0.8
                 gridH.position.set(c.x, bb.min.y, c.z); gridH.scale.setScalar(Math.max(1, r / 100)); axesH.position.set(bb.min.x, bb.min.y, bb.min.z); axesH.scale.setScalar(Math.max(1, r / 20))
                 setEd(editor); st.current.items = its; setItems(its); setState("ready"); refresh()
-            }, undefined, (err) => setState(`failed: ${(err as Error)?.message ?? err}`))
+            } catch (err) { fail(err) } }, progress, fail)
 
             // layout: 1 = perspective, 4 = perspective + top / front / side orthographic (scissored viewports)
             const rect = () => ({ w: el.clientWidth, h: el.clientHeight })
@@ -286,7 +298,7 @@ export function MapEditor({ url }: { url: string }) {
                 <span className="ml-2 text-muted">Layout</span>
                 <button onClick={() => setPanes(1)} className={btn(panes === 1)}>3D</button><button onClick={() => setPanes(4)} className={btn(panes === 4)}>3D + top/front/side</button>
                 <button onClick={() => setGrid(!grid)} className={btn(grid)}>grid</button><button onClick={() => setAxes(!axes)} className={btn(axes)}>axes</button>
-                <span className="ml-auto text-muted">{state !== "ready" ? state : "drag: orbit, right: pan, wheel: zoom, WASD/C/Space: fly, click: select"}</span>
+                <span data-testid="map-editor-state" className={`ml-auto ${state.startsWith("failed") ? "text-red-400" : "text-muted"}`}>{state !== "ready" ? state : "drag: orbit, right: pan, wheel: zoom, WASD/C/Space: fly, click: select"}</span>
             </div>
             <div className="flex flex-wrap gap-1 border-b border-line p-2 text-[11px]" data-testid="map-kinds">
                 {Object.entries(kinds).map(([k, n]) => <span key={k} className="rounded bg-panel-2 px-1.5 py-0.5 text-dim">{k} <b className="text-fg">{n.toLocaleString("en-GB")}</b></span>)}
@@ -330,7 +342,7 @@ export function MapEditor({ url }: { url: string }) {
                 </div>
                 <div className="relative min-h-0">
                     <div ref={box} tabIndex={0} className="absolute inset-0 outline-none" />
-                    <div className="pointer-events-none absolute bottom-1 left-2 font-mono text-[10px] text-dim">{hud}{it?.pos ? `   | sel ${fmt(it.pos)}` : ""}</div>
+                    <div className="pointer-events-none absolute bottom-1 left-2 font-mono text-[10px] text-dim">{state === "ready" ? hud : state}{it?.pos ? `   | sel ${fmt(it.pos)}` : ""}</div>
                 </div>
                 <div className="min-h-0 overflow-auto border-l border-line p-2 text-[12px]" data-testid="inspector">
                     <div className="mb-1 font-medium">Inspector</div>
