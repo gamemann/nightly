@@ -19,6 +19,7 @@ import * as PV from '../lib/perf-viz.mjs'
 import * as AS from '../lib/assets.mjs'
 import * as ASC from '../lib/assets-cli.mjs'
 import * as TH from '../lib/assets-thumbs.mjs'
+import * as PKR from '../lib/assets-packrules.mjs'
 import * as RSI from '../lib/rsi.mjs'
 import * as RF from '../lib/rsi-flags.mjs'
 import * as US from '../lib/usage-store.mjs'
@@ -759,9 +760,15 @@ function cmdAssets() {
             return out({ ok: true, pid: child.pid }, () => `thumbnails generating in the background (pid ${child.pid}); add --wait to run in the foreground`)
         }
         AS.ready(db)
-        return TH.generate(db, { force: !!opt.force, missing: !!opt.missing, limit: Number(opt.limit) || 0, ids: pos.length ? pos.map(Number).filter(Number.isInteger) : null }).then((r) => out(r, () => `${r.total} assets: ${r.made} made, ${r.fresh} up to date, ${r.none} without an image, ${r.error} failed`))
+        return TH.generate(db, { force: !!opt.force, missing: !!opt.missing, limit: Number(opt.limit) || 0, ids: pos.length ? pos.map(Number).filter(Number.isInteger) : null }).then((r) => ({ ...r, packRules: PKR.syncPackRules(db) })).then((r) => out(r, () => `${r.total} assets: ${r.made} made, ${r.fresh} up to date, ${r.none} without an image, ${r.error} failed`))
     }
-    die('assets migrate|source|kind|config|scan|ingest|list|show|history|summary|thumbs')
+    if (sub === 'packrules') {
+        // vendored copies (file hash = a pack asset's) and the allowedPacks / forbidPaths findings; also run by rsi refresh and thumbs
+        AS.ready(db)
+        const r = PKR.syncPackRules(db)
+        return out(r, () => `${r.vendored} vendored copies; ${r.raised} pack-rule findings open, ${r.closed} closed; ${r.hidden} audit findings on copies resolved`)
+    }
+    die('assets migrate|source|kind|config|scan|ingest|list|show|history|summary|thumbs|packrules')
 }
 
 function cmdPerf() {

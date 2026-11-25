@@ -1,5 +1,6 @@
 export const TAB_SQL: Record<'entities' | 'avatars' | 'models' | 'textures' | 'animations' | 'sounds', string>
 export const DEDUPE_KEY: string
+export const NOT_VENDORED: string
 export const UNIQUE: string
 export function packIn(packs: string[] | null): string
 export function uniqueFor(packs: string[] | null): string

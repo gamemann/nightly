@@ -303,7 +303,8 @@ CREATE TABLE "AssetWeapon" (
     "soundBytes" INTEGER NOT NULL DEFAULT 0,
     "fileHash" TEXT NOT NULL DEFAULT '',
     "shape" INTEGER NOT NULL DEFAULT 0,
-    "coverage" TEXT NOT NULL DEFAULT ''
+    "coverage" TEXT NOT NULL DEFAULT '',
+    "vendoredFrom" TEXT NOT NULL DEFAULT ''
 );
 
 -- CreateTable

@@ -3,7 +3,7 @@ import { db } from './db'
 import { ensureAssetNameRules } from './namingRules'
 import { INDEXES, BACKFILL, alterStatements } from '../../lib/asset-cols.mjs'
 import { PIECE_SQL, describe, placeOf } from '../../lib/asset-names.mjs'
-import { DEDUPE_KEY, TAB_SQL, aggCountSql, effectiveFilters, packIn, uniqueFor, type KindTab } from '../../lib/asset-tabs.mjs'
+import { DEDUPE_KEY, TAB_SQL, aggCountSql, effectiveFilters, packIn, uniqueFor, NOT_VENDORED, type KindTab } from '../../lib/asset-tabs.mjs'
 import { offsetOf, likeEsc, paged, type PageQuery, type PageSpec, type Paged } from '~/lib/paging'
 
 export type Tab = 'entities' | 'avatars' | 'models' | 'textures' | 'animations' | 'sounds' | 'maps' | 'libraries'
@@ -73,6 +73,7 @@ function where(q: PageQuery, only: 'rows' | 'pieces' = 'rows', packs: string[] |
     if (f.min) { w.push('score >= ?'); a.push(Number(f.min) || 0) }
     if (f.max) { w.push('score <= ?'); a.push(Number(f.max) || 0) }
     w.push(only === 'pieces' || showPieces(f.pieces) ? PIECE_SQL : `NOT ${PIECE_SQL}`)
+    w.push(NOT_VENDORED)
     if (f.grp) { w.push("weaponId LIKE ? ESCAPE '\\'"); a.push(`%${likeEsc(`__${f.grp}__`)}%`) }
     if (q.q) { w.push("(weaponId LIKE ? ESCAPE '\\' OR pack LIKE ? ESCAPE '\\')"); a.push(`%${likeEsc(q.q)}%`, `%${likeEsc(q.q)}%`) }
     return { sql: w.length ? `WHERE ${w.join(' AND ')}` : '', a }
@@ -170,7 +171,7 @@ export async function assetAgg(project?: string): Promise<Agg> {
     await ensureAssetNameRules(db)
     await ensureAssetColumns()
     const scope = await projectPacks(project), UNIQUE = uniqueFor(scope)
-    const A = `AND NOT ${PIECE_SQL}${packIn(scope)}`
+    const A = `AND NOT ${PIECE_SQL} AND ${NOT_VENDORED}${packIn(scope)}`
     const [tot, bins, packs, kinds, flags, worst, games, kt] = await Promise.all([
         db.$queryRawUnsafe<Record<string, unknown>[]>(`SELECT COUNT(*) total, SUM(source='audit') audited, SUM(${TAB_SQL.entities}) e, SUM(${TAB_SQL.avatars}) v, SUM(${TAB_SQL.models}) m, SUM(${TAB_SQL.textures}) t, SUM(${TAB_SQL.animations}) a, SUM(${TAB_SQL.sounds}) s FROM ${UNIQUE}`),
         db.$queryRawUnsafe<{ b: unknown; c: unknown }[]>(`SELECT MIN(9, MAX(0, score / 10)) b, COUNT(*) c FROM ${UNIQUE} GROUP BY b`),

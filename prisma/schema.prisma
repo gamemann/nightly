@@ -395,6 +395,7 @@ model AssetWeapon {
   shape      Int    @default(0)
   /// lib/asset-coverage.mjs: JSON {s: model/texture/sound/anim/icon/licence status, o: orphan reason, g: needed dimensions not ok}
   coverage   String @default("")
+  vendoredFrom String @default("") // '<pack>/<weaponId>' when a game row copies a pack asset
   attachments AssetAttachment[] @relation("AssetParent")
   attachedTo  AssetAttachment[] @relation("AssetAttached")
 
