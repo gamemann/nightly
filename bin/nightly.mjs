@@ -113,6 +113,7 @@ const HELP = `nightly -- the nightly run's to-do database (${S.DB_PATH})
   prompt rename <old> <new> [--kind script]     keep history and schedule links; a script is a job (no agent)
 
   schedule list                                 when the runner starts (edit in the panel)
+  assets event-attach                           re-resolve every audited row's event sounds (event tables, class tables, stock folder) without a new audit
   assets anim-attach                            fill baked animation rows from each model's .anim.json sidecar
   assets migrate                                create the assets (RSI) table (backs up the database to data/backup/ first)
   assets source add <name> --root DIR [--type pack|game] [--models GLOBS] [--textures GLOBS] [--sounds GLOBS] [--exclude DIRS] [--default-kind K] [--sound-kinds K,K] [--sound-match id-prefix|all|none] [--config JSON]
@@ -713,6 +714,7 @@ function cmdAssets() {
     if (sub === 'config') { const c = ASC.config(db); return out(c, () => JSON.stringify(c, null, 2)) }
     // a scan or an ingest adds rows with no preview: render those (only those) in the background, never blocking the caller
     const kickThumbs = () => { if (process.env.NIGHTLY_NO_AUTO_THUMBS) return; try { spawn(process.execPath, [process.argv[1], 'assets', 'thumbs', '--child', '--missing'], { detached: true, stdio: 'ignore', env: process.env }).unref() } catch { /* previews are optional */ } }
+    if (sub === 'event-attach') { const n = AS.attachEvents(db); return out({ changed: n }, () => `${n} rows re-resolved their event sounds`) }
     if (sub === 'anim-attach') { const n = AS.attachAnim(db); return out({ changed: n }, () => `${n} rows now carry baked animation clips`) }
     if (sub === 'upload' || sub === 'uploads') return assetsUploadCmd(sub, { db, pos, opt, out, die })
     if (sub === 'scan') { const r = ASC.scanCmd(db, pos, opt, out); kickThumbs(); return r }
