@@ -1,7 +1,8 @@
 "use client"
 import Link from "next/link"
 import { useEffect, useRef, useState } from "react"
-import { AssetViewer, type Mounted } from "./AssetViewer"
+import { AssetViewer, type AnimState, type ClipRequest, type Mounted } from "./AssetViewer"
+import { clipPlayable } from "../../lib/anim-play.mjs"
 import { AssetViewModel } from "./AssetViewModel"
 import { AssetThirdPerson } from "./AssetThirdPerson"
 import { sightOf } from "./sightLine"
@@ -119,6 +120,16 @@ export function AssetDetail({ d, reviews }: { d: DetailData; reviews: ReviewHit[
     const [mode, setMode] = useState<"model" | "viewmodel" | "thirdperson">("model")
     const vm = mode !== "model"
     const baked = (x.animations ?? []).some((a) => a.flags?.includes("baked"))
+    // the Model viewer reports the GLB's clips; a click on an Animations row asks it to play that clip (matched by name)
+    const [anim, setAnim] = useState<AnimState | null>(null)
+    const [clipReq, setClipReq] = useState<ClipRequest | null>(null)
+    const viewerBox = useRef<HTMLDivElement>(null)
+    const viewerAnim = d.hasModel && !x.map && !vm   // rows play only in the plain Model viewer, never the baked viewmodel / third-person ones
+    const playRow = (name: string) => {
+        setClipReq((r) => ({ clip: name, n: (r?.n ?? 0) + 1 }))
+        const b = viewerBox.current?.getBoundingClientRect()
+        if (b && (b.bottom < 0 || b.top > window.innerHeight)) viewerBox.current!.scrollIntoView({ behavior: "smooth", block: "center" })
+    }
     return (
         <div className="mx-auto max-w-6xl px-6 py-5 max-md:px-3">
             <h1 className="text-[15px] font-semibold tracking-tight"><Link href={d.tab === "maps" ? "/tools/maps" : "/tools/assets"} className="hover:text-sky-300">{d.tab === "maps" ? "Maps" : "Assets"}</Link> <span className="text-muted">/</span> <Link href={listHref(d.tab, { pack: d.pack })} className="hover:text-sky-300">{d.pack}</Link> <span className="text-muted">/</span> <span title={d.weaponId}>{d.display}</span> <span className="font-mono text-[11px] font-normal text-muted">{d.weaponId}</span></h1>
@@ -146,7 +157,7 @@ export function AssetDetail({ d, reviews }: { d: DetailData; reviews: ReviewHit[
                         {(["model", "viewmodel", "thirdperson"] as const).map((v) => <button key={v} onClick={() => setMode(v)} data-testid={`mode-${v}`} className={`rounded border px-2 py-0.5 ${mode === v ? "border-sky-300 text-sky-300" : "border-line text-muted"}`}>{v === "model" ? "Model" : v === "viewmodel" ? "View model" : "Third-person"}</button>)}
                     </div>
                 )}
-                {d.hasModel && baked && vm && !x.map ? (mode === "thirdperson" ? <AssetThirdPerson glbUrl={fileUrl(d.id, "glb", 0)} animUrl={fileUrl(d.id, "anim", 0)} mounted={mounted} sight={sight} /> : <AssetViewModel glbUrl={fileUrl(d.id, "glb", 0)} animUrl={fileUrl(d.id, "anim", 0)} mounted={mounted} sight={sight} />) : d.hasModel ? (x.map ? <MapModel d={d} x={x} /> : <AssetViewer url={fileUrl(d.id, "glb", 0)} mounted={mounted} sight={sight} bbox={x.model?.bbox} textures={(x.textures ?? []).map((t, i) => ({ name: t.name, url: fileUrl(d.id, "tex", i) }))} />) : <div className="rounded-lg border border-line p-6 text-center text-[12px] text-muted">No model file for this asset.</div>}
+                {d.hasModel && baked && vm && !x.map ? (mode === "thirdperson" ? <AssetThirdPerson glbUrl={fileUrl(d.id, "glb", 0)} animUrl={fileUrl(d.id, "anim", 0)} mounted={mounted} sight={sight} /> : <AssetViewModel glbUrl={fileUrl(d.id, "glb", 0)} animUrl={fileUrl(d.id, "anim", 0)} mounted={mounted} sight={sight} />) : d.hasModel ? (x.map ? <MapModel d={d} x={x} /> : <div ref={viewerBox}><AssetViewer url={fileUrl(d.id, "glb", 0)} mounted={mounted} sight={sight} playClip={clipReq} onAnim={setAnim} bbox={x.model?.bbox} textures={(x.textures ?? []).map((t, i) => ({ name: t.name, url: fileUrl(d.id, "tex", i) }))} /></div>) : <div className="rounded-lg border border-line p-6 text-center text-[12px] text-muted">No model file for this asset.</div>}
                 {d.hasModel && !x.map && d.attachments.length > 0 && <AttachPicker links={d.attachments} picked={picked} setPicked={setPicked} />}
                 <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-6">
                     <Stat k="triangles" v={(x.model?.tris ?? 0).toLocaleString("en-GB")} /><Stat k="vertices" v={(x.model?.verts ?? 0).toLocaleString("en-GB")} /><Stat k="materials" v={x.model?.materials ?? 0} /><Stat k="meshes" v={x.model?.meshes ?? 0} />
@@ -192,9 +203,16 @@ export function AssetDetail({ d, reviews }: { d: DetailData; reviews: ReviewHit[
             <Section id="animations" title={`Animations (${(x.animations ?? []).length})`}>
                 {(x.animations ?? []).length ? (
                     <table className="w-full text-[12.5px]"><thead><tr className="border-b border-line text-left text-dim"><th className="px-2 py-1 font-medium">Clip</th><th className="px-2 py-1 font-medium">Length</th><th className="px-2 py-1 font-medium">Tracks</th><th className="px-2 py-1 font-medium">Mag travel</th><th className="px-2 py-1 font-medium">Flags</th></tr></thead>
-                        <tbody>{x.animations!.map((a) => (
-                            <tr key={a.name} className="border-b border-line/50"><td className="px-2 py-1">{a.name}</td><td className="px-2 py-1 tabular-nums">{a.length == null ? "-" : `${a.length.toFixed(2)} s`}</td><td className="px-2 py-1 tabular-nums">{a.tracks}</td><td className="px-2 py-1 tabular-nums">{a.mag_displacement == null ? "-" : `${a.mag_displacement.toFixed(3)} m`}</td>
-                                <td className="px-2 py-1">{(a.flags ?? []).map((f) => <span key={f} className={`mr-1 rounded px-1 text-[10.5px] ${/static|no_tracks/.test(f) ? "bg-amber-400/15 text-amber-300" : "bg-hover text-dim"}`}>{f}</span>)}</td></tr>))}</tbody></table>
+                        <tbody>{x.animations!.map((a) => {
+                            const g = viewerAnim && anim?.clips.length ? anim.clips.find((c) => c.name === a.name) : undefined
+                            const ok = !!g && clipPlayable(g.length)
+                            const note = !viewerAnim || !anim?.clips.length ? "" : !g ? "not in the GLB" : !ok ? "static, nothing to play" : ""
+                            const cur = ok && anim?.clip === a.name
+                            return (
+                            <tr key={a.name} data-testid={`anim-row-${a.name}`} data-playing={cur && anim?.playing ? "1" : undefined} onClick={ok ? () => playRow(a.name) : undefined} title={ok ? "play in the viewer" : note || undefined}
+                                className={`border-b border-line/50 ${ok ? "cursor-pointer hover:bg-hover" : ""} ${cur ? "bg-sky-400/10" : ""} ${note ? "text-muted" : ""}`}>
+                                <td className="px-2 py-1"><span className="inline-block w-4 text-sky-300">{cur && anim?.playing ? "\u25B6" : ""}</span>{a.name}{note && <span className="ml-2 text-[11px] italic">{note}</span>}</td><td className="px-2 py-1 tabular-nums">{a.length == null ? "-" : `${a.length.toFixed(2)} s`}</td><td className="px-2 py-1 tabular-nums">{a.tracks}</td><td className="px-2 py-1 tabular-nums">{a.mag_displacement == null ? "-" : `${a.mag_displacement.toFixed(3)} m`}</td>
+                                <td className="px-2 py-1">{(a.flags ?? []).map((f) => <span key={f} className={`mr-1 rounded px-1 text-[10.5px] ${/static|no_tracks/.test(f) ? "bg-amber-400/15 text-amber-300" : "bg-hover text-dim"}`}>{f}</span>)}</td></tr>)})}</tbody></table>
                 ) : <div className="text-[12px] text-muted">The model carries no animation clips.</div>}
                 <ReviewMedia reviews={reviews} slots={["filmstrip", "clip", "image", "screenshot"]} />
             </Section>

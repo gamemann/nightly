@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react"
 import type * as T from "three"
 import { sightMagnification, sightPose, type Sight } from "./sightLine"
+import { advance, clipPlayable, defaultClip, RATES, type ClipInfo } from "../../lib/anim-play.mjs"
 
 type Opts = { wire: boolean; unlit: boolean; bbox: boolean; grid: boolean; light: string; fly: boolean; collision: boolean; trigger: boolean; entity: boolean; view: View }
 type View = "converted" | "original" | "split"
@@ -9,7 +10,13 @@ type Spawn = { x: number; y: number; z: number; yaw: number; team: string }
 const LIGHTS = ["studio", "outdoor", "dark rim", "flat"]
 /** An attachment mounted on the model: its glb, and the transform in the model's space (metres, rotation in degrees). */
 export type Mounted = { key: string; url: string; pos: number[]; rot: number[]; scale: number[] }
-type Api = { apply: (o: Opts) => void; reset: () => void; spawn: (i: number) => void; mount: (list: Mounted[]) => void; sight: (on: boolean, s: Sight | null) => void }
+type Api = { apply: (o: Opts) => void; reset: () => void; spawn: (i: number) => void; mount: (list: Mounted[]) => void; sight: (on: boolean, s: Sight | null) => void; anim: AnimApi }
+type AnimApi = { select: (name: string) => void; play: (on: boolean) => void; seek: (t: number) => void; rate: (r: number) => void; loop: (on: boolean) => void }
+/** What the viewer reports about the GLB's own clips: every clip in the file, the selected one and whether it is playing. */
+export type AnimState = { clips: ClipInfo[]; clip: string; playing: boolean }
+/** A request from outside (the Animations table) to select and play a clip; `n` changes on every click so the same clip can be asked for twice. */
+export type ClipRequest = { clip: string; n: number }
+const fmtT = (t: number) => t.toFixed(2)
 
 /** three.js viewer: orbit (left drag), pan (right drag), zoom (wheel); wireframe, textured/unlit, lighting presets, bounding box (metres) and grid.
  *  `map` (a converted map GLB): starts in free-fly (click to capture the mouse; W/A/S/D move, mouse look, Shift fast, Space up, Ctrl down,
@@ -17,7 +24,21 @@ type Api = { apply: (o: Opts) => void; reset: () => void; spawn: (i: number) => 
  *  and jump-to-spawn from the spawn list in the scene extras. Orbit stays available as a toggle.
  *  `original` (a map's source BSP exported to GLB in the same frame): adds converted / original / split views; the split view draws the
  *  original on the left and the converted map on the right through ONE camera, so fly and orbit move both at once. */
-export function AssetViewer({ url, bbox, textures, map, original, mounted, sight }: { url: string; bbox?: number[]; textures?: { name: string; url: string }[]; map?: boolean; original?: string; mounted?: Mounted[]; sight?: Sight | null }) {
+export function AssetViewer({ url, bbox, textures, map, original, mounted, sight, playClip, onAnim }: { url: string; bbox?: number[]; textures?: { name: string; url: string }[]; map?: boolean; original?: string; mounted?: Mounted[]; sight?: Sight | null; playClip?: ClipRequest | null; onAnim?: (s: AnimState) => void }) {
+    // clip playback (the GLB's own animations): the mixer lives in the effect below; these mirror its state for the controls
+    const [clips, setClips] = useState<ClipInfo[]>([])
+    const [clip, setClip] = useState("")
+    const [playing, setPlaying] = useState(false)
+    const [t, setT] = useState(0)
+    const [rate, setRate] = useState(1)
+    const [loop, setLoop] = useState(true)
+    const onAnimRef = useRef(onAnim)
+    onAnimRef.current = onAnim
+    useEffect(() => { onAnimRef.current?.({ clips, clip, playing }) }, [clips, clip, playing])
+    useEffect(() => {
+        if (!playClip || !api.current || !clips.some((c) => c.name === playClip.clip && clipPlayable(c.length))) return
+        api.current.anim.select(playClip.clip); api.current.anim.play(true)
+    }, [playClip, clips])
     const [sightOn, setSightOn] = useState(false)
     const box = useRef<HTMLDivElement>(null)
     const api = useRef<Api | null>(null)
@@ -58,6 +79,36 @@ export function AssetViewer({ url, bbox, textures, map, original, mounted, sight
             let view: View = "converted"
             let helper: T.Box3Helper | null = null
             let grid: T.GridHelper | null = null
+            // clip playback: one action at a time, the playhead is driven by advance() and sampled with mixer.update(0)
+            let mixer: T.AnimationMixer | null = null
+            const clipMap = new Map<string, T.AnimationClip>()
+            const anim = { action: null as T.AnimationAction | null, name: "", len: 0, t: 0, playing: false, rate: 1, loop: true, shown: 0 }
+            const sample = () => {
+                if (!mixer || !anim.action) return
+                anim.action.time = Math.min(anim.t, Math.max(0, anim.len - 1e-4))   // LoopRepeat would wrap exactly `len` back to frame 0
+                mixer.update(0)
+                el.dataset.anim = `${anim.name} ${fmtT(anim.t)} ${anim.playing ? "playing" : "paused"}`
+            }
+            const animApi: AnimApi = {
+                select: (name) => {
+                    if (!mixer) return
+                    mixer.stopAllAction()   // the last action's bindings drop to zero users and restore the rest pose
+                    const c = clipMap.get(name)
+                    anim.name = name; anim.t = 0; anim.playing = false
+                    anim.action = c && clipPlayable(c.duration) ? mixer.clipAction(c) : null
+                    anim.len = anim.action ? c!.duration : 0
+                    if (anim.action) { anim.action.setLoop(THREE.LoopRepeat, Infinity); anim.action.play() }
+                    sample(); setClip(name); setT(0); setPlaying(false)
+                },
+                play: (on) => {
+                    if (!anim.action) return
+                    if (on && !anim.loop && anim.t >= anim.len) anim.t = 0
+                    anim.playing = on; sample(); setPlaying(on); setT(anim.t)
+                },
+                seek: (v) => { if (!anim.action) return; anim.t = Math.max(0, Math.min(anim.len, v)); sample(); setT(anim.t) },
+                rate: (r) => { anim.rate = r },
+                loop: (on) => { anim.loop = on },
+            }
             const sphere = new THREE.Sphere(new THREE.Vector3(), 1)
             const orig = new Map<T.Mesh, T.Material | T.Material[]>()
             const unlitCache = new Map<T.Material, T.Material>()
@@ -173,7 +224,7 @@ export function AssetViewer({ url, bbox, textures, map, original, mounted, sight
                 camera.position.set(...p.position); camera.lookAt(...p.target); camera.fov = p.fov; camera.updateProjectionMatrix()
                 el.dataset.sight = `${s.key} fov ${p.fov.toFixed(1)}`
             }
-            api.current = { apply, reset, spawn: toSpawn, mount, sight: sightFn }
+            api.current = { apply, reset, spawn: toSpawn, mount, sight: sightFn, anim: animApi }
             if (original) {
                 new GLTFLoader().load(original, (g) => {
                     if (dead) return
@@ -222,6 +273,14 @@ export function AssetViewer({ url, bbox, textures, map, original, mounted, sight
                     if (spawnList.length) toSpawn(0)
                 }
                 apply(optsRef.current)
+                // after the framing above, so the bbox, grid and camera come from the rest pose; skinned meshes keep that rest-pose box while animating
+                if (!map && gltf.animations.length) {
+                    mixer = new THREE.AnimationMixer(root)
+                    for (const c of gltf.animations) clipMap.set(c.name, c)
+                    const list = gltf.animations.map((c) => ({ name: c.name, length: c.duration }))
+                    setClips(list)
+                    animApi.select(defaultClip(list))
+                }
                 let tris = 0
                 root.traverse((n) => { const m = n as T.Mesh; if (m.isMesh) tris += (m.geometry.index ? m.geometry.index.count : m.geometry.attributes.position.count) / 3 })
                 setState(`ok ${Math.round(tris)} tris`)
@@ -233,6 +292,14 @@ export function AssetViewer({ url, bbox, textures, map, original, mounted, sight
             const tick = () => {
                 raf = requestAnimationFrame(tick)
                 const dt = Math.min(0.1, clock.getDelta())
+                if (anim.playing && anim.action) {
+                    const r = advance(anim.t, dt, anim.rate, anim.len, anim.loop)
+                    anim.t = r.t
+                    if (r.ended) { anim.playing = false; setPlaying(false) }
+                    sample()
+                    anim.shown += dt
+                    if (anim.shown > 0.066 || r.ended) { anim.shown = 0; setT(anim.t) }   // the readout and slider at ~15 Hz, not every frame
+                }
                 if (fly.on) {
                     const k = fly.keys, v = fly.speed * dt * (k.has("ShiftLeft") || k.has("ShiftRight") ? 4 : 1)
                     const fwd = new THREE.Vector3(); camera.getWorldDirection(fwd)
@@ -256,6 +323,7 @@ export function AssetViewer({ url, bbox, textures, map, original, mounted, sight
             tick()
             cleanup = () => {
                 cancelAnimationFrame(raf); ro.disconnect(); controls.dispose()
+                if (mixer) { mixer.stopAllAction(); if (root) mixer.uncacheRoot(root); for (const c of clipMap.values()) mixer.uncacheClip(c); mixer = null }
                 document.removeEventListener("pointerlockchange", onLock); document.removeEventListener("mousemove", onMove)
                 document.removeEventListener("keydown", kd); document.removeEventListener("keyup", ku)
                 if (document.pointerLockElement === renderer.domElement) document.exitPointerLock()
@@ -263,7 +331,7 @@ export function AssetViewer({ url, bbox, textures, map, original, mounted, sight
                 renderer.dispose(); renderer.domElement.remove()
             }
         })()
-        return () => { dead = true; api.current = null; cleanup() }
+        return () => { dead = true; api.current = null; cleanup(); setClips([]); setClip(""); setPlaying(false); setT(0); setRate(1); setLoop(true) }
     }, [url, original])
     const btn = (on: boolean) => `rounded-md px-2 py-0.5 text-[12px] ${on ? "bg-sky-400/20 text-sky-200" : "bg-hover text-dim hover:text-fg"}`
     return (
@@ -291,6 +359,27 @@ export function AssetViewer({ url, bbox, textures, map, original, mounted, sight
                 <button className={btn(false)} onClick={() => { setSightOn(false); api.current?.reset() }}>reset view</button>
                 <span className="text-[11px] text-muted">{state.startsWith("ok") ? state.slice(3) : ""}{original && ostate.startsWith("ok") ? ` (original ${ostate.slice(3)})` : ""}</span>
             </div>
+            {clips.length > 0 && (() => {
+                const cur = clips.find((c) => c.name === clip)
+                const len = cur && clipPlayable(cur.length) ? cur.length : 0
+                const sel = "rounded-md border border-line bg-panel px-1.5 py-0.5 text-[12px]"
+                return (
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[12px]" data-testid="anim-controls">
+                        <span className="text-muted">clip</span>
+                        <select className={sel} value={clip} data-testid="anim-clip" onChange={(e) => api.current?.anim.select(e.target.value)}>
+                            {clips.map((c) => <option key={c.name} value={c.name} disabled={!clipPlayable(c.length)}>{c.name}{clipPlayable(c.length) ? "" : " (static)"}</option>)}
+                        </select>
+                        <button className={btn(playing)} disabled={!len} data-testid="anim-play" onClick={() => api.current?.anim.play(!playing)}>{playing ? "pause" : "play"}</button>
+                        <input type="range" min={0} max={len || 1} step={0.001} value={Math.min(t, len)} disabled={!len} data-testid="anim-scrub" className="w-48 accent-sky-400"
+                            onChange={(e) => { if (playing) api.current?.anim.play(false); api.current?.anim.seek(Number(e.target.value)) }} />
+                        <span className="w-24 tabular-nums text-dim" data-testid="anim-time">{fmtT(Math.min(t, len))} / {fmtT(len)} s</span>
+                        <select className={sel} value={rate} data-testid="anim-rate" onChange={(e) => { const r = Number(e.target.value); setRate(r); api.current?.anim.rate(r) }}>
+                            {RATES.map((r) => <option key={r} value={r}>{r}x</option>)}
+                        </select>
+                        <button className={btn(loop)} data-testid="anim-loop" onClick={() => { setLoop(!loop); api.current?.anim.loop(!loop) }}>loop</button>
+                    </div>
+                )
+            })()}
         </div>
     )
 }
