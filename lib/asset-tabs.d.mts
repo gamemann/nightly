@@ -5,5 +5,6 @@ export function packIn(packs: string[] | null): string
 export function uniqueFor(packs: string[] | null): string
 export function listCountSql(tab: string, kind?: string): string
 export function aggCountSql(packs?: string[] | null): string
-export function effectiveFilters(f: Record<string, string>): Record<string, string>
-export function kindInTab(tab: string, kind: string): boolean
+export type KindTab = { key: string; tab?: string }
+export function effectiveFilters(f: Record<string, string>, kinds?: KindTab[]): Record<string, string>
+export function kindInTab(tab: string, kind: string, kinds?: KindTab[]): boolean

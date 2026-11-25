@@ -11,7 +11,10 @@ const btn = 'rounded-md border border-line px-2 py-1 text-[12px] hover:bg-hover'
 
 
 type Src = { name: string; type: string; root: string; repo: string; enabled: boolean; config: string; lastScanAt: string | null }
-type Kind = { key: string; label: string; sort: number; match: string; budget: string }
+type KindTab = '' | 'entities' | 'avatars' | 'maps'
+type Kind = { key: string; label: string; sort: number; match: string; budget: string; tab: KindTab; sounds: number }
+/** The Assets tab a kind lists on ('' = Models). */
+const KIND_TABS: [KindTab, string][] = [['', 'Models'], ['entities', 'Entities'], ['avatars', 'Characters'], ['maps', 'Maps only']]
 const parse = (s: string): Record<string, unknown> => { try { return JSON.parse(s) as Record<string, unknown> } catch { return {} } }
 
 /** Settings for the Assets tab: where assets come from (sources) and what each kind is judged against (kinds). */
@@ -53,10 +56,10 @@ export function AssetSources() {
             {sources.data && <Pagination p={sources.data} ns="s" />}
             {!!sources.data?.rows.length && <button className={`${btn} mb-6 mt-2`} onClick={() => scan.mutate({})}>Scan all enabled</button>}
             <h2 className="mb-2 mt-4 text-[13px] font-semibold">Kinds and budgets</h2>
-            <p className="mb-2 text-[12px] text-muted">The kind decides which audit checks and limits apply. <code className="font-mono">match</code> is a regex on the model path; the budget is JSON (min_tris, max_tris, min_tex, max_tex, required_clips, require_skin, max_size, and more).</p>
+            <p className="mb-2 text-[12px] text-muted">The kind decides which audit checks and limits apply, which Assets tab lists it and whether sounds are attached. <code className="font-mono">match</code> is a regex on the model path; the budget is JSON (min_tris, max_tris, min_tex, max_tex, required_clips, require_skin, max_size, and more).</p>
             <ListControls ns="k" q={kq.q} sort={kq.sort || 'sort'} dir={kq.dir} searchHint="Search key, label or match" sorts={[{ key: 'sort', label: 'order' }, { key: 'key', label: 'key' }, { key: 'label', label: 'label' }]} />
             {kinds.data?.rows.length === 0 && kq.q && <p className="mb-2 text-[12px] text-muted">No kind matches.</p>}
-            {kinds.data?.rows.map((k) => <KindRow key={k.key} k={k as Kind} onSave={(p) => kSave.mutate({ key: k.key, ...p })} onRm={() => kRm.mutate({ key: k.key })} />)}
+            {kinds.data?.rows.map((k) => <KindRow key={k.key} k={k as unknown as Kind} onSave={(p) => kSave.mutate({ key: k.key, ...p })} onRm={() => kRm.mutate({ key: k.key })} />)}
             {kinds.data && <Pagination p={kinds.data} ns="k" />}
             <NewKind onAdd={(p) => kSave.mutate(p)} />
             <FlagRules onMsg={setMsg} />
@@ -134,8 +137,10 @@ function SourceRow({ s, onSave, onScan, onRm }: { s: Src; onSave: (p: { root: st
     )
 }
 
-function KindRow({ k, onSave, onRm }: { k: Kind; onSave: (p: { label: string; sort: number; match: string; budget: Record<string, unknown> }) => void; onRm: () => void }) {
+function KindRow({ k, onSave, onRm }: { k: Kind; onSave: (p: { label: string; sort: number; match: string; budget: Record<string, unknown>; tab: KindTab; sounds: boolean }) => void; onRm: () => void }) {
     const [label, setLabel] = useState(k.label)
+    const [tab, setTab] = useState<KindTab>(k.tab ?? '')
+    const [sounds, setSounds] = useState(Number(k.sounds) === 1)
     const [sort, setSort] = useState(String(k.sort))
     const [match, setMatch] = useState(k.match)
     const [budget, setBudget] = useState(JSON.stringify(parse(k.budget)))
@@ -146,8 +151,12 @@ function KindRow({ k, onSave, onRm }: { k: Kind; onSave: (p: { label: string; so
             <input className={`${box} w-28`} value={label} onChange={(e) => setLabel(e.target.value)} />
             <input className={`${box} w-14`} value={sort} onChange={(e) => setSort(e.target.value)} title="sort order" />
             <input className={`${box} w-40 font-mono`} value={match} onChange={(e) => setMatch(e.target.value)} placeholder="path regex" />
+            <select className={`${box} w-28`} value={tab} onChange={(e) => setTab(e.target.value as KindTab)} title="the Assets tab that lists this kind">
+                {KIND_TABS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+            <label className="flex items-center gap-1 pt-1 text-[12px] text-dim" title="attach sound files to assets of this kind (a source's soundKinds overrides)"><input type="checkbox" checked={sounds} onChange={(e) => setSounds(e.target.checked)} />sounds</label>
             <textarea className={`${box} h-8 min-w-60 flex-1 font-mono`} value={budget} onChange={(e) => setBudget(e.target.value)} />
-            <button className={btn} onClick={() => { try { onSave({ label, sort: Number(sort) || 0, match, budget: JSON.parse(budget || '{}') as Record<string, unknown> }); setBad('') } catch (e) { setBad((e as Error).message) } }}>Save</button>
+            <button className={btn} onClick={() => { try { onSave({ label, sort: Number(sort) || 0, match, budget: JSON.parse(budget || '{}') as Record<string, unknown>, tab, sounds }); setBad('') } catch (e) { setBad((e as Error).message) } }}>Save</button>
             <button className={`${btn} text-red-300`} onClick={onRm}>Delete</button>
             {bad && <span className="w-full text-[12px] text-red-300">{bad}</span>}
         </div>

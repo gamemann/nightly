@@ -26,7 +26,7 @@ export default async function AssetsPage({ params, searchParams }: { params: Pro
         const byPack = new Map<string, typeof hist>()
         for (const h of hist) byPack.set(h.pack, [...(byPack.get(h.pack) ?? []), h])
         const trend: PackTrend[] = [...byPack].map(([pack, hs]) => ({ pack, scores: hs.slice(-30).map((h) => h.avgScore), last: hs[hs.length - 1].avgScore, total: hs[hs.length - 1].total, pass: hs[hs.length - 1].pass })).sort((a, b) => a.last - b.last)
-        const [kinds, sources] = await Promise.all([db.assetKind.findMany({ orderBy: [{ sort: "asc" }, { key: "asc" }], select: { key: true, label: true } }), db.assetSource.count()])
+        const [kinds, sources] = await Promise.all([db.assetKind.findMany({ orderBy: [{ sort: "asc" }, { key: "asc" }], select: { key: true, label: true, tab: true } }), db.assetSource.count()])
         return <AssetManager><Assets data={data} agg={agg} kinds={kinds} sources={sources} trend={trend} packNames={agg.packs.map((x) => x.key).sort()} /></AssetManager>
     }
     const id = Number(slug[0])

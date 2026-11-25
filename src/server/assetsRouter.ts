@@ -48,9 +48,10 @@ export const assetsRouter = router({
     sourceRm: procedure.input(z.object({ name, purge: z.boolean().optional() })).mutation(({ input }) => assetsCli(['source', 'rm', input.name, ...(input.purge ? ['--purge'] : [])])),
     /** Scan one source (or all enabled ones when no names are given). */
     scan: procedure.input(z.object({ names: list.optional() })).mutation(({ input }) => assetsCli(['scan', ...(input.names ?? [])])),
-    kindSave: procedure.input(z.object({ key: name, label: z.string().optional(), sort: z.number().int().optional(), match: z.string().optional(), budget: z.record(z.string(), z.unknown()).optional() }))
+    kindSave: procedure.input(z.object({ key: name, label: z.string().optional(), sort: z.number().int().optional(), match: z.string().optional(), budget: z.record(z.string(), z.unknown()).optional(), tab: z.enum(['', 'entities', 'avatars', 'maps']).optional(), sounds: z.boolean().optional() }))
         .mutation(({ input }) => assetsCli(['kind', 'set', input.key, ...(input.label ? ['--label', input.label] : []), ...(input.sort !== undefined ? ['--sort', String(input.sort)] : []),
-            ...(input.match !== undefined ? ['--match', input.match] : []), ...(input.budget ? ['--budget', JSON.stringify(input.budget)] : [])])),
+            ...(input.match !== undefined ? ['--match', input.match] : []), ...(input.budget ? ['--budget', JSON.stringify(input.budget)] : []),
+            ...(input.tab !== undefined ? ['--tab', input.tab || 'models'] : []), ...(input.sounds !== undefined ? ['--sounds', input.sounds ? '1' : '0'] : [])])),
     kindRm: procedure.input(z.object({ key: name })).mutation(({ input }) => assetsCli(['kind', 'rm', input.key])),
     /** Audit flag rules (RsiFlag): regex over the flag code -> board domain and next action. Listed through the CLI so the generic seed exists. */
     flags: procedure.query(async () => (await assetsCli(['flag', 'list'])) as Flag[]),

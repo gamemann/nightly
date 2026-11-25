@@ -327,6 +327,8 @@ CREATE TABLE "AssetKind" (
     "sort" INTEGER NOT NULL DEFAULT 0,
     "match" TEXT NOT NULL DEFAULT '',
     "budget" TEXT NOT NULL DEFAULT '{}',
+    "tab" TEXT NOT NULL DEFAULT '',
+    "sounds" INTEGER NOT NULL DEFAULT 0,
     "updatedAt" TEXT NOT NULL DEFAULT ''
 );
 

@@ -2,7 +2,7 @@ import { projectPacks } from './projectPacks'
 import { db } from './db'
 import { INDEXES, BACKFILL, alterStatements } from '../../lib/asset-cols.mjs'
 import { PIECE_SQL, describe, placeOf } from '../../lib/asset-names.mjs'
-import { DEDUPE_KEY, TAB_SQL, aggCountSql, effectiveFilters, packIn, uniqueFor } from '../../lib/asset-tabs.mjs'
+import { DEDUPE_KEY, TAB_SQL, aggCountSql, effectiveFilters, packIn, uniqueFor, type KindTab } from '../../lib/asset-tabs.mjs'
 import { offsetOf, likeEsc, paged, type PageQuery, type PageSpec, type Paged } from '~/lib/paging'
 
 export type Tab = 'entities' | 'avatars' | 'models' | 'textures' | 'animations' | 'sounds' | 'maps' | 'libraries'
@@ -59,9 +59,9 @@ export function ensureAssetColumns() {
 /** Map pieces (props inside a map pack's model library or a map's own model folder) live on the Maps tab, one row per map or set; `pieces=1` lists the individual pieces (the link target of a map row). Every other tab is standalone assets only. */
 export const showPieces = (v: string | undefined) => v === '1'
 
-function where(q: PageQuery, only: 'rows' | 'pieces' = 'rows', packs: string[] | null = null) {
+function where(q: PageQuery, only: 'rows' | 'pieces' = 'rows', packs: string[] | null = null, kinds: KindTab[] = []) {
     const w: string[] = [], a: unknown[] = []
-    const f = effectiveFilters(q.f)
+    const f = effectiveFilters(q.f, kinds)
     if (f.kind) { w.push('kind = ?'); a.push(f.kind) }
     const tb = (f.tab || 'entities') as keyof typeof TAB_SQL
     if (TAB_SQL[tb]) w.push(TAB_SQL[tb])
@@ -82,7 +82,8 @@ export async function assetPage(q: PageQuery): Promise<Paged<AssetRow>> {
     await ensureAssetColumns()
     const packs = await projectPacks(q.f.project)
     if ((q.f.tab === 'maps' || q.f.tab === 'libraries') && !showPieces(q.f.pieces)) return mapPage(q, q.f.tab === 'maps' ? 'map' : 'library', packs)
-    const { sql, a } = where(q, 'rows', packs)
+    const kinds = await db.assetKind.findMany({ select: { key: true, tab: true } })
+    const { sql, a } = where(q, 'rows', packs, kinds)
     const dedupe = !showPieces(q.f.pieces)
     const total = n((await db.$queryRawUnsafe<{ c: unknown }[]>(dedupe ? `SELECT COUNT(*) c FROM (SELECT 1 FROM AssetWeapon ${sql} GROUP BY ${DEDUPE_KEY})` : `SELECT COUNT(*) c FROM AssetWeapon ${sql}`, ...a))[0].c)
     const off = offsetOf(total, q)

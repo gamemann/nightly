@@ -119,7 +119,7 @@ function AssetCharts({ agg, tab, set, trend }: { agg: Agg; tab: Tab; set: (o: Re
 }
 
 export type PackTrend = { pack: string; scores: number[]; last: number; total: number; pass: number }
-export type KindInfo = { key: string; label: string }
+export type KindInfo = { key: string; label: string; tab?: string }
 
 export function Assets({ data, agg, kinds, sources, trend = [], packNames }: { data: Paged<AssetRow>; agg: Agg; kinds: KindInfo[]; sources: number; trend?: PackTrend[]; packNames: string[] }) {
     const { sp, set } = useUrlParams()
@@ -132,7 +132,7 @@ export function Assets({ data, agg, kinds, sources, trend = [], packNames }: { d
     const placeTab = tab === "maps" || tab === "libraries"
     const mapRows = placeTab && !pieces
     const flagCodes = [...new Set(agg.flags.filter((f) => f.tab === flagScope(tab)).map((f) => f.code))].sort()
-    const inTab = (k: string) => kindInTab(tab, k)
+    const inTab = (k: string) => kindInTab(tab, k, kinds)
     const kindList = [{ key: "", label: "All" }, ...kinds.filter((k) => agg.kinds.some((x) => x.key === k.key) && inTab(k.key) && (agg.kindTabs[k.key]?.[tab] ?? 0) > 0), ...agg.kinds.filter((k) => !kinds.some((x) => x.key === k.key) && inTab(k.key)).map((k) => ({ key: k.key, label: k.key }))]
     const filtered = ["pack", "game", "flag", "min", "max", "q", "kind", "grp"].some((k) => sp.get(k))
     const allCount = agg.tabCounts[tab]

@@ -87,7 +87,7 @@ async function assetsTab(slug: string, sp: Record<string, string | string[] | un
     const [data, agg, hist, kinds, sources] = await Promise.all([
         assetPage(q), assetAgg(slug),
         db.assetAuditHistory.findMany({ orderBy: [{ at: 'asc' }, { id: 'asc' }] }),
-        db.assetKind.findMany({ orderBy: [{ sort: 'asc' }, { key: 'asc' }], select: { key: true, label: true } }),
+        db.assetKind.findMany({ orderBy: [{ sort: 'asc' }, { key: 'asc' }], select: { key: true, label: true, tab: true } }),
         db.assetSource.count(),
     ])
     const names = new Set(agg.packs.map((x) => x.key))

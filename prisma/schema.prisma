@@ -428,6 +428,10 @@ model AssetKind {
   sort      Int    @default(0)
   match     String @default("")
   budget    String @default("{}")
+  /// Assets tab: entities | avatars | maps | "" (Models)
+  tab       String @default("")
+  /// 1 = sounds are attached to this kind
+  sounds    Int    @default(0)
   updatedAt String @default("")
 }
 
