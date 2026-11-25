@@ -2,10 +2,12 @@ import { Suspense } from "react"
 import { notFound } from "next/navigation"
 import { AssetDetail, type AttachLink, type DetailData, type ReviewHit } from "~/components/AssetDetail"
 import { AssetSources } from "~/components/AssetSources"
+import { AssetCoverage } from "~/components/AssetCoverage"
 import { AssetManager } from "~/components/tools/AssetManager"
 import { Assets, type PackTrend } from "~/components/Assets"
 import { parsePage } from "~/lib/paging"
 import { ASSET_SPEC, assetAgg, assetPage } from "~/server/assetsList"
+import { assetCoverage } from "~/server/assetsCoverage"
 import { db } from "~/server/db"
 import { load } from "../../../../../../lib/review.mjs"
 import { guard } from '~/server/pageGuard'
@@ -19,6 +21,7 @@ export default async function AssetsPage({ params, searchParams }: { params: Pro
     if (no) return no
     const { slug = [] } = await params
     if (slug[0] === "sources") return <Suspense><AssetSources /></Suspense>
+    if (slug[0] === "coverage") return <AssetManager><AssetCoverage data={await assetCoverage()} /></AssetManager>
     if (!slug[0]) {
         const q = parsePage(await searchParams, ASSET_SPEC)
         const [data, agg] = await Promise.all([assetPage(q), assetAgg()])
