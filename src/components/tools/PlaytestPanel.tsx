@@ -8,8 +8,9 @@ const when = (d: Date | number) => new Date(d).toISOString().slice(0, 16).replac
 const live = (s: string) => s === 'queued' || s === 'running'
 
 /** Trigger a playtest (Planet or Station) and watch its status and log. Perf runs and playtests are linked (a bot playtest is the perf run's twin).
- *  `project` pins the game (project tab); without it the game is chosen here. */
-export function PlaytestPanel({ project }: { project?: string }) {
+ *  `project` pins the game (project tab); without it the game is chosen here.
+ *  `playtestFeed`: the page already shows the full playtest feed below, so the playtest-with-perf-run table is left out (it listed the same rows). */
+export function PlaytestPanel({ project, playtestFeed = false }: { project?: string; playtestFeed?: boolean }) {
     const utils = api.useUtils()
     const games = api.ops.links.games.useQuery(undefined, { enabled: !project })
     const [game, setGame] = useState('')
@@ -63,6 +64,7 @@ export function PlaytestPanel({ project }: { project?: string }) {
                 </div>
             )}
 
+            {!playtestFeed && (<>
             <h2 className="mb-1 text-[12px] font-medium text-dim">Playtests and their perf runs</h2>
             {links.data && links.data.playtests.length === 0 && <Empty>No playtests recorded.</Empty>}
             {!!links.data?.playtests.length && (
@@ -81,6 +83,7 @@ export function PlaytestPanel({ project }: { project?: string }) {
                     </tbody>
                 </table>
             )}
+            </>)}
             <h2 className="mb-1 text-[12px] font-medium text-dim">Perf runs</h2>
             {links.data && links.data.perf.length === 0 && <Empty>No perf runs.</Empty>}
             {!!links.data?.perf.length && (

@@ -38,10 +38,11 @@ type Delegate = {
     findMany(a: { where: object; orderBy: object[]; skip: number; take: number }): Promise<unknown[]>
     groupBy(a: { by: string[]; where?: object }): Promise<Record<string, unknown>[]>
 }
-/** One paged feed: filters, search, sort and counts all in SQL; facets are the distinct values of each filter column. */
-async function feedPage<T>(d: Delegate, name: Exclude<FeedName, 'web'>, search: string[], input: PageIn, tiebreak = 'id') {
+/** One paged feed: filters, search, sort and counts all in SQL; facets are the distinct values of each filter column.
+ *  `base` always applies (before the user's filters), also to the facet lists. */
+async function feedPage<T>(d: Delegate, name: Exclude<FeedName, 'web'>, search: string[], input: PageIn, tiebreak = 'id', base?: object) {
     const spec: PageSpec = FEED_SPECS[name]
-    const w: object[] = []
+    const w: object[] = base ? [base] : []
     for (const k of spec.filters ?? []) if (input.f[k]) w.push({ [k]: input.f[k] })
     const q = input.q?.trim()
     if (q) w.push({ OR: search.map((c) => ({ [c]: { contains: q } })) })
@@ -50,17 +51,19 @@ async function feedPage<T>(d: Delegate, name: Exclude<FeedName, 'web'>, search: 
     const total = await d.count({ where })
     const rows = (await d.findMany({ where, orderBy: [{ [sort]: input.dir }, { [tiebreak]: 'desc' }], skip: offsetOf(total, input), take: input.size })) as T[]
     const facets: Record<string, string[]> = {}
-    await Promise.all((spec.filters ?? []).map(async (k) => { facets[k] = (await d.groupBy({ by: [k] })).map((r) => String(r[k])).sort() }))
+    await Promise.all((spec.filters ?? []).map(async (k) => { facets[k] = (await d.groupBy({ by: [k], ...(base ? { where: base } : {}) })).map((r) => String(r[k])).sort() }))
     return { page: paged(rows, total, input), facets }
 }
 
+/** Host-level crash groups (OOM-killed builds and suites, `nightly crash scan`) belong to AdminCP > Crash Log; Game Tools > Crashes lists game crashes only. */
+const HOST_GAME = 'dev-host'
 const CI = ['unknown', 'pending', 'passing', 'failing'] as const
 const relKey = z.object({ repo: z.string().min(1), version: z.string().min(1), channel: z.string().min(1).default('stable') })
 const nn = (v: unknown) => Number(v ?? 0)
 type WebRow = { game: string; metric: string; latest: number | null; at: unknown; max: number | null; unit: string | null }
 export const feedRouter = router({
     releases: procedure.input(pageIn).query(({ ctx, input }) => feedPage<Release>(ctx.db.release as unknown as Delegate, 'releases', ['repo', 'version', 'game', 'changelog', 'deployedTo'], input)),
-    crashes: procedure.input(pageIn).query(({ ctx, input }) => feedPage<CrashGroup>(ctx.db.crashGroup as unknown as Delegate, 'crashes', ['signature', 'game', 'sample', 'version'], input)),
+    crashes: procedure.input(pageIn).query(({ ctx, input }) => feedPage<CrashGroup>(ctx.db.crashGroup as unknown as Delegate, 'crashes', ['signature', 'game', 'sample', 'version'], input, 'id', { game: { not: HOST_GAME } })),
     playtests: procedure.input(pageIn).query(({ ctx, input }) => feedPage<Playtest>(ctx.db.playtest as unknown as Delegate, 'playtests', ['text', 'tags', 'build', 'tester', 'game'], input)),
     content: procedure.input(pageIn).query(({ ctx, input }) => feedPage<ContentStat>(ctx.db.contentStat as unknown as Delegate, 'content', ['name', 'metric', 'category', 'game'], input)),
     /** One row per game/metric series: the newest value, its budget and the last 30 samples, paged in SQL (a window function picks the newest). */
