@@ -5,10 +5,10 @@ import { projectPacks } from "./projectPacks"
 
 export type MapRow = { id: number; name: string; pack: string; score: number; pass: boolean; tris: number; surfaces: number; spawns: number; hulls: number; untextured: number; hasOriginal: boolean; flags: string[]; title?: string; gameMap?: boolean; reason?: string }
 
-/** Every converted map (kind `level`), one row per pack that ships it. */
+/** Every converted map (a kind whose AssetKind.tab is `maps`), one row per pack that ships it. */
 export async function mapRows(project?: string): Promise<MapRow[]> {
-    const packs = await projectPacks(project)
-    const rows = await db.assetWeapon.findMany({ where: { kind: "level", ...(packs ? { pack: { in: packs } } : {}) }, select: { id: true, pack: true, weaponId: true, score: true, pass: true, tris: true, flagCodes: true, data: true }, orderBy: [{ weaponId: "asc" }, { pack: "asc" }] })
+    const [packs, mapKinds] = await Promise.all([projectPacks(project), db.assetKind.findMany({ where: { tab: "maps" }, select: { key: true } })])
+    const rows = await db.assetWeapon.findMany({ where: { kind: { in: mapKinds.map((k) => k.key) }, ...(packs ? { pack: { in: packs } } : {}) }, select: { id: true, pack: true, weaponId: true, score: true, pass: true, tris: true, flagCodes: true, data: true }, orderBy: [{ weaponId: "asc" }, { pack: "asc" }] })
     const out = rows.map((r) => {
         const m = (JSON.parse(r.data) as { map?: { surfaces?: number; spawns?: number; hulls?: number; untextured?: number; original?: { error?: string; source?: string } } }).map ?? {}
         return { id: r.id, name: r.weaponId, pack: r.pack, score: r.score, pass: r.pass === 1, tris: r.tris, surfaces: m.surfaces ?? 0, spawns: m.spawns ?? 0, hulls: m.hulls ?? 0, untextured: m.untextured ?? 0, hasOriginal: !!m.original && !m.original.error, flags: String(r.flagCodes ?? "").split(" ").filter(Boolean) }

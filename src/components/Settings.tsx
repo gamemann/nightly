@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { api } from '~/trpc/react'
 import { OverviewStats } from './OverviewStats'
 import { validateRules } from '../../lib/naming-rules.mjs'
+import { validateNameRules } from '../../lib/asset-names.mjs'
 
 // The fallbacks are the runner's own defaults (the run.sh prompt), so an unset key shows what it uses.
 const USAGE_LIMITS = [
@@ -108,6 +109,7 @@ export function Settings() {
             </div>
             <TranscriptSettings />
             <NamingRulesSettings />
+            <AssetNameRulesSettings />
             <div className="mt-4 rounded-lg border border-line bg-panel/60 p-4">
                 <div className="font-medium">Runner</div>
                 <p className="mt-0.5 mb-3 text-[12px] text-muted">
@@ -193,28 +195,45 @@ function TranscriptSettings() {
     )
 }
 
-/** The `namingRules` Setting (lib/naming-rules.mjs): repo renames, aliases, game keywords, repo classes. Per-source scan rules
- *  (weaponDefs, soundKinds, eventTable ...) are edited as JSON on each source in Tools > Assets > Sources. */
-function NamingRulesSettings() {
+/** A JSON rules Setting edited as text, checked by its module's validator before Save. */
+function JsonRulesSetting({ k, title, validate, rows = 14, children }: { k: string; title: string; validate: (t: string) => string; rows?: number; children: React.ReactNode }) {
     const utils = api.useUtils()
     const s = api.setting.all.useQuery()
     const set = api.setting.set.useMutation({ onSuccess: () => utils.setting.all.invalidate() })
     const [text, setText] = useState<string | null>(null)
-    const cur = text ?? s.data?.namingRules ?? ''
-    const bad = cur.trim() ? validateRules(cur) : ''
+    const cur = text ?? s.data?.[k] ?? ''
+    const bad = cur.trim() ? validate(cur) : ''
     return (
         <div className="mt-4 rounded-lg border border-line bg-panel/60 p-4">
-            <div className="font-medium">Naming rules</div>
-            <p className="mt-0.5 mb-3 text-[12px] text-muted">
-                JSON that maps this workspace&apos;s repo names to projects: renames, rewrites, packGames, gameKeywords, gameAliases, lateAliases, repoClasses, twins, skipRepo, webRepo,
-                backbone/dev patterns. Empty = generic rules only. Keys are documented at the top of <code className="font-mono">lib/naming-rules.mjs</code>; changes apply within 30 seconds.
-            </p>
-            <textarea value={cur} onChange={(e) => setText(e.target.value)} rows={14} spellCheck={false} disabled={!s.data} className="input w-full font-mono text-[12px]" />
+            <div className="font-medium">{title}</div>
+            <p className="mt-0.5 mb-3 text-[12px] text-muted">{children}</p>
+            <textarea value={cur} onChange={(e) => setText(e.target.value)} rows={rows} spellCheck={false} disabled={!s.data} className="input w-full font-mono text-[12px]" />
             <div className="mt-2 flex items-center gap-3 text-[12px]">
-                <button disabled={!!bad || set.isPending || text === null} onClick={() => set.mutate({ key: 'namingRules', value: cur }, { onSuccess: () => setText(null) })} className="rounded border border-line px-3 py-1 hover:border-accent disabled:opacity-40">Save</button>
+                <button disabled={!!bad || set.isPending || text === null} onClick={() => set.mutate({ key: k, value: cur }, { onSuccess: () => setText(null) })} className="rounded border border-line px-3 py-1 hover:border-accent disabled:opacity-40">Save</button>
                 {bad && <span className="text-red-300">{bad}</span>}
                 {set.error && <span className="text-red-300">{set.error.message}</span>}
             </div>
         </div>
+    )
+}
+
+/** The `namingRules` Setting (lib/naming-rules.mjs): repo renames, aliases, game keywords, repo classes. Per-source scan rules
+ *  (weaponDefs, soundKinds, eventTable ...) are edited as JSON on each source in Tools > Assets > Sources. */
+function NamingRulesSettings() {
+    return (
+        <JsonRulesSetting k="namingRules" title="Naming rules" validate={validateRules}>
+            JSON that maps this workspace&apos;s repo names to projects: renames, rewrites, packGames, gameKeywords, gameAliases, lateAliases, repoClasses, twins, skipRepo, webRepo,
+            backbone/dev patterns. Empty = generic rules only. Keys are documented at the top of <code className="font-mono">lib/naming-rules.mjs</code>; changes apply within 30 seconds.
+        </JsonRulesSetting>
+    )
+}
+
+/** The `assetNameRules` Setting (lib/asset-names.mjs): how asset ids become readable names, which rows are kit parts or map pieces. */
+function AssetNameRulesSettings() {
+    return (
+        <JsonRulesSetting k="assetNameRules" title="Asset name rules" validate={validateNameRules} rows={8}>
+            JSON for readable asset names and list rules: stripPrefix, hideSegment, labelStrip (regexes), noise, generic (path words), partPatterns (weapon-kit part
+            ids, SQL LIKE), piecePacks, pieceDirs (map pieces). A key replaces its default; empty = generic defaults. Documented at the top of <code className="font-mono">lib/asset-names.mjs</code>; changes apply within 30 seconds.
+        </JsonRulesSetting>
     )
 }

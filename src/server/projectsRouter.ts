@@ -6,6 +6,7 @@ import { PROJECT_TYPES, checkSlug, parseSettings } from '../../lib/projects-core
 import { checked } from './accountsRouter'
 import type { Viewer } from './auth'
 import { db } from './db'
+import { ensureAssetNameRules } from './namingRules'
 import { permProcedure, procedure, router } from './trpc'
 
 // Folders (a tree) and projects. A user sees every project with projects.view, otherwise only the
@@ -137,6 +138,7 @@ const projectRouter = router({
         const visible = projects.filter((p) => !scope || canProject(v.perms, scope, 'projects.view', p.id))
         const n = (x: unknown) => Number(x ?? 0)
         type Row = { pid?: number | bigint; tasks?: unknown; open?: unknown; assets?: unknown; maps?: unknown }
+        await ensureAssetNameRules(db)
         const run = async (ids: number[], grouped: boolean) => {
             const q = countSqls(ids, grouped)
             const [t, a] = await Promise.all([ctx.db.$queryRawUnsafe<Row[]>(q.tasks), ctx.db.$queryRawUnsafe<Row[]>(q.assets)])

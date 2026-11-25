@@ -9,6 +9,8 @@ import { parsePage } from "~/lib/paging"
 import { ASSET_SPEC, assetAgg, assetPage } from "~/server/assetsList"
 import { assetCoverage } from "~/server/assetsCoverage"
 import { db } from "~/server/db"
+import { ensureAssetNameRules } from "~/server/namingRules"
+import { describe } from "../../../../../../lib/asset-names.mjs"
 import { load } from "../../../../../../lib/review.mjs"
 import { guard } from '~/server/pageGuard'
 
@@ -42,6 +44,7 @@ export default async function AssetsPage({ params, searchParams }: { params: Pro
         const w = load(it.key).weapons[row.weaponId]
         if (w) reviews.push({ key: it.key, title: it.title, verdict: w.verdict, note: w.note, media: w.media.map((m) => ({ slot: m.slot, variant: m.variant, label: m.label, file: m.file, waveform: m.waveform, strip: m.strip, poster: m.poster })) })
     }
+    const [kindRow] = await Promise.all([db.assetKind.findUnique({ where: { key: row.kind }, select: { tab: true } }), ensureAssetNameRules(db)])
     const files = _files as { glb?: string; textures?: unknown[]; sounds?: unknown[] } | undefined
     const [mine, fits] = await Promise.all([
         db.assetAttachment.findMany({ where: { parentId: row.id }, include: { attachment: { select: { id: true, pack: true, weaponId: true, tris: true, hasModel: true } } }, orderBy: [{ slot: "asc" }, { id: "asc" }] }),
@@ -53,7 +56,7 @@ export default async function AssetsPage({ params, searchParams }: { params: Pro
     })
     const d: DetailData = {
         attachments: mine.map((l) => link(l, l.attachment)), fits: fits.map((l) => link(l, l.parent)),
-        id: row.id, pack: row.pack, game: row.game, weaponId: row.weaponId, kind: row.kind, source: row.source, score: row.score, pass: row.pass === 1, auditedAt: row.auditedAt,
+        id: row.id, pack: row.pack, game: row.game, weaponId: row.weaponId, display: describe(row.pack, row.weaponId).name, kind: row.kind, tab: kindRow?.tab ?? "", source: row.source, score: row.score, pass: row.pass === 1, auditedAt: row.auditedAt,
         hasModel: !!files?.glb, data: data as DetailData["data"],
     }
     return <AssetDetail d={d} reviews={reviews} />

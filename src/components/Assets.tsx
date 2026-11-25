@@ -7,7 +7,6 @@ import { Legend, Panel, StackedBars } from "./Charts"
 import { DataTable, type Column } from "./DataTable"
 import { useUrlParams } from "./Pagination"
 import { COLOR } from "../../lib/charts.mjs"
-import { describe } from "../../lib/asset-names.mjs"
 import { kindInTab } from "../../lib/asset-tabs.mjs"
 import type { Paged } from "~/lib/paging"
 import type { Agg, AssetRow, Tab } from "~/server/assetsList"
@@ -111,7 +110,7 @@ function AssetCharts({ agg, tab, set, trend }: { agg: Agg; tab: Tab; set: (o: Re
             </Panel>
             <div className="lg:col-span-2">
                 <Panel title="Worst offenders" subtitle="The eight lowest-scoring weapons. Click one to open it." empty={worst.length === 0 && "Nothing scored."}>
-                    <BarList unit="" max={100} onClick={(k) => router.push(`/tools/assets/${k}`)} rows={worst.map((r) => ({ key: String(r.id), label: `${describe(r.pack, r.weaponId).name} · ${r.pack}`, value: r.score, color: rateColor(r.score / 100), note: `${r.pack}, ${r.kind}` }))} />
+                    <BarList unit="" max={100} onClick={(k) => router.push(`/tools/assets/${k}`)} rows={worst.map((r) => ({ key: String(r.id), label: `${r.display} · ${r.pack}`, value: r.score, color: rateColor(r.score / 100), note: `${r.pack}, ${r.kind}` }))} />
                 </Panel>
             </div>
         </div>

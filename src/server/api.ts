@@ -10,6 +10,7 @@ import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import type { Prisma, PrismaClient } from '../../generated/prisma/client'
 import { cronError, nextFires } from '../../lib/cron.mjs'
+import { validateNameRules } from '../../lib/asset-names.mjs'
 import { promptsQuery } from '../../lib/list-query.mjs'
 import { OWNER, CADENCES, KINDS, LIVE_MINUTES, OPEN_STATUSES, STATUSES, isDue, slugify } from '~/lib/constants'
 import { likeEsc, offsetOf, paged } from '~/lib/paging'
@@ -641,6 +642,7 @@ const agentRouter = router({
 const SETTING_CHECKS: Record<string, (v: string) => string | null> = {
     transcriptDirs: (v) => v.split(/[\n,]/).map((x) => x.trim()).filter(Boolean).every((x) => /^(\/|~\/|~$)/.test(x) && !/\.\.|\*/.test(x)) ? null : 'transcriptDirs: absolute or ~/ paths (no wildcards), one per line or comma separated',
     transcriptsIdleMinutes: (v) => /^\d+$/.test(v) && Number(v) >= 1 && Number(v) <= 1440 ? null : 'transcriptsIdleMinutes: whole minutes, 1 to 1440',
+    assetNameRules: (v) => validateNameRules(v) || null,
     transcriptsDefaultUser: (v) => v === '' || /^[a-z_][a-z0-9_-]{0,31}$/.test(v) ? null : 'transcriptsDefaultUser: an OS user name (a-z 0-9 _ -) or empty',
 }
 

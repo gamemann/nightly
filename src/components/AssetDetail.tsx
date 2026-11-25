@@ -7,17 +7,16 @@ import { AssetThirdPerson } from "./AssetThirdPerson"
 import { sightOf } from "./sightLine"
 import { MapEditor } from "./MapEditor"
 import { scoreCls, sevCls } from "./Assets"
-import { describe } from "../../lib/asset-names.mjs"
 
-const tabOf = (kind: string) => (["avatar", "npc", "monster", "character"].includes(kind) ? "avatars" : kind === "map" ? "maps" : "entities")
-/** The asset list filtered by what was clicked: it reads pack, kind and game from the URL, and the tab follows the asset's kind. */
-const listHref = (assetKind: string, f: Record<string, string>) => assetKind === "level" ? `/tools/maps?${new URLSearchParams(f)}` : `/tools/assets?${new URLSearchParams({ tab: tabOf(assetKind), ...f })}`
+/** The asset list filtered by what was clicked: it reads pack, kind and game from the URL, and the tab is the kind's AssetKind.tab
+ *  ('' = Models; a maps-tab kind opens the map list). */
+const listHref = (tab: string, f: Record<string, string>) => tab === "maps" ? `/tools/maps?${new URLSearchParams(f)}` : `/tools/assets?${new URLSearchParams({ tab: tab || "models", ...f })}`
 
 /** One attachment link seen from either end: `other` is the asset at the far end; pos (m), rot (degrees) and scale are in the weapon's model space. */
 export type AttachLink = { slot: string; pos: number[]; rot: number[]; scale: number[]; node: string; meta: Record<string, unknown>; other: { id: number; pack: string; weaponId: string; tris: number; hasModel: boolean } }
 export type DetailData = {
     attachments: AttachLink[]; fits: AttachLink[]
-    id: number; pack: string; game: string; weaponId: string; kind: string; source: string; score: number; pass: boolean; auditedAt: string; hasModel: boolean
+    id: number; pack: string; game: string; weaponId: string; display: string; kind: string; tab: string; source: string; score: number; pass: boolean; auditedAt: string; hasModel: boolean
     data: {
         source_commit?: string; last_changed?: string
         model?: { glb?: string; viewer_glb?: string; tris?: number; verts?: number; materials?: number; meshes?: number; bbox?: number[]; primitive_meshes?: string[] }
@@ -122,12 +121,12 @@ export function AssetDetail({ d, reviews }: { d: DetailData; reviews: ReviewHit[
     const baked = (x.animations ?? []).some((a) => a.flags?.includes("baked"))
     return (
         <div className="mx-auto max-w-6xl px-6 py-5 max-md:px-3">
-            <h1 className="text-[15px] font-semibold tracking-tight"><Link href={d.kind === "level" ? "/tools/maps" : "/tools/assets"} className="hover:text-sky-300">{d.kind === "level" ? "Maps" : "Assets"}</Link> <span className="text-muted">/</span> <Link href={listHref(d.kind, { pack: d.pack })} className="hover:text-sky-300">{d.pack}</Link> <span className="text-muted">/</span> <span title={d.weaponId}>{describe(d.pack, d.weaponId).name}</span> <span className="font-mono text-[11px] font-normal text-muted">{d.weaponId}</span></h1>
+            <h1 className="text-[15px] font-semibold tracking-tight"><Link href={d.tab === "maps" ? "/tools/maps" : "/tools/assets"} className="hover:text-sky-300">{d.tab === "maps" ? "Maps" : "Assets"}</Link> <span className="text-muted">/</span> <Link href={listHref(d.tab, { pack: d.pack })} className="hover:text-sky-300">{d.pack}</Link> <span className="text-muted">/</span> <span title={d.weaponId}>{d.display}</span> <span className="font-mono text-[11px] font-normal text-muted">{d.weaponId}</span></h1>
             <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px]">
                 <span className={`text-[22px] font-semibold tabular-nums ${scoreCls(d.score)}`}>{d.score}</span>
                 <span className={`rounded px-1.5 ${d.pass ? "bg-emerald-400/15 text-emerald-300" : "bg-red-400/15 text-red-300"}`}>{d.pass ? "pass" : "fail"}</span>
-                <Link href={listHref(d.kind, { pack: d.pack, kind: d.kind })} title={`all ${d.kind} assets in ${d.pack}`} className="rounded bg-hover px-1.5 text-dim hover:text-sky-300">{d.kind}</Link>
-                <span className="text-dim">games: {d.game ? d.game.split(",").map((g, i) => <span key={g}>{i > 0 && ","}<Link href={listHref(d.kind, { game: g.trim() })} className="hover:text-sky-300 hover:underline">{g.trim()}</Link></span>) : "-"}</span>
+                <Link href={listHref(d.tab, { pack: d.pack, kind: d.kind })} title={`all ${d.kind} assets in ${d.pack}`} className="rounded bg-hover px-1.5 text-dim hover:text-sky-300">{d.kind}</Link>
+                <span className="text-dim">games: {d.game ? d.game.split(",").map((g, i) => <span key={g}>{i > 0 && ","}<Link href={listHref(d.tab, { game: g.trim() })} className="hover:text-sky-300 hover:underline">{g.trim()}</Link></span>) : "-"}</span>
                 <span className="text-dim">{d.source === "audit" ? `audited ${d.auditedAt.slice(0, 16).replace("T", " ")}` : `listed from a directory scan ${d.auditedAt.slice(0, 10)} (no audit yet)`}</span>
                 {x.source_commit && <span className="font-mono text-muted">{x.source_commit}</span>}
                 {x.last_changed && <span className="text-muted">changed {x.last_changed}</span>}

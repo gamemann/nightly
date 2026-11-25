@@ -1,5 +1,6 @@
 import { projectPacks } from './projectPacks'
 import { db } from './db'
+import { ensureAssetNameRules } from './namingRules'
 import { INDEXES, BACKFILL, alterStatements } from '../../lib/asset-cols.mjs'
 import { PIECE_SQL, describe, placeOf } from '../../lib/asset-names.mjs'
 import { DEDUPE_KEY, TAB_SQL, aggCountSql, effectiveFilters, packIn, uniqueFor, type KindTab } from '../../lib/asset-tabs.mjs'
@@ -21,7 +22,7 @@ export type Agg = {
     /** Kind chip counts per tab (what the list shows for tab + kind). */
     kindTabs: Record<string, Partial<Record<Tab, number>>>
     flags: { code: string; severity: string; n: number; tab: Tab }[]
-    worst: { id: number; weaponId: string; pack: string; kind: string; score: number }[]
+    worst: { id: number; weaponId: string; pack: string; kind: string; score: number; display: string }[]
     tabCounts: Record<Tab, number>
     games: string[]
 }
@@ -79,6 +80,7 @@ function where(q: PageQuery, only: 'rows' | 'pieces' = 'rows', packs: string[] |
 
 /** One page of the Assets table: filter, search, sort and limit all in SQL; only the visible rows are parsed. */
 export async function assetPage(q: PageQuery): Promise<Paged<AssetRow>> {
+    await ensureAssetNameRules(db)
     await ensureAssetColumns()
     const packs = await projectPacks(q.f.project)
     if ((q.f.tab === 'maps' || q.f.tab === 'libraries') && !showPieces(q.f.pieces)) return mapPage(q, q.f.tab === 'maps' ? 'map' : 'library', packs)
@@ -165,6 +167,7 @@ const group = (rows: { k: string; total: unknown; pass: unknown }[]) => rows.map
 
 /** Every chart number of the Assets page as SQL aggregates over the whole table (never the row set). */
 export async function assetAgg(project?: string): Promise<Agg> {
+    await ensureAssetNameRules(db)
     await ensureAssetColumns()
     const scope = await projectPacks(project), UNIQUE = uniqueFor(scope)
     const A = `AND NOT ${PIECE_SQL}${packIn(scope)}`
@@ -186,7 +189,7 @@ export async function assetAgg(project?: string): Promise<Agg> {
         packs: group(packs), kinds: group(kinds),
         kindTabs: Object.fromEntries(kt.filter((r) => r.kind).map((r) => [String(r.kind), { entities: n(r.entities), avatars: n(r.avatars), models: n(r.models), textures: n(r.textures), animations: n(r.animations), sounds: n(r.sounds) }])),
         flags: flags.map((f) => ({ code: f.code, severity: f.sev, n: n(f.c), tab: flagTab(f.code) })).sort((a, b) => b.n - a.n || a.code.localeCompare(b.code)),
-        worst: worst.map((w) => ({ ...w, id: n(w.id), score: n(w.score) })),
+        worst: worst.map((w) => ({ ...w, id: n(w.id), score: n(w.score), display: describe(String(w.pack), String(w.weaponId)).name })),
         tabCounts: { entities: n(t.e), avatars: n(t.v), models: n(t.m), textures: n(t.t), animations: n(t.a), sounds: n(t.s), maps: places.filter((p) => p.kind === 'map').length, libraries: places.filter((p) => p.kind === 'library').length },
         games: [...new Set(games.flatMap((g) => g.game.split(',').filter(Boolean)))].sort(),
     }
