@@ -6,6 +6,7 @@ import type { Mounted } from "./AssetViewer"
 import { syncMounts } from "./mountSync"
 import { AV, buildViewArms, recolour, texture, type Book, type ViewArms } from "./avatarKit"
 import { lens, moveShare, sample, verticalFrom43 } from "../../lib/anim-sample.mjs"
+import { animatedParts, partPose } from "../../lib/anim-nodes.mjs"
 
 type Track = { target: string; path: string; values: number[] }
 type Shape = { kind: "box" | "cylinder" | "sphere"; size: number[]; at: number[]; colour?: string; metal?: number; rough?: number; glow?: string }
@@ -117,13 +118,38 @@ export function AssetViewModel({ glbUrl, animUrl, initialClip, mounted, sight }:
                 propNodes.set(id, grp)
                 return grp
             }
-            let bolt: T.Object3D | null = null
-            let boltHome = new THREE.Vector3()
+            // the baked bolt / magazine tracks (lib/anim-nodes.mjs): each drives the GLB node the sidecar names; a magazine the model has no node for is drawn as a stand-in box
+            // under the weapon so a reload still shows the travel. Tracks are in the weapon's frame, so a node is posed through its parent chain's inverse.
+            type Part = { part: string; node: T.Object3D | null; home: T.Matrix4; parentInv: T.Matrix4; standIn: T.Mesh | null }
+            const parts: Part[] = animatedParts(side).map(({ part }) => {
+                let standIn: T.Mesh | null = null
+                if (part === "magazine") {
+                    standIn = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.11, 0.06), new THREE.MeshStandardMaterial({ color: 0xe0a030, roughness: 0.5, metalness: 0.3 }))
+                    standIn.matrixAutoUpdate = false
+                    standIn.visible = false
+                    weapon.add(standIn)
+                }
+                return { part, node: null, home: new THREE.Matrix4(), parentInv: new THREE.Matrix4(), standIn }
+            })
+            const pose = new THREE.Matrix4(), quat = new THREE.Quaternion(), one = new THREE.Vector3(1, 1, 1), at = new THREE.Vector3()
             new GLTFLoader().load(glbUrl, (g) => {
                 if (dead) return
                 weapon.add(g.scene)
                 mountApi.current(mountList.current)
-                if (side.nodes.bolt) { bolt = g.scene.getObjectByName(side.nodes.bolt) ?? null; if (bolt) boltHome = bolt.position.clone() }
+                for (const p of parts) {
+                    const name = side.nodes[p.part as "bolt" | "magazine"]
+                    const n = name ? g.scene.getObjectByName(name) : null
+                    if (!n) continue
+                    p.node = n
+                    n.updateMatrix()
+                    p.home.copy(n.matrix)
+                    // the parent chain's matrix up to the model root: the frame the weapon-space track is expressed in
+                    const chain = new THREE.Matrix4()
+                    for (let o = n.parent; o && o !== g.scene.parent; o = o.parent) { o.updateMatrix(); chain.premultiply(o.matrix) }
+                    p.parentInv = chain.invert()
+                    if (p.standIn) p.standIn.removeFromParent()
+                    p.standIn = null
+                }
             }, undefined, (e) => setErr(`model: ${String((e as Error).message ?? e)}`))
             const idle = side.clips.find((k) => k.name === "idle") ?? side.clips[0]
             const rest = idle?.tracks.find((x) => x.target === "weapon")?.values.slice(0, 3) ?? null
@@ -167,8 +193,21 @@ export function AssetViewModel({ glbUrl, animUrl, initialClip, mounted, sight }:
                 if (w && rest) { w[0] = rest[0] + (w[0] - rest[0]) * share; w[1] = rest[1] + (w[1] - rest[1]) * share }
                 if (sg) { const q = adsWeaponPos(sg); weapon.position.set(q[0], q[1], q[2]); weapon.quaternion.set(0, 0, 0, 1) }
                 else if (w) { weapon.position.set(w[0], w[1], w[2]); weapon.quaternion.set(w[3], w[4], w[5], w[6]) }
-                const b = get("bolt")
-                if (bolt) { if (b) bolt.position.set(b[0], b[1], b[2]); else bolt.position.copy(boltHome) }
+                for (const p of parts) {
+                    const tp = partPose(clip, p.part, t, side.fps)
+                    if (tp?.pos) pose.compose(at.set(tp.pos[0], tp.pos[1], tp.pos[2]), tp.quat ? quat.set(tp.quat[0], tp.quat[1], tp.quat[2], tp.quat[3]) : quat.identity(), one)
+                    if (p.node) {
+                        // a position-only track (the bolt) sets the node's own position, as before; a transform track is a weapon-frame pose
+                        if (!tp?.pos) p.home.decompose(p.node.position, p.node.quaternion, p.node.scale)
+                        else if (!tp.quat) p.node.position.copy(at)
+                        else p.parentInv.clone().multiply(pose).decompose(p.node.position, p.node.quaternion, p.node.scale)
+                        p.node.visible = tp?.visible ?? true
+                    } else if (p.standIn) {
+                        // no model node: the stand-in follows the track, shown only while the bake says the part is
+                        p.standIn.visible = !!tp?.pos && (tp.visible ?? true)
+                        if (tp?.pos) p.standIn.matrix.copy(pose)
+                    }
+                }
                 // AwWeaponPose.view_punch: x pitch up, y yaw, degrees; games add them to the camera pitch / yaw (rotation.x / .y, Godot and three share the right-handed Y-up Euler)
                 const p = get("view_punch")
                 punch.rotation.set(p ? (p[0] * Math.PI) / 180 : 0, p ? (p[1] * Math.PI) / 180 : 0, 0)
