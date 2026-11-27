@@ -9,6 +9,12 @@ while [ -L "$src" ]; do
     [[ $src != /* ]] && src=$dir/$src
 done
 here=$(cd -P "$(dirname "$src")" && pwd)
+# Client mode: the database lives on another host (remote.env names it); run the command there.
+# NIGHTLY_LOCAL=1 (set by the forwarder on the remote side) always runs here.
+remote_env=${NIGHTLY_REMOTE_FILE:-/etc/nightly/remote.env}
+if [ "${NIGHTLY_LOCAL:-}" != 1 ] && [ -r "$remote_env" ]; then
+    exec bash "$here/../scripts/remote-cli.sh" "$remote_env" "$@"
+fi
 node=${NIGHTLY_NODE:-}
 if [ -z "$node" ]; then
     for c in /usr/local/bin/node /usr/bin/node "$(command -v node 2>/dev/null || true)"; do

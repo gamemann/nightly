@@ -18,7 +18,7 @@ services:
     environment:
       HOME: ${NIGHTLY_HOME:-/home/core}
       NIGHTLY_DB: ${NIGHTLY_DB:-/home/core/projects/nightly/data/nightly.db}
-      NIGHTLY_CLICKHOUSE_URL: http://127.0.0.1:8123
+      NIGHTLY_CLICKHOUSE_URL: ${NIGHTLY_CLICKHOUSE_URL:-http://127.0.0.1:8123}
       # The container runs in /app, so the default <cwd>/data/rsi-assets (thumbnails, glb cache) would be empty: point at the host checkout.
       NIGHTLY_ASSETS_DIR: ${NIGHTLY_ASSETS_DIR:-/home/core/projects/nightly/data/rsi-assets}
     command: ["npx", "next", "start", "-H", "0.0.0.0", "-p", "${NIGHTLY_PORT:-3010}"]
