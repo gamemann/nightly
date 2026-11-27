@@ -4,12 +4,13 @@
 #   qa-post.sh visual GAME path/to/log-with-"visual: N/M maps ok" [diff-dir: *_diff.png and *.mp4 are attached]
 #   qa-post.sh suite  GAME path/to/payload.json     (payload in the /api/qa format; kind/game filled in)
 #   qa-post.sh perf   GAME path/to/payload.json     (same; summary.metrics = {map:{metric:{value,baseline,budget,cap,status}}}, built by my-game tools/perf_budget.sh --post)
-# Env: QA_URL (default $NIGHTLY_PUBLIC_URL, else http://localhost:3010), QA_USER / QA_PASSWORD if the panel login is on,
+# Env: QA_URL (default $NIGHTLY_PUBLIC_URL, else http://nightly when /etc/nightly/remote.env says the panel is on another host, else http://localhost:3010), QA_USER / QA_PASSWORD if the panel login is on,
 #      QA_COMMIT (default: git rev-parse HEAD of the current directory).
 set -euo pipefail
 [ $# -ge 3 ] || { sed -n 2,8p "$0"; exit 2; }
 kind=$1 game=$2 file=$3 dir=${4:-}
-url=${QA_URL:-${NIGHTLY_PUBLIC_URL:-http://localhost:3010}}
+local_url=http://localhost:3010; [ -r "${NIGHTLY_REMOTE_FILE:-/etc/nightly/remote.env}" ] && local_url=http://nightly
+url=${QA_URL:-${NIGHTLY_PUBLIC_URL:-$local_url}}
 commit=${QA_COMMIT:-$(git rev-parse HEAD 2>/dev/null || true)}
 body=$(mktemp); jar=$(mktemp); trap 'rm -f "$body" "$jar"' EXIT
 python3 -I - "$kind" "$game" "$file" "$dir" "$commit" > "$body" <<'PY'

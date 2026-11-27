@@ -7,10 +7,11 @@
 #   review-post.sh verdict KEY WEAPON good|wrong|clear [--note N]
 #   review-post.sh open    KEY        (weapons not yet good, as JSON, with the notes)
 #   review-post.sh show    KEY        (every weapon with verdict, note and media)
-# Env: QA_URL (default $NIGHTLY_PUBLIC_URL, else http://localhost:3010), QA_USER / QA_PASSWORD if the panel login is on.
+# Env: QA_URL (default $NIGHTLY_PUBLIC_URL, else http://nightly when /etc/nightly/remote.env says the panel is on another host, else http://localhost:3010), QA_USER / QA_PASSWORD if the panel login is on.
 set -euo pipefail
 [ $# -ge 2 ] || { sed -n 2,11p "$0"; exit 2; }
-url=${QA_URL:-${NIGHTLY_PUBLIC_URL:-http://localhost:3010}}
+local_url=http://localhost:3010; [ -r "${NIGHTLY_REMOTE_FILE:-/etc/nightly/remote.env}" ] && local_url=http://nightly
+url=${QA_URL:-${NIGHTLY_PUBLIC_URL:-$local_url}}
 jar=$(mktemp); body=$(mktemp); trap 'rm -f "$jar" "$body"' EXIT
 auth=()
 if [ -n "${QA_USER:-}${QA_PASSWORD:-}" ]; then
