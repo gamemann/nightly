@@ -6,7 +6,8 @@
 # log; the exit code is the script's. Stop from the panel (SIGTERM to this group) or a dropped
 # connection ends the remote process group too: the remote side kills it when ssh's stdin closes.
 #   NIGHTLY_RUNNER_HOST=core@10.50.0.112   NIGHTLY_RUNNER_KEY=/home/core/.ssh/x-tmc-dev
-#   NIGHTLY_RUNNER_ROOT=/home/core/projects/nightly (the checkout there; default: same path)
+#   NIGHTLY_RUNNER_ROOT=/home/core/projects/nightly (the checkout there; default: NIGHTLY_ROOT. Set it when the
+#                       panel runs in Docker, where NIGHTLY_ROOT is /app)
 set -uo pipefail
 host=${NIGHTLY_RUNNER_HOST:?NIGHTLY_RUNNER_HOST is not set (the box that runs the jobs)}
 key=${NIGHTLY_RUNNER_KEY:-}
